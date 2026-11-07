@@ -4936,7 +4936,7 @@ setupTogglePriority();
 
 
 /* Appointment Type Toggle Box: shared outline fieldsets; individual types own selection. */
-const PRIMARY_APPT_ROOT_IDS=['demandUrgencyToggles','urgentCategoryToggles','routineCategoryToggles','plannedCategoryToggles','dayView2UrgencyToggles','waitingUrgencyToggles','waitingTrendUrgencyToggles','dailyForecastFilters','weeklyForecastFilters','bookingTimesUrgencyFilters'];
+const PRIMARY_APPT_ROOT_IDS=['demandUrgencyToggles','urgentCategoryToggles','routineCategoryToggles','plannedCategoryToggles','dayView2UrgencyToggles','waitingUrgencyToggles','waitingTrendUrgencyToggles','dailyForecastFilters','weeklyForecastFilters','bookingTimesUrgencyFilters','planningAppointment'];
 function enhancePrimaryApptTypeBox(root){
  if(!root)return;
  root.classList.add('appointment-type-toggle-box');

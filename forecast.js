@@ -13,11 +13,16 @@ const isDaily=n=>appointmentCalculationRole(n)==='urgent';
 const disabled={daily:new Set(),weekly:new Set()};
 const legacyWeeklyPrefix='checkbox:weeklyForecastPage:weeklyForecastFilters:';
 const urgencyPlanningMode=new Map();
+let forecastEnabledGroups={};
 let forecastPreferenceAccount=null;
 function syncForecastPreferences(){
- const api=window.gpChartPreferences,account=api?.account();if(!account||account===forecastPreferenceAccount)return;
- forecastPreferenceAccount=account;urgencyPlanningMode.clear();disabled.daily.clear();disabled.weekly.clear();urgencyExplicitlyEnabled.clear();
+ const api=window.gpChartPreferences,account=api?.account();if(!account)return;
  const saved=api.read();
+ forecastEnabledGroups=saved.forecastEnabledGroups||{};
+ urgencyPlanningMode.clear();
+ for(const [name,mode] of Object.entries(saved.forecastPlanningModes||{}))if(mode==='daily'||mode==='weekly')urgencyPlanningMode.set(name,mode);
+ if(account===forecastPreferenceAccount)return;
+ forecastPreferenceAccount=account;disabled.daily.clear();disabled.weekly.clear();
  for(const [key,value] of Object.entries(saved)){
   if(key.startsWith(legacyWeeklyPrefix)&&value===false)disabled.weekly.add(key.slice(legacyWeeklyPrefix.length));
  }
@@ -26,17 +31,6 @@ function syncForecastPreferences(){
   disabled.weekly.delete(legacyName);
   if(enabled===false)disabled.weekly.add(name);
  }
- for(const [name,mode] of Object.entries(saved.forecastPlanningModes||{}))if(mode==='daily'||mode==='weekly')urgencyPlanningMode.set(name,mode);
- for(const [name,enabled] of Object.entries(saved.forecastEnabledGroups||{})){
-  if(enabled){if(!isDaily(name))urgencyExplicitlyEnabled.add(name)}
-  else disabled.daily.add(name);
- }
-}
-function saveForecastPreferences(){
- const api=window.gpChartPreferences;if(!api?.account())return;
- const modes=Object.fromEntries(urgencyPlanningMode),enabled={...api.read().forecastEnabledGroups};
- for(const name of forecastUrgencyNames())enabled[name]=forecastUrgencyEnabled(name);
- api.write('forecastPlanningModes',modes);api.write('forecastEnabledGroups',enabled);
 }
 function render(mode){
  syncForecastPreferences();
@@ -133,8 +127,10 @@ const max=Math.max(1,...rows.map(r=>r.high));for(const r of rows){const line=doc
 const note=document.createElement('p');note.className='muted';note.textContent='Historical booking data to '+end+'. '+(mode==='daily'?'Daily forecast combines recency-weighted weekday averages, a season-of-year adjustment where historical coverage permits, and a restrained recent trend. The smaller figures are indicative 70% prediction intervals, estimated from historical variation; these are not calibrated confidence guarantees.':'Weekly forecasts use complete historical Monday–Sunday weeks; the smaller figures show an indicative historical 10th–90th percentile range.')+' Zero-booking days included. Bank holidays and changes in service provision are not explicitly modelled.';root.append(note);
 }
 function forecastUrgencyNames(){return prioritySort('urgency',groupUrgencyNames.filter(isDashboardToggleOption))}
-function forecastUrgencyEnabled(name){return !disabled.daily.has(name)&&(isDaily(name)||urgencyExplicitlyEnabled.has(name))}
-const urgencyExplicitlyEnabled=new Set();
+function forecastUrgencyEnabled(name){
+ const saved=forecastEnabledGroups[name];
+ return typeof saved==='boolean'?saved:isDaily(name);
+}
 let forecastFilterRefreshTimer=null;
 function scheduleForecastFilterRefresh(mode){
  clearTimeout(forecastFilterRefreshTimer);
@@ -145,9 +141,10 @@ function scheduleForecastFilterRefresh(mode){
  },140);
 }
 function setForecastUrgencyEnabled(name,enabled){
- if(enabled){disabled.daily.delete(name);if(!isDaily(name))urgencyExplicitlyEnabled.add(name)}
- else{disabled.daily.add(name);urgencyExplicitlyEnabled.delete(name)}
- saveForecastPreferences();
+ const api=window.gpChartPreferences,saved=api.read().forecastEnabledGroups;
+ if(saved?.[name]===enabled)return;
+ forecastEnabledGroups={...saved,[name]:enabled};
+ api.write('forecastEnabledGroups',forecastEnabledGroups);
  scheduleForecastFilterRefresh('daily');
 }
 function renderDailyUrgencyFilters(){
@@ -167,7 +164,10 @@ function renderDailyUrgencyFilters(){
   const input=document.createElement('input');input.type='checkbox';input.dataset.forecastName=name;input.dataset.forecastPreference=name;input.setAttribute('role','switch');input.checked=forecastUrgencyEnabled(name);
   const track=document.createElement('span');track.className='switch-track';track.style.setProperty('--switch-on',urgencyGroupColour(name));
   sw.append(input,track);label.append(sw,document.createTextNode(name));root.append(label);
-  input.addEventListener('change',()=>setForecastUrgencyEnabled(name,input.checked));
+  // Save the click before a forecast redraw can rebuild the grouped switch.
+  const save=()=>setForecastUrgencyEnabled(name,input.checked);
+  input.addEventListener('input',save);
+  input.addEventListener('change',save);
  }
 }
 function renderUrgencyPlanningModes(){
@@ -188,7 +188,11 @@ function renderUrgencyPlanningModes(){
   control.append(input,track);
   const weekly=document.createElement('span');weekly.textContent='Weekly';
   switchLabel.append(daily,control,weekly);
-  input.addEventListener('change',()=>{urgencyPlanningMode.set(name,input.checked?'weekly':'daily');saveForecastPreferences();scheduleForecastFilterRefresh('daily')});
+  input.addEventListener('change',()=>{
+   const api=window.gpChartPreferences;
+   api.write('forecastPlanningModes',{...api.read().forecastPlanningModes,[name]:input.checked?'weekly':'daily'});
+   scheduleForecastFilterRefresh('daily');
+  });
   enhanceTimeGroupingToggle(switchLabel);
   row.append(heading,switchLabel);root.append(row);
  }

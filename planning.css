@@ -37,7 +37,6 @@
 #workforceNeedPage #planningWeekDates { color:#52697c; font-size:13px; margin:0 0 8px; }
 #workforceNeedPage .planning-table-wrap { overflow-x:auto; }
 #workforceNeedPage .planning-table { min-width:720px; width:100%; table-layout:fixed; border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; }
-#workforceNeedPage .planning-combined-table { min-width:780px; }
 #workforceNeedPage .planning-table th, #workforceNeedPage .planning-table td { padding:8px 2px; text-align:center; border-bottom:1px solid #dce6ef; }
 #workforceNeedPage .planning-table th[scope="row"], #workforceNeedPage .planning-table thead tr:first-child th:first-child { text-align:left; padding-left:9px; }
 #workforceNeedPage .planning-table thead { background:#f0f5f9; }
@@ -54,6 +53,7 @@
 #workforceNeedPage .planning-team-start { border-left:1px solid #dce6ef; }
 #workforceNeedPage .planning-note { color:#52697c; font-size:12px; font-weight:400; }
 #workforceNeedPage .planning-note small { font-size:11px; }
+#workforceNeedPage .planning-booked { margin:6px 0 0; }
 #workforceNeedPage .planning-indicator { margin-left:4px; font-size:16px; font-weight:750; line-height:1; vertical-align:middle; }
 #workforceNeedPage .planning-indicator.low { color:#b3272d; }
 #workforceNeedPage .planning-indicator.high { color:#197246; }
