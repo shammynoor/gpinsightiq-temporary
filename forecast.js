@@ -170,6 +170,11 @@ function updateForecastHorizonLabels(){
 }
 let forecastSuggestionRows=[],forecastSuggestionBody=null;
 const forecastRenderCache={predictions:null,analytics:null};
+let dailyAppointmentTargets=new Map();
+window.readUrgentDailyTargets=()=>{
+ renderHistoricalWeekday({planningOnly:true});
+ return dailyAppointmentTargets;
+};
 function applyForecastHorizon(){
  if(!forecastSuggestionBody||!forecastSuggestionBody.isConnected)return false;
  forecastSuggestionBody.replaceChildren(...forecastSuggestionRows.slice(0,forecastHorizonWeeks()));return true;
@@ -185,16 +190,17 @@ function forecastHistoryPolicy(panel,selectedWeekday){
  const special=weekday===6||weekday===7;
  return {weekday,special,excludeHolidayWeeks:!special};
 }
-function renderHistoricalWeekday(){
+function renderHistoricalWeekday({planningOnly=false}={}){
  updateForecastHorizonLabels();
  syncForecastPreferences();
  const root=$('dailyForecastHistoryChart'),summary=$('dailyForecastHistorySummary'),select=$('dailyForecastWeekday');
  if(!root||!summary||!select)return;
- const panel=$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
+ const panel=planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
  const signature=JSON.stringify([ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
  const cached=forecastRenderCache[panel];
  if(cached?.records===records&&cached.signature===signature){if(panel==='predictions')applyForecastHorizon();return;}
+ if(panel==='predictions')dailyAppointmentTargets=new Map();
  if(panel==='analytics')root.replaceChildren();renderDailyUrgencyFilters();renderUrgencyPlanningModes();
  const today=forecastLocalDate(),end=shift(today,-1);
  const earliestBooking=records.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,null);
@@ -245,7 +251,7 @@ function renderHistoricalWeekday(){
  // Refit the same annual seasonal/trend model independently for each weekday.
  // The table uses a forward calendar horizon, not the last observed weekday plus three weeks.
  const needsRoot=$('dailyForecastNeedsTable');
- if(needsRoot&&!$('forecastPredictionsPanel')?.classList.contains('hidden')){
+ if(needsRoot&&panel==='predictions'){
   needsRoot.replaceChildren();
   const nextMonday=shift(today,(8-new Date(today+'T12:00:00Z').getUTCDay())%7);
   const table=document.createElement('table');table.className='forecast-needs-table';
@@ -372,19 +378,32 @@ function renderHistoricalWeekday(){
   };
   for(let year=Number(today.slice(0,4));year<=Number(today.slice(0,4))+2;year++)holidayLabel(year);
   const bankHolidayDates=new Set();for(let year=Number(today.slice(0,4));year<=Number(today.slice(0,4))+2;year++)for(const day of englandWalesBankHolidays(year))bankHolidayDates.add(day);
+  const dailyPrediction=(day,dow)=>{
+   if(bankHolidayDates.has(day)||!dailyGroups.length)return null;
+   const estimates=dailyGroups.map(name=>predict(name,dow,day));
+   return estimates.some(value=>value===undefined)?null:estimates.reduce((sum,value)=>sum+value,0);
+  };
+  const saveTarget=(day,prediction)=>dailyAppointmentTargets.set(day,{
+   suggested:prediction===null?null:Math.ceil(prediction),bankHoliday:bankHolidayDates.has(day)
+  });
+  for(let dow=1;dow<=5;dow++){
+   const day=shift(monday(today),dow-1);
+   saveTarget(day,dailyPrediction(day,dow));
+  }
   for(let week=0;week<14;week++){
    const weekStart=shift(nextMonday,week*7),tr=document.createElement('tr'),weekCell=document.createElement('th');
    weekCell.scope='row';weekCell.textContent=new Date(weekStart+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
    tr.append(weekCell);
    let dailyTotal=0,dailyValid=true;
    for(let dow=1;dow<=5;dow++){
-    const day=shift(weekStart,dow-1),predictions=dailyGroups.map(name=>predict(name,dow,day)),td=document.createElement('td');
+    const day=shift(weekStart,dow-1),prediction=dailyPrediction(day,dow),td=document.createElement('td');
+    saveTarget(day,prediction);
     const adjacent=adjacentTypes.get(day);if(adjacent&&!bankHolidayDates.has(day)){td.classList.add(adjacent==='before'?'forecast-needs-before-holiday':'forecast-needs-after-holiday')}
     if(bankHolidayDates.has(day)){td.className='forecast-needs-bank-holiday';const main=document.createElement('div');main.textContent='Bank holiday';const detail=document.createElement('div');detail.className='forecast-needs-holiday-name';detail.textContent=bankHolidayNames.get(day)||'Public holiday';td.append(main,detail);td.title=day+': '+detail.textContent;}
     else if(!dailyGroups.length){td.textContent='—';td.title='No Appointment Types are set to daily totals';}
-    else if(predictions.some(value=>value===undefined)){td.textContent='—';dailyValid=false;td.title='At least 12 observed weekdays are needed for a prediction';}
+    else if(prediction===null){td.textContent='—';dailyValid=false;td.title='At least 12 observed weekdays are needed for a prediction';}
     else{
-     const prediction=predictions.reduce((a,b)=>a+b,0),suggested=Math.ceil(prediction);
+     const suggested=dailyAppointmentTargets.get(day).suggested;
      td.title=day+': predicted '+prediction.toFixed(1)+' bookings; suggested minimum '+suggested+' appointment slots';
      if(adjacent){const label=document.createElement('div');label.className='forecast-needs-adjacent-label';label.textContent=adjacent==='before'?'Day before bank holiday':'Day after bank holiday';td.append(label)}
      addForecastCell(td,prediction,adjacent?specialErrors.get(adjacent):dailyErrors.get(dow));dailyTotal+=suggested;
@@ -419,7 +438,7 @@ function renderHistoricalWeekday(){
   table.append(body);needsRoot.append(table);applyForecastHorizon();
 
  }
- if($('forecastAnalyticsPanel')?.classList.contains('hidden')){forecastRenderCache.predictions={records,signature};return;}
+ if(panel==='predictions'){forecastRenderCache.predictions={records,signature};return;}
  const fittedModel=special?(n?(()=>{const weights=days.map(d=>Math.exp(-Math.max(0,(Date.parse(end+'T12:00:00Z')-Date.parse(d+'T12:00:00Z'))/86400000)/(365.2425*3)));const total=weights.reduce((a,b)=>a+b,0);const level=total?values.reduce((a,v,i)=>a+v*weights[i],0)/total:0;return ()=>Math.max(0,level)})():null):(n>=12?fitModel(days,values):null);
  const future=special?eventDates(weekday===6?-1:1).filter(d=>d>today).slice(0,13):Array.from({length:13},(_,i)=>shift(days[days.length-1],7*(i+1)));
  const historicalFit=fittedModel?days.map(d=>fittedModel(d)):[];

@@ -3979,6 +3979,7 @@ function showPage(which){
  for(const [page,nav,name] of [['workforceNeedPage','navWorkforceNeed','workforceNeed'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']]){
   $(page).classList.toggle('hidden',which!==name);$(nav).classList.toggle('active',which===name);
  }
+ if(which==='workforceNeed')window.renderWeeklyPlanning?.();
  if(which==='home')updateHomePracticeName();
  if(which==='chart')setTimeout(()=>{refresh();scheduleChartResize()},0);
  else if(which==='waitingTimes')setTimeout(renderWaitingTimesChart,0);
@@ -5090,7 +5091,7 @@ window.addEventListener('storage',event=>{
 
 async function renderActiveAnalyticsPage(){
  updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
- const renderers={chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
+ const renderers={workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
  for(const [id,draw] of Object.entries(renderers)){const page=$(id);if(page&&!page.classList.contains("hidden"))await draw()}
 }
 function refreshOnDateRollover(){if(document.hidden||!folderAccessVerified)return;if(updateDashboardDateContext())void renderActiveAnalyticsPage().catch(e=>showRefreshFeedback("Chart refresh failed: "+e.message))}
