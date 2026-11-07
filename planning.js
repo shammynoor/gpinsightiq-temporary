@@ -1,6 +1,7 @@
 (function(){
 const byId=id=>document.getElementById(id);
 const statuses=['available','blocked','embargoed'];
+const weeklyStatuses=['available','booked','embargoed'];
 const teamAliases=[
  /^(urgent care( team)?|uct)$/,
  /^(gp(s)?|general practitioner(s)?|doctor(s)?)$/,
@@ -27,6 +28,15 @@ function teamIndex(group,type){
   if(index>=0)return index;
  }
  return -1;
+}
+
+function addSlot(totals,status,count,group,type,consultMode){
+ totals.slots[status]+=count;
+ const team=teamIndex(group,type);
+ if(team>=0)totals.teams[team]+=count;
+ const mode=String(consultMode||'').trim().toLowerCase().replace(/[\s-]+/g,' ');
+ const consultation=consultationAliases.findIndex(pattern=>pattern.test(mode));
+ if(consultation>=0)totals.consultation[consultation]+=count;
 }
 
 function renderFilters(root,names,colour){
@@ -67,7 +77,8 @@ function appendRow(root,label,target,actual,mixTargets,{day,compareTotal=true}={
   date.className='planning-day-date';
   date.dateTime=day;
   date.textContent=dateFormat.format(asDate(day));
-  heading.append(' ',date);
+  if(label)heading.append(' ');
+  heading.append(date);
  }
  const count=actual?sum(actual.slots):null;
  const appendCell=(value,className)=>{
@@ -77,7 +88,7 @@ function appendRow(root,label,target,actual,mixTargets,{day,compareTotal=true}={
   row.append(cell);
   return cell;
  };
- appendCell(target??'—');
+ appendCell(target??'—','planning-predicted');
  for(const value of actual?.slots??['—','—','—'])appendCell(value);
  const totalCell=appendCell(count??'—','planning-total');
  if(compareTotal)appendIndicator(totalCell,count,target,'predicted need');
@@ -94,11 +105,6 @@ function appendRow(root,label,target,actual,mixTargets,{day,compareTotal=true}={
 function renderWeeklyPlanning(){
  const page=byId('workforceNeedPage');
  if(page.classList.contains('hidden'))return;
- const monthly=byId('planningMonthly').checked;
- byId('planningWeeklyPanel').hidden=monthly;
- byId('planningMonthlyPanel').hidden=!monthly;
- if(monthly)return;
-
  const dimensions=[
   [byId('planningAppointment'),prioritySort('urgency',groupUrgencyNames),urgencyGroupColour],
   [byId('planningClinicianGroup'),prioritySort('clinician',clinicianGroupNames),clinicianGroupColour],
@@ -120,7 +126,7 @@ function renderWeeklyPlanning(){
  const monday=GPCorrectness.shift(GPCorrectness.monday(now.date),offset*7);
  const dates=Array.from({length:5},(_,index)=>GPCorrectness.shift(monday,index));
  byId('planningWeekDates').textContent=weekFormat.formatRange(asDate(dates[0]),asDate(dates[4]));
- const targets=window.readUrgentDailyTargets();
+ const {daily:targets,weekly:allocationTargets,weeklyGroups}=window.readUrgentPlanningForecast();
  const gp=byId('planningGpTarget'),face=byId('planningFaceTarget');
  for(const input of [gp,face]){
   const value=percentFormat.format(input.valueAsNumber/100),output=input.parentElement.querySelector('output');
@@ -131,28 +137,32 @@ function renderWeeklyPlanning(){
  const remainingDates=dates.filter(day=>day>=now.date);
  const daily=new Map(remainingDates.map(day=>[day,dayTotals()]));
  const reported=new Set();
+ const weekDates=new Set(dates),weeklyReported=new Set(),allocation=dayTotals();
  const snapshot=capacitySnapshotClock();
  let missingSlotTimes=false;
  for(const row of availabilityRecords){
+  if(!weekDates.has(row.date)||row.source==='signposting'||!(row.count>0))continue;
+  weeklyReported.add(row.date);
   const totals=daily.get(row.date);
-  if(!totals||row.source==='signposting'||!(row.count>0))continue;
-  reported.add(row.date);
-  const status=statuses.indexOf(String(row.availability||'').trim().toLowerCase());
-  if(status<0||excludedSlotTypes.has(row.slot))continue;
-  if(statuses[status]==='available'&&isMissedAvailableSlot(row,snapshot))continue;
+  if(totals)reported.add(row.date);
+  const availability=String(row.availability||'').trim().toLowerCase();
+  if(excludedSlotTypes.has(row.slot)||(availability==='available'&&isMissedAvailableSlot(row,snapshot)))continue;
+  const appointment=capacityUrgencyCategory(row.slot),isWeekly=weeklyGroups.has(appointment);
+  const status=(isWeekly?weeklyStatuses:statuses).indexOf(availability);
+  if(status<0||(!isWeekly&&!totals))continue;
   const type=effectiveClinicianType(row.clinician),group=clinicianGroupAssignments[type];
-  const values=[capacityUrgencyCategory(row.slot),group,purposeAssignments[row.slot],consultAssignments[row.slot],type];
+  const consultMode=consultAssignments[row.slot];
+  const values=[appointment,group,purposeAssignments[row.slot],consultMode,type];
   if(values.some((value,index)=>disabled[index].has(value)))continue;
+  if(isWeekly){
+   addSlot(allocation,status,row.count,group,type,consultMode);
+   continue;
+  }
   if(row.date===now.date){
    if(!Number.isFinite(row.minute)){missingSlotTimes=true;continue;}
    if(row.minute<minute)continue;
   }
-  totals.slots[status]+=row.count;
-  const team=teamIndex(group,type);
-  if(team>=0)totals.teams[team]+=row.count;
-  const mode=String(consultAssignments[row.slot]||'').trim().toLowerCase().replace(/[\s-]+/g,' ');
-  const consultation=consultationAliases.findIndex(pattern=>pattern.test(mode));
-  if(consultation>=0)totals.consultation[consultation]+=row.count;
+  addSlot(totals,status,row.count,group,type,consultMode);
  }
  const body=byId('planningDays'),footer=byId('planningTotals');
  body.replaceChildren();footer.replaceChildren();
@@ -184,6 +194,16 @@ function renderWeeklyPlanning(){
   }
  }
  appendRow(footer,'Total',!remainingDates.length||missingTarget?null:targetTotal,reported.size?week:null,mixTargets,{compareTotal:!missingSlots&&!missingSlotTimes});
+ const allocationBody=byId('planningAllocation');
+ allocationBody.replaceChildren();
+ const allocationActual=weeklyGroups.size&&weeklyReported.size?allocation:null;
+ const completeWeek=dates.every(day=>weeklyReported.has(day)||targets.get(day)?.bankHoliday);
+ appendRow(allocationBody,'',allocationTargets.get(monday),allocationActual,mixTargets,{
+  day:monday,compareTotal:completeWeek
+ });
+ byId('planningAllocationNote').textContent=!weeklyGroups.size?'No appointment types are set to Weekly in Urgent Forecast.'
+  :!weeklyReported.size?'The Slot Report contains no appointments for this week.'
+  :!completeWeek?'Slot totals cover '+weeklyReported.size+' of the 5 weekdays.':'';
  const coverage=!remainingDates.length||reported.size===remainingDates.length?'':reported.size
   ? 'Slot totals cover '+reported.size+' of '+remainingDates.length+' remaining weekdays.'
   : 'The Slot Report contains no appointments for the remaining dates.';
@@ -200,7 +220,7 @@ document.addEventListener('DOMContentLoaded',()=>{
  };
  for(const id of ['planningWeekOffset','planningGpTarget','planningFaceTarget'])byId(id).addEventListener('input',scheduleRender);
  byId('workforceNeedPage').addEventListener('change',event=>{
-  if(event.target.matches('[name="planningPeriod"],[data-filter-name]'))scheduleRender();
+  if(event.target.matches('[data-filter-name]'))scheduleRender();
  });
  const refreshCurrentWeek=()=>{
   if(!document.hidden&&byId('planningWeekOffset').value==='0')scheduleRender();

@@ -5249,7 +5249,7 @@ async function iqStart(){
   activeAccount={homeAccountId:iqBridge.user.id+':'+iqBridge.practice.id,username:iqBridge.user.email,name:iqBridge.user.name||iqBridge.user.email};
   const topbar=document.querySelector('#dashboardShell .topbar');
   if(topbar){
-   const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='../insight-mark.svg';image.alt='';mark.replaceChildren(image);}
+   const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='insight-mark.svg';image.alt='';mark.replaceChildren(image);}
    const brand=topbar.querySelector('.gp-compass-brand');brand?.setAttribute('aria-label','GP Insight IQ');
    const practiceIdentity=document.createElement('div');practiceIdentity.className='iq-header-practice';
    const caption=document.createElement('span');caption.className='iq-header-practice-caption';caption.textContent='Practice';
