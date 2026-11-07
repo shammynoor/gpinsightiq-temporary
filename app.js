@@ -1043,7 +1043,7 @@ function renderPreferencePlot(target,traces,layout,config){
 }
 function chartControlKey(el){
  if(!el||!el.matches?.('input,select'))return null;
- if(el.dataset?.chartProxy||el.closest('#bookingTimesUrgencyFilters'))return null;
+ if(el.dataset?.chartProxy||el.hasAttribute('data-forecast-preference')||el.closest('#bookingTimesUrgencyFilters'))return null;
  // Month sliders restore both handles together after their data bounds are ready.
  if(/^(demandRange|waitingRange|waitingTrendRange)(Start|End)$/.test(el.id))return null;
  const page=el.closest('[id$="Page"]');
