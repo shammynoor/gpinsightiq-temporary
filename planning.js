@@ -12,7 +12,8 @@ const consultationAliases=[
  /^(phone|telephone|tel|telephony)( consultation)?$/
 ];
 const weekLabels=['This week','Next week','2 weeks ahead','3 weeks ahead'];
-const dateFormat=new Intl.DateTimeFormat('en-GB',{weekday:'long',day:'numeric',month:'short',timeZone:'UTC'});
+const weekdayFormat=new Intl.DateTimeFormat('en-GB',{weekday:'long',timeZone:'UTC'});
+const dateFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
 const weekFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});
 const percentFormat=new Intl.NumberFormat('en-GB',{style:'percent'});
 const asDate=day=>new Date(day+'T12:00:00Z');
@@ -58,9 +59,16 @@ function appendIndicator(cell,actual,target,label){
  cell.append(icon);
 }
 
-function appendRow(root,label,target,actual,mixTargets,compareTotal=true){
+function appendRow(root,label,target,actual,mixTargets,{day,compareTotal=true}={}){
  const row=document.createElement('tr'),heading=document.createElement('th');
  heading.scope='row';heading.textContent=label;row.append(heading);
+ if(day){
+  const date=document.createElement('time');
+  date.className='planning-day-date';
+  date.dateTime=day;
+  date.textContent=dateFormat.format(asDate(day));
+  heading.append(' ',date);
+ }
  const count=actual?sum(actual.slots):null;
  const appendCell=(value,className)=>{
   const cell=document.createElement('td');
@@ -105,6 +113,7 @@ function renderWeeklyPlanning(){
  updateCollapsedFilterSummaries();
 
  const slider=byId('planningWeekOffset'),offset=slider.valueAsNumber;
+ slider.parentElement.style.setProperty('--planning-week-progress',offset/Number(slider.max));
  slider.setAttribute('aria-valuetext',weekLabels[offset]);
  page.querySelectorAll('.planning-week-labels span').forEach((label,index)=>label.classList.toggle('active',index===offset));
  const monday=GPCorrectness.shift(GPCorrectness.dateContext(new Date()).week,offset*7);
@@ -144,7 +153,7 @@ function renderWeeklyPlanning(){
  let targetTotal=0,missingTarget=false,missingSlots=false;
  for(const day of dates){
   const target=targets.get(day),actual=reported.has(day)?daily.get(day):null;
-  appendRow(body,dateFormat.format(asDate(day)),target?.bankHoliday?'Bank holiday':target?.suggested,actual,mixTargets);
+  appendRow(body,weekdayFormat.format(asDate(day)),target?.bankHoliday?'Bank holiday':target?.suggested,actual,mixTargets,{day});
   if(target?.suggested!=null)targetTotal+=target.suggested;
   else if(!target?.bankHoliday)missingTarget=true;
   if(!actual&&!target?.bankHoliday)missingSlots=true;
@@ -154,7 +163,7 @@ function renderWeeklyPlanning(){
    actual.consultation.forEach((count,index)=>week.consultation[index]+=count);
   }
  }
- appendRow(footer,'Total',missingTarget?null:targetTotal,reported.size?week:null,mixTargets,!missingSlots);
+ appendRow(footer,'Total',missingTarget?null:targetTotal,reported.size?week:null,mixTargets,{compareTotal:!missingSlots});
  byId('planningCoverage').textContent=reported.size===5?'':reported.size
   ? 'Slot totals cover '+reported.size+' of the 5 weekdays in the report.'
   : 'The Slot Report contains no appointments for these dates.';
