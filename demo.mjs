@@ -32,6 +32,12 @@ export class DemoBackend{
   if(!member||member.role!==(platform?'practice_admin':'viewer'))throw Error('You cannot manage this membership.');
   member.status=status;
  }
+ async removeViewer(practice,user){
+  await this.require(practice,true);
+  const index=this.memberships.findIndex(member=>member.practice_id===practice&&member.user_id===user&&member.role==='viewer');
+  if(index<0)throw Error('You cannot remove this membership.');
+  this.memberships.splice(index,1);
+ }
  async createPractice(name,tenant){if(this.identity!=='platform')throw Error('Platform administrator required.');if(this.practices.some(p=>p.tenant_name===tenant))throw Error('Tenant already exists.');const id=crypto.randomUUID();this.practices.push({id,name,tenant_name:tenant,active:true});return id;}
  async invite(practice,email,role){
   const platform=this.identity==='platform';

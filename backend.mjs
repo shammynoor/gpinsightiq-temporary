@@ -17,7 +17,7 @@ export class SupabaseBackend{
  claimPlatformAdmin(){return this.rpc('claim_platform_admin');}
  createPractice(name,tenant){return this.rpc('create_practice',{p_name:name,p_tenant_name:tenant});}
  async invite(practice,email,role){
-  const {data,error}=await this.client.functions.invoke('iq-send-invite',{body:{practice,email,role}});
+  const {data,error}=await this.client.functions.invoke('iq-send-invite-pages',{body:{practice,email,role}});
   if(error){let message='Invitation email could not be submitted. No successful send was confirmed.';try{const detail=await error.context?.json();if(detail?.error)message=detail.error;}catch{}throw Error(message);}
   if(!data?.email_submitted)throw Error('The email service did not confirm submission.');
   return data;
@@ -25,6 +25,7 @@ export class SupabaseBackend{
  redeem(token){return this.rpc('redeem_invite',{p_token:token});}
  members(practice){return this.rpc('list_members',{p_practice:practice});}
  setStatus(practice,user,status){return this.rpc('set_member_status',{p_practice:practice,p_user:user,p_status:status});}
+ removeViewer(practice,user){return this.rpc('remove_practice_viewer',{p_practice:practice,p_user:user});}
  importRH(practice,bundle,name){return this.rpc('import_rh',{p_practice:practice,p_tenant:bundle.tenant,p_source:name.slice(0,200),p_rows:bundle.rows});}
  async report(practice){
   const stateResult=await this.client.from('iq_rh_state').select('*').eq('practice_id',practice).maybeSingle();if(stateResult.error)throw stateResult.error;

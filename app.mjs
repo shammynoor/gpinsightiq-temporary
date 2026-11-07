@@ -1,6 +1,6 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=20261105-email';
-import {DemoBackend} from './demo.mjs';
+import {SupabaseBackend} from './backend.mjs?v=20261107-viewer-removal';
+import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
 let backend=null,user=null,context=null,practice=null,report=null,members=[],view='analytics',loadVersion=0,busy=false,recovery=false;
@@ -140,7 +140,19 @@ function renderUsers(content,{practiceId=practice?.id,people=members,refresh=rel
  const p=panel(heading),data=table(['User','Role','Access','Actions']);
  for(const member of people){const row=node('tr'),status=node('td'),actions=node('td'),badge=node('span',member.status,'badge '+member.status);status.append(badge);row.append(node('td',member.email),node('td',member.role==='practice_admin'?'Administrator':'Viewer'),status,actions);
   const allowed=member.user_id!==user.id&&(context.platform_admin||member.role!=='practice_admin');
-  if(allowed){const group=node('div',undefined,'actions');if(member.status!=='approved')group.append(button('Approve',async()=>{await backend.setStatus(practiceId,member.user_id,'approved');await refresh();notice('Practice access approved.');}));if(member.status!=='suspended')group.append(button('Suspend',async()=>{await backend.setStatus(practiceId,member.user_id,'suspended');await refresh();notice('Practice access suspended.');}));actions.append(group);}data.body.append(row);
+  if(allowed){
+   const group=node('div',undefined,'actions');
+   if(member.status!=='approved')group.append(button('Approve',async()=>{await backend.setStatus(practiceId,member.user_id,'approved');await refresh();notice('Practice access approved.');}));
+   if(member.status!=='suspended')group.append(button('Suspend',async()=>{await backend.setStatus(practiceId,member.user_id,'suspended');await refresh();notice('Practice access suspended.');}));
+   if(!administratorsOnly&&member.role==='viewer')group.append(button('Remove',async()=>{
+    if(!window.confirm('Remove '+member.email+' from this practice? They will need a new invitation and approval to regain access.'))return;
+    await backend.removeViewer(practiceId,member.user_id);
+    await refresh();
+    notice('Viewer removed. You can invite them again at any time.');
+   }));
+   actions.append(group);
+  }
+  data.body.append(row);
  }
  p.append(people.length?data.wrap:node('p',administratorsOnly?'No administrators have accepted an invitation yet.':'No users have accepted an invitation yet.','subtle'));content.append(p);
  const invite=panel(administratorsOnly?'Invite a practice administrator':'Invite a user'),form=node('form'),emailLabel=node('label','Email address'),email=node('input');email.type='email';email.required=true;email.autocomplete='off';emailLabel.append(email);form.append(emailLabel);
