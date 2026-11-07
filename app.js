@@ -94,14 +94,14 @@ function headerReportAge(timestamp,now=Date.now()){
  if(!Number.isFinite(timestamp)||Number.isNaN(new Date(timestamp).getTime()))return {text:'',stale:false};
  const elapsed=Math.max(0,now-timestamp),minutes=Math.floor(elapsed/60000),hours=Math.floor(minutes/60);
  const unit=(n,name)=>n+' '+name+(n===1?'':'s');
- return {text:'Refreshed '+(elapsed<7200000?unit(hours,'hour')+' '+unit(minutes%60,'minute'):unit(hours,'hour'))+' ago',stale:elapsed>7200000};
+ return {text:'EMIS refresh '+(elapsed<7200000?unit(hours,'hour')+' '+unit(minutes%60,'minute'):unit(hours,'hour'))+' ago',stale:elapsed>7200000};
 }
 function updateHeaderReportAge(timestamp,now=Date.now()){
  const age=$('headerReportAge'),row=$('headerReportAgeRow'),reminder=$('headerEmisReminder');
  const info=headerReportAge(timestamp,now);
- if(age)age.textContent=headerRefreshLoading?'':info.text;
- if(row)row.hidden=headerRefreshLoading||!info.text;
- if(reminder)reminder.hidden=headerRefreshLoading||!info.stale;
+ if(age)age.textContent=headerRefreshLoading?'EMIS refresh in progress…':info.text||'EMIS refresh unavailable';
+ if(row)row.hidden=false;
+ if(reminder)reminder.hidden=true;
 }
 function updateHeaderSlotReportTime(timestamp){
  headerReportTimestamp=timestamp;
@@ -138,7 +138,7 @@ function setupResponsiveHeader(){
 function applyAccessMode(){
  document.body.classList.toggle('viewer-mode',!isOwner);
  for(const id of ['navCategories','navPeople','navPracticeSettings','chooseFolder','sourceSetup']){const el=document.getElementById(id);if(el)el.hidden=!isOwner}
- const label=document.getElementById('accessRoleLabel');if(label)label.textContent=isOwner?'Administrator':'View only';
+ const label=document.getElementById('accessRoleLabel');if(label)label.textContent=iqBridge?.platformAdmin?'Platform administrator':isOwner?'Practice administrator':'Practice viewer';
 }
 async function identifyOwner(){
  const drive=await graph('/me/drive?$select=id');
@@ -386,11 +386,6 @@ function appointmentCategoryFor(type){
  const fallback=defaultAppointmentCategory(type);
  return appointmentCategoryNames.includes(fallback)?fallback:'';
 }
-function calculationRoleSelect(name){
- const select=document.createElement('select');select.className='appointment-category-select';select.setAttribute('aria-label','Calculation role for '+name);
- for(const [value,label] of [['urgent','Urgent forecast'],['routine','Routine doctor planning'],['other','Other weekly forecast']]){const o=document.createElement('option');o.value=value;o.textContent=label;select.append(o)}
- select.value=appointmentCalculationRole(name);select.onchange=()=>{analyticsRoles.appointmentTypes[name].kind=select.value;saveCategories()};return select;
-}
 function renderAppointmentCategorySettings(){
  const root=$('appointmentCategorySettings');if(!root)return;
  root.replaceChildren();
@@ -446,7 +441,7 @@ function renderSlotGroupBoxes(){
   const label=document.createElement('span');label.textContent=name;row.append(label);
   const category=document.createElement('select');category.className='appointment-category-select';category.setAttribute('aria-label','Category for '+name);
   for(const optionName of ['',...appointmentCategoryNames]){const option=document.createElement('option');option.value=optionName;option.textContent=optionName||'Unassigned category';category.append(option)}
-  category.value=appointmentCategoryFor(name);category.addEventListener('change',()=>{appointmentCategoryAssignments[name]=category.value;saveCategories()});row.append(category,calculationRoleSelect(name));
+  category.value=appointmentCategoryFor(name);category.addEventListener('change',()=>{appointmentCategoryAssignments[name]=category.value;saveCategories()});row.append(category);
   const rename=document.createElement('button');rename.type='button';rename.textContent='✎';rename.title='Rename '+name;
   rename.addEventListener('click',()=>{const edit=editor(name);row.replaceWith(edit.row);edit.input.focus();edit.input.select()});
   const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='Delete '+name;
@@ -548,12 +543,6 @@ function renderPeopleGroups(){
   colourWrap.append(dot,picker);installDashboardColourPicker(colourWrap,picker);
   header.append(colourWrap,title,count,actions);
   card.append(header);
-  const roleLabel=el('label','filter-row');
-  const roleInput=document.createElement('input');roleInput.type='checkbox';roleInput.checked=isDoctorPlanningGroup(group);
-  roleInput.setAttribute('aria-label','Doctor group for routine capacity: '+group);
-  roleInput.onchange=()=>{analyticsRoles.clinicianGroups[group].doctor=roleInput.checked;saveCategories()};
-  const roleSwitch=el('span','switch'),roleTrack=el('span','switch-track');roleInput.setAttribute('role','switch');roleSwitch.append(roleInput,roleTrack);
-  roleLabel.append(roleSwitch,document.createTextNode('Doctor group for routine capacity'));card.append(roleLabel);
   const list=el('div','people-group-types');
   list.dataset.group=group;
   list.addEventListener('dragover',event=>{if(event.dataTransfer.types.includes('text/plain')){event.preventDefault();event.dataTransfer.dropEffect='move';card.classList.add('people-drop-target')}});
@@ -5227,16 +5216,48 @@ function initAuth(){
  window.addEventListener('message',event=>{if(event.source===window.parent&&event.origin===location.origin&&event.data?.type==='iq-refresh')void refreshDashboardData(true);});
 }
 async function iqStart(){
- if(!iqBridge){document.body.textContent='Open this dashboard through your Darwin IQ practice workspace.';return;}
+ if(!iqBridge){document.body.textContent='Open this dashboard through your GP Insight IQ practice workspace.';return;}
+ document.body.classList.toggle('iq-viewer-workspace',!!iqBridge.viewerWorkspace);
  try{
   await iqBridge.ensure();
-  activeAccount={homeAccountId:iqBridge.user.id+':'+iqBridge.practice.id,username:iqBridge.user.email,name:iqBridge.user.email};
+  activeAccount={homeAccountId:iqBridge.user.id+':'+iqBridge.practice.id,username:iqBridge.user.email,name:iqBridge.user.name||iqBridge.user.email};
+  const topbar=document.querySelector('#dashboardShell .topbar');
+  if(topbar){
+   const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='../insight-mark.svg';image.alt='';mark.replaceChildren(image);}
+   const brand=topbar.querySelector('.gp-compass-brand');brand?.setAttribute('aria-label','GP Insight IQ');
+   const practiceIdentity=document.createElement('div');practiceIdentity.className='iq-header-practice';
+   const caption=document.createElement('span');caption.className='iq-header-practice-caption';caption.textContent='Practice';
+   const practiceName=document.createElement('span');practiceName.className='iq-header-practice-name';practiceName.textContent=iqBridge.practice.name;practiceName.title=iqBridge.practice.name;
+   practiceIdentity.append(caption,practiceName);
+   const reportStatus=topbar.querySelector('.header-download-status');if(reportStatus)topbar.querySelector('.header-user')?.append(reportStatus);
+   topbar.insertBefore(practiceIdentity,topbar.querySelector('.top-actions'));
+  }
   isOwner=iqBridge.manage;folderAccessVerified=true;folderAccessDenied=false;authenticatedOnce=true;
   selectedFolder={id:iqBridge.practice.id,name:iqBridge.practice.name};
   applyAccessMode();setButtons();iqCreateUploadPanel();
   await loadCloudCategories({strict:true});await loadFolder(true);startDashboardIdleSession();
   $('signIn').onclick=()=>{};$('chooseFolder').onclick=()=>{};$('sourceSetup').onclick=()=>{};
   $('refreshData').onclick=()=>void refreshDashboardData(true);
+  if(iqBridge.manage){
+   const settingsMenu=document.querySelector('.nav-settings-dropdown');
+   if(settingsMenu&&!$('navUsersApprovals')){
+    const usersButton=document.createElement('button');usersButton.id='navUsersApprovals';usersButton.type='button';usersButton.className='nav-settings-tab';usersButton.textContent='Users and Approvals';
+    usersButton.addEventListener('click',()=>{document.querySelector('.nav-settings-menu')?.classList.remove('open');$('navSettingsCog')?.setAttribute('aria-expanded','false');iqBridge.users();});
+    settingsMenu.append(usersButton);
+   }
+  }
+  if(iqBridge.viewerWorkspace){
+   const menu=$('headerAccountMenu');
+   if(menu){
+    const summary=menu.querySelector('summary');if(summary){summary.setAttribute('aria-label','Account and sign out');summary.title=iqBridge.user.email;}
+    if(iqBridge.practices?.length>1){
+     const label=document.createElement('label');label.className='iq-practice-switch';label.textContent='Practice';
+     const select=document.createElement('select');select.setAttribute('aria-label','Select authorised practice');
+     for(const practice of iqBridge.practices){const option=document.createElement('option');option.value=practice.id;option.textContent=practice.name;option.selected=practice.id===iqBridge.practice.id;select.append(option);}
+     select.addEventListener('change',()=>void iqBridge.selectPractice(select.value));label.append(select);menu.querySelector('div')?.prepend(label);
+    }
+   }
+  }
  }catch(error){document.body.replaceChildren();const message=document.createElement('p');message.textContent='The practice dashboard could not load: '+error.message;document.body.append(message);}
 }
 async function cloudFile(){

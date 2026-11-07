@@ -17,6 +17,9 @@ function table(headers){const wrap=node('div',undefined,'table-scroll'),t=node('
 function textRow(body,values){const row=node('tr');values.forEach(v=>row.append(node('td',v)));body.append(row);return row;}
 function updateShell(){
  $('login').hidden=!!user&&!recovery;$('workspace').hidden=!user||recovery;
+ const viewerWorkspace=!!user&&!recovery&&!!currentApproved()&&!context?.platform_admin;
+ document.body.classList.toggle('viewer-workspace',viewerWorkspace);
+ if(viewerWorkspace)view='analytics';
  if(!user||recovery)return;
  $('demoBar').hidden=!backend.demo;$('accountEmail').textContent=user.email;
  $('accountRole').textContent=context?.platform_admin?'Platform administrator':practice?.role==='practice_admin'?'Practice administrator':'Practice user';
@@ -42,6 +45,8 @@ function updateShell(){
 }
 function render(){
  updateShell();const content=$('content');
+ const usersDialog=$('usersApprovalsDialog');
+ if(usersDialog.open){if(!user||recovery||!currentApproved()||!canManage(practice))usersDialog.close();else{$('usersApprovalsContent').replaceChildren();renderUsers($('usersApprovalsContent'));}}
  const key=user&&currentApproved()?user.id+':'+practice.id+':'+practice.role:null;
  if(key!==analyticsFrameKey){analyticsFrame?.remove();analyticsFrame=null;analyticsFrameKey=null;window.DarwinAnalytics=null;}
  $('analyticsHost').hidden=view!=='analytics'||!currentApproved()||!user||recovery;
@@ -64,7 +69,10 @@ function renderAnalytics(){
  const check=()=>{if(backend!==targetBackend||user?.id!==identity||practice?.id!==selected||practice.role!==role||!currentApproved())throw Error('Practice access changed. Reopen the dashboard.');};
  const ensure=async()=>{check();const next=await targetBackend.context();check();const allowed=next.practices.find(p=>p.id===selected&&p.active&&p.status==='approved');if(!allowed||allowed.role!==role){context=next;practice=allowed||null;render();throw Error('Practice access changed.');}};
  const checked=async(action,manage=false)=>{await ensure();if(manage&&!canManage(practice))throw Error('Practice administrator required.');const value=await action();check();return value;};
- window.DarwinAnalytics={practice:{...practice},user:{id:user.id,email:user.email},manage:canManage(practice),ensure,
+ window.DarwinAnalytics={practice:{...practice},user:{id:user.id,email:user.email,name:user.user_metadata?.full_name||user.user_metadata?.name||''},manage:canManage(practice),platformAdmin:!!context?.platform_admin,ensure,
+  viewerWorkspace:!context?.platform_admin,
+  practices:(context?.practices||[]).filter(p=>p.active&&p.status==='approved').map(p=>({id:p.id,name:p.name})),
+  selectPractice:id=>{check();if(!(context?.practices||[]).some(p=>p.id===id&&p.active&&p.status==='approved'))throw Error('Practice access required.');return run(()=>reload(id));},
   list:()=>checked(()=>targetBackend.analyticsSources(selected)),
   read:key=>checked(async()=>unpackContribution(await targetBackend.analyticsPayload(selected,key))),
   readSettings:()=>checked(()=>targetBackend.analyticsSettings(selected)),
@@ -74,10 +82,10 @@ function renderAnalytics(){
   rapidSummary:()=>checked(async()=>{const data=await targetBackend.report(selected);return data.state?{months:monthlyAverages(data.state,data.daily),total:data.daily.reduce((n,r)=>n+Number(r.other_enquiries),0),records:data.state.record_count}:null;}),
   rapidDate:()=>report?.state?.latest_request?formatDate(report.state.latest_request+'Z'):null,
   importRapid:file=>checked(()=>prepareUpload(file),true),
-  users:()=>{check();view='users';render();},
+  users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=20261106-compact-header';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');
@@ -122,6 +130,10 @@ async function prepareUpload(file){
  const accepted=await new Promise(resolve=>{const dialog=$('importDialog');dialog.returnValue='cancel';dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true});dialog.showModal();dialog.querySelectorAll('button').forEach(b=>b.disabled=false);});
  if(!accepted)return;if(practice.id!==selected)throw Error('Practice changed. Select the file again.');
  const result=await backend.importRH(selected,bundle,file.name);await reload();notice('Import complete: '+result.added.toLocaleString('en-GB')+' requests added; '+result.skipped.toLocaleString('en-GB')+' earlier or overlapping requests ignored.');
+}
+function openUsersApprovals(){
+ if(!user||!currentApproved()||!canManage(practice))throw Error('Practice administrator required.');
+ $('usersApprovalsContent').replaceChildren();renderUsers($('usersApprovalsContent'));$('usersApprovalsDialog').showModal();
 }
 function renderUsers(content,{practiceId=practice?.id,people=members,refresh=reload,administratorsOnly=false}={}){
  const heading=administratorsOnly?'Administrator approvals':'Users & approvals';

@@ -2,6 +2,32 @@
 
 .analytics-frame{display:block;width:100%;height:calc(100vh - 220px);min-height:700px;border:0;border-radius:12px;background:#f5f7fa}#analyticsHost{margin:0 -12px}#analyticsHost[hidden]{display:none}@media(max-width:650px){.analytics-frame{min-height:720px;height:calc(100vh - 200px)}}
 
+/* GP Insight IQ identity and sign-in presentation. */
+#usersApprovalsDialog{width:min(960px,calc(100vw - 32px));max-width:960px;max-height:90dvh;overflow:auto}
+.approvals-heading{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:20px}
+#usersApprovalsDialog .panel:last-child{margin-bottom:0}
+body.viewer-workspace{overflow:hidden}
+.viewer-workspace #workspace>.app-header,.viewer-workspace .workspace-heading{display:none}
+.viewer-workspace #workspace>main{max-width:none;padding:0}
+.viewer-workspace #analyticsHost{margin:0}
+.viewer-workspace .analytics-frame{height:100vh;height:100dvh;min-height:0;border-radius:0}
+.brand{font-weight:700;letter-spacing:-.65px;white-space:nowrap}
+.brand sup{font-size:.58em;position:static;vertical-align:super;line-height:0;margin-left:3px;color:#25c9b7;letter-spacing:-.3px}
+.insight-mark{display:block;flex:none;width:42px;height:42px}
+.login-intro{background:linear-gradient(145deg,#204d72,#102b49)}
+.login-branding{position:absolute;top:48px;left:clamp(26px,6vw,100px);right:24px}
+.login-intro .brand{position:static;font-size:27px;gap:10px}
+.login-branding .eyebrow{display:block;margin-top:30px;color:#c4deef;font-size:11px;letter-spacing:1.7px}
+.login-message{display:grid;gap:30px}
+.login-intro h1{font-size:clamp(28px,2.8vw,40px);line-height:1.38;font-weight:400;letter-spacing:-.55px}
+.login-intro .login-message p{font-size:15px;line-height:1.6;max-width:380px;color:#e1edf5}
+.login-right .primary{background:#008f84}
+.login-right .primary:hover{background:#00766d}
+.login-right input:focus{outline-color:#44b7ae}
+.header-main{background:#204664}
+@media(max-width:900px) and (min-width:651px){.login-branding{left:30px;top:32px}.login-intro .brand{font-size:22px}.login-intro .insight-mark{width:36px;height:36px}}
+@media(max-width:650px){.login-intro{min-height:400px;padding:175px 25px 40px;justify-content:flex-start;gap:0}.login-branding{left:25px;top:28px}.login-intro .brand{font-size:25px}.login-intro .eyebrow{display:block}.login-branding .eyebrow{margin-top:23px}.login-intro h1{font-size:30px;line-height:1.35}.login-message{gap:22px}.login-intro .login-message p{display:block;font-size:13px}.header-main .insight-mark{width:32px;height:32px}}
+
 .directory-totals {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

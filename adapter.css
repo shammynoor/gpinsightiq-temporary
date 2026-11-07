@@ -1,7 +1,35 @@
 #loginScreen,#onedrivePanel,#chooseFolder,#sourceSetup,#folderPicker,#signIn,#signOut,#headerAccountMenu{display:none!important}
- .topbar .gp-compass-brand,.topbar .header-user{display:none!important}.topbar{justify-content:flex-end!important}
+ .topbar .gp-compass-brand,.topbar .header-user{display:flex!important}
 body{background:#f5f7fa}#dashboardShell .main-header{display:none}#dashboardShell{margin-top:0}
 .iq-import-panel{margin:18px 0;padding:18px;border:1px solid #dce4ec;border-radius:12px;background:#f8fbfd}
 .iq-import-panel h3{margin:0 0 8px}.iq-import-panel p{font-size:13px;line-height:1.6;color:#52677c}
 .iq-import-panel input,.iq-import-panel select{max-width:440px}.iq-source-list{list-style:none;padding:0}.iq-source-list li{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:8px 0;font-size:13px}.iq-source-list button{width:auto;font-size:12px;padding:7px 12px}
 .iq-import-panel.drag-over{border:2px dashed #3c6487}.iq-import-status{white-space:pre-wrap;font-size:13px}
+body.iq-viewer-workspace #headerAccountMenu{display:block!important}
+body.iq-viewer-workspace #signOut{display:block!important}
+.iq-practice-switch{display:grid;gap:6px;padding:10px;font-size:12px;color:#203c53}
+.iq-practice-switch select{max-width:240px;width:100%;font:inherit;padding:8px}
+
+/* One identity strip above the existing module navigation. */
+#dashboardShell .dashboard-header .topbar{display:grid;grid-template-columns:minmax(200px,1fr) minmax(220px,1.25fr) minmax(210px,1fr);gap:22px;padding:7px 18px;align-items:center;min-height:60px}
+#dashboardShell .dashboard-header .gp-compass-brand{gap:10px;min-width:0}
+#dashboardShell .dashboard-header .gp-compass-mark{width:36px;height:36px;background:transparent;border-radius:0;flex:none}
+#dashboardShell .dashboard-header .gp-compass-mark img{display:block;width:100%;height:100%}
+#dashboardShell .dashboard-header .gp-compass-name{font-size:23px;font-weight:700;white-space:nowrap}
+#dashboardShell .dashboard-header .brand-insight{color:#fff}
+#dashboardShell .dashboard-header .brand-iq{font-size:.58em;color:#25c9b7;vertical-align:super}
+.iq-header-practice{display:flex;flex-direction:column;gap:4px;min-width:0;border-left:1px solid #ffffff40;padding-left:22px}
+.iq-header-practice-caption{text-transform:uppercase;letter-spacing:1.4px;font-size:10px;color:#d5e5f4}
+.iq-header-practice-name{font-size:19px;font-weight:650;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dashboardShell .iq-header-practice .header-report-time,#dashboardShell .iq-header-practice .header-report-age-row{font-size:10px;line-height:1.4;white-space:normal;color:#deebf6}
+#dashboardShell .dashboard-header .top-actions{display:flex;justify-content:flex-end;gap:10px;width:auto;min-width:0}
+#dashboardShell .header-user{border-left:1px solid #ffffff40;padding-left:18px;max-width:none;flex:1;min-width:0;text-align:right;gap:2px}
+#dashboardShell #accountLabel{font-size:14px;font-weight:650;line-height:1.15}
+#dashboardShell #accessRoleLabel{font-size:11px;line-height:1.2}
+#dashboardShell #headerSlotRefreshed,#dashboardShell #headerEmisReminder{display:none!important}
+#dashboardShell .header-user .header-download-status{font-size:10px;line-height:1.2;color:#deebf6}
+#dashboardShell .header-user #headerReportAgeRow{margin:0;font-size:10px;line-height:1.2;white-space:nowrap;justify-content:flex-end;text-align:right}
+#dashboardShell #headerAccountMenu{display:block!important}
+#dashboardShell #signOut{display:block!important}
+@media(max-width:1000px){#dashboardShell .dashboard-header .topbar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;padding:14px 18px}.iq-header-practice{grid-column:1/-1;grid-row:2;border-left:0;border-top:1px solid #ffffff26;padding:10px 0 0}.iq-header-practice-name{font-size:17px}#dashboardShell .dashboard-header .top-actions{grid-column:2;grid-row:1}#dashboardShell .header-user{padding-left:10px}#dashboardShell .dashboard-header .gp-compass-name{font-size:22px}}
+@media(max-width:540px){#dashboardShell .dashboard-header .topbar{gap:12px;padding:12px}.iq-header-practice-name{font-size:16px}#dashboardShell .dashboard-header .gp-compass-name{font-size:18px}#dashboardShell .dashboard-header .gp-compass-mark{width:32px;height:32px}#dashboardShell .dashboard-header .gp-compass-brand{gap:5px}#dashboardShell .header-user{border-left:0;padding-left:0}#dashboardShell #accountLabel{font-size:12px}#dashboardShell #accessRoleLabel{font-size:10px}#dashboardShell .top-actions #refreshData{display:none}#dashboardShell .dashboard-header .top-actions{gap:4px}}
