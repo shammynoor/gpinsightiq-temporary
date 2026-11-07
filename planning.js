@@ -62,11 +62,16 @@ function showBookedCount(id,count){
  byId(id).textContent=count.toLocaleString('en-GB')+(count===1?' appointment already booked':' appointments already booked');
 }
 
-function appendIndicator(cell,actual,target,label){
- if(!Number.isFinite(actual)||!Number.isFinite(target))return;
+function planningRangeStatus(actual,target){
+ if(!Number.isFinite(actual)||!Number.isFinite(target))return null;
  const difference=actual-target,tolerance=target*15/100;
- if(Math.abs(difference)<=tolerance)return;
- const low=difference<0,icon=document.createElement('span');
+ return Math.abs(difference)<=tolerance?'within':difference<0?'low':'high';
+}
+
+function appendIndicator(cell,actual,target,label){
+ const status=planningRangeStatus(actual,target);
+ if(!status||status==='within')return;
+ const low=status==='low',icon=document.createElement('span');
  icon.className='planning-indicator '+(low?'low':'high');
  icon.setAttribute('role','img');
  icon.setAttribute('aria-label',(low?'Below':'Above')+' the accepted range for '+label);
@@ -234,7 +239,12 @@ function renderWeeklyPlanning(){
  byId('planningOverviewNeed').textContent=combinedNeed??'—';
  byId('planningOverviewSlots').textContent=combinedCount??'—';
  byId('planningOverviewGap').textContent=difference===null?'—'
-  :difference===0?'On target':Math.abs(difference)+(difference<0?' short':' above');
+  :difference===0?'On target':Math.abs(difference).toLocaleString('en-GB')+(difference<0?' slots short':' slots above target');
+ const status=completeDaily&&(!weeklyGroups.size||completeWeek)?planningRangeStatus(combinedCount,combinedNeed):null;
+ const badge=byId('planningOverviewStatus');
+ badge.dataset.status=status??'unknown';
+ badge.textContent=status==='within'?'Within range':status==='low'?'Below range':status==='high'?'Above range':'';
+ badge.hidden=!status;
  byId('planningCombinedCoverage').textContent=combinedActual&&(!completeDaily||(weeklyGroups.size&&!completeWeek))
   ?'Total allocation uses the slots reported so far.':'';
  const coverage=!remainingDates.length||reported.size===remainingDates.length?'':reported.size

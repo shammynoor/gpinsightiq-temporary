@@ -33,3 +33,26 @@ body.iq-viewer-workspace #signOut{display:block!important}
 #dashboardShell #signOut{display:block!important}
 @media(max-width:1000px){#dashboardShell .dashboard-header .topbar{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;padding:14px 18px}.iq-header-practice{grid-column:1/-1;grid-row:2;border-left:0;border-top:1px solid #ffffff26;padding:10px 0 0}.iq-header-practice-name{font-size:17px}#dashboardShell .dashboard-header .top-actions{grid-column:2;grid-row:1}#dashboardShell .header-user{padding-left:10px}#dashboardShell .dashboard-header .gp-compass-name{font-size:22px}}
 @media(max-width:540px){#dashboardShell .dashboard-header .topbar{gap:12px;padding:12px}.iq-header-practice-name{font-size:16px}#dashboardShell .dashboard-header .gp-compass-name{font-size:18px}#dashboardShell .dashboard-header .gp-compass-mark{width:32px;height:32px}#dashboardShell .dashboard-header .gp-compass-brand{gap:5px}#dashboardShell .header-user{border-left:0;padding-left:0}#dashboardShell #accountLabel{font-size:12px}#dashboardShell #accessRoleLabel{font-size:10px}#dashboardShell .top-actions #refreshData{display:none}#dashboardShell .dashboard-header .top-actions{gap:4px}}
+.calendar-year-band {
+  position:absolute;
+  height:21px;
+  overflow:hidden;
+  pointer-events:none;
+}
+.calendar-year-band span {
+  position:absolute;
+  top:0;
+  box-sizing:border-box;
+  height:100%;
+  overflow:hidden;
+  border-right:1px solid #fff;
+  background:#edf2f6;
+  color:#3c5870;
+  font-size:11px;
+  font-weight:700;
+  line-height:21px;
+  text-align:center;
+  white-space:nowrap;
+}
+.calendar-year-band span[data-parity="1"] { background:#e1eaf2; }
+.calendar-year-band span[data-narrow] { font-size:0; }

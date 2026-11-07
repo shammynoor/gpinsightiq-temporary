@@ -1016,8 +1016,52 @@ function restoreChartShadowControls(){
 window.gpChartPreferences={read:readChartPreferences,write:writeChartPreference,account:chartPreferenceAccount};
 function plotSeriesKey(trace){return JSON.stringify([trace.type,trace.name,trace.legendgroup]);}
 const plotLegendListeners=new WeakMap();
+const calendarYearBandListeners=new WeakMap();
+function drawCalendarYearBand(chart){
+ const layout=chart._fullLayout,axis=layout?.xaxis,container=chart.querySelector('.plot-container');
+ if(axis?.type!=='date'||!container)return;
+ const [start,end]=axis.range.map(value=>axis.r2l(value)).sort((a,b)=>a-b);
+ if(!Number.isFinite(start)||!Number.isFinite(end)||start===end)return;
+ let band=container.querySelector('.calendar-year-band');
+ if(!band){
+  band=document.createElement('div');
+  band.className='calendar-year-band';
+  container.append(band);
+ }
+ band.style.left=axis._offset+'px';
+ band.style.width=axis._length+'px';
+ band.style.top=(layout.yaxis._offset+layout.yaxis._length+29)+'px';
+ const segments=[];
+ for(let year=new Date(start).getUTCFullYear();Date.UTC(year,0,1)<end;year++){
+  const a=axis.l2p(Math.max(start,Date.UTC(year,0,1)));
+  const b=axis.l2p(Math.min(end,Date.UTC(year+1,0,1)));
+  const segment=document.createElement('span');
+  segment.style.left=Math.min(a,b)+'px';
+  segment.style.width=Math.abs(b-a)+'px';
+  segment.dataset.parity=year%2;
+  segment.toggleAttribute('data-narrow',Math.abs(b-a)<30);
+  segment.textContent=year;
+  segments.push(segment);
+ }
+ band.replaceChildren(...segments);
+}
+
 function renderPreferencePlot(target,traces,layout,config){
  const chart=typeof target==='string'?$(target):target;
+ const previousBand=calendarYearBandListeners.get(chart);
+ if(previousBand){
+  chart.removeListener?.('plotly_afterplot',previousBand);
+  calendarYearBandListeners.delete(chart);
+ }
+ chart.querySelector('.calendar-year-band')?.remove();
+ const calendarAxis=layout.xaxis?.type==='date'&&traces.some(trace=>trace.x?.length);
+ if(calendarAxis){
+  const xaxis=layout.xaxis;
+  layout={...layout,margin:{...layout.margin,b:90},xaxis:{...xaxis,
+   title:{text:xaxis.title,standoff:39},tickangle:0,hoverformat:'%d %b %Y',tickformat:'%b',
+   tickformatstops:[{dtickrange:[null,'M1'],value:'%d %b'}]
+  }};
+ }
  const account=chartPreferenceAccount(),key='plotLegend:'+chart.id;
  const saved=readChartPreferences()[key]||{};
  const data=traces.map(trace=>{
@@ -1025,6 +1069,14 @@ function renderPreferencePlot(target,traces,layout,config){
   return trace.visible!==false&&(visibility===true||visibility==='legendonly')?{...trace,visible:visibility}:trace;
  });
  return Plotly.react(chart,data,layout,config).then(result=>{
+  if(calendarAxis){
+   const redrawBand=()=>drawCalendarYearBand(chart);
+   const previous=calendarYearBandListeners.get(chart);
+   if(previous)chart.removeListener?.('plotly_afterplot',previous);
+   chart.on?.('plotly_afterplot',redrawBand);
+   calendarYearBandListeners.set(chart,redrawBand);
+   redrawBand();
+  }
   const previous=plotLegendListeners.get(chart);
   if(previous)chart.removeListener?.('plotly_restyle',previous);
   const remember=([update,indices])=>{
@@ -1918,7 +1970,7 @@ function renderSignpostingChart(){
  renderPreferencePlot(target,traces,{dragmode:false,
   autosize:true,height:535,margin:{l:62,r:24,t:28,b:65},
   paper_bgcolor:'#ffffff',plot_bgcolor:'#ffffff',
-  xaxis:{type:'date',title:'Date',tickformat:'%b %Y',gridcolor:'#edf1f5'},
+  xaxis:{type:'date',title:'Date',gridcolor:'#edf1f5'},
   yaxis:{title:'Signposting events',rangemode:'tozero',gridcolor:'#edf1f5'},
   legend:{orientation:'h',y:1.18,x:0},hovermode:'x unified',
   hoverlabel:{bgcolor:'#ffffff',bordercolor:'#dce5ed',font:{family:'Arial',size:12,color:'#182b3b'},align:'left'}
@@ -2765,18 +2817,13 @@ function drawCombinedDemandChart(){
  const rawGridStep=yAxisTop/5,gridMagnitude=10**Math.floor(Math.log10(rawGridStep));
  const majorGridStep=[1,2,5,10].map(n=>n*gridMagnitude).find(n=>n>=rawGridStep);
  const historicalAxisStyle={showline:true,linecolor:'#597080',linewidth:2,automargin:false};
- const yearLabels=continuousMode?[...new Set(visibleWeeks.map(w=>w.slice(0,4)))].map(year=>{
-  const a=Math.max(Date.parse(year+'-01-01'),Date.parse(visibleWeeks[0]));
-  const b=Math.min(Date.parse((Number(year)+1)+'-01-01'),Date.parse(visibleWeeks.at(-1)));
-  return {xref:'x',yref:'paper',x:new Date((a+b)/2).toISOString(),y:0.97,text:year,showarrow:false,yanchor:'top',font:{size:14,color:'rgba(89,112,128,0.58)'}};
- }):[];
  renderPreferencePlot('combinedDemandChart',traces,{dragmode:false,autosize:true,height:535,
   margin:{l:62,r:24,t:continuousMode?28:50,b:65},paper_bgcolor:'white',plot_bgcolor:'#fafafa',
   shapes:[...yearBackgroundShapes(visibleWeeks),...averageShapes],
   showlegend:!continuousMode,legend:{orientation:'h',y:1.14,x:0,xanchor:'left',yanchor:'bottom',entrywidth:85,entrywidthmode:'pixels',traceorder:'normal'},
-  xaxis:continuousMode?{...historicalAxisStyle,type:'date',domain:[0,1],title:monthlyMode?'Booking month':'Booking date',tickformat:'%b %Y',dtick:'M3',showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,...(range?{range}: {})}:{...axis,...historicalAxisStyle,domain:[0,1],showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,dtick:3},
+  xaxis:continuousMode?{...historicalAxisStyle,type:'date',domain:[0,1],title:monthlyMode?'Booking month':'Booking date',dtick:visibleWeeks.length<(monthlyMode?9:39)?'M1':'M3',showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,...(range?{range}: {})}:{...axis,...historicalAxisStyle,domain:[0,1],showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,dtick:3},
   yaxis:{...historicalAxisStyle,title:{text:monthlyMode?'Appointments per month':'Appointments per week',standoff:8,font:{size:11}},range:[0,yAxisTop],tick0:0,dtick:majorGridStep,showgrid:true,gridcolor:'#b0b0b0',gridwidth:1,zeroline:false,minor:{tick0:0,dtick:majorGridStep/2,showgrid:true,gridcolor:'#e3e3e3',gridwidth:0.6,ticks:''}},hovermode:'closest',
-  annotations:!selected.length?[{text:'Select an appointment type to display appointments',xref:'paper',yref:'paper',x:.5,y:.5,showarrow:false}]:yearLabels
+  annotations:!selected.length?[{text:'Select an appointment type to display appointments',xref:'paper',yref:'paper',x:.5,y:.5,showarrow:false}]:[]
  },{responsive:true,displaylogo:false,displayModeBar:false,scrollZoom:false,doubleClick:false}).then(()=>{applyHistoricChartShadows($('combinedDemandChart'));installDemandCardTooltip($('combinedDemandChart'));installDemandAverageCapsules($('combinedDemandChart'),averageCapsules);});
 }
 drawCombinedDemandChart();
@@ -3438,7 +3485,7 @@ function renderWaitingTrendChart(){
  const useHours=highestMedian>0&&highestMedian*1.12<2;
  if(useHours)for(const trace of traces){trace.y=trace.y.map(v=>v*24);trace.hovertemplate=trace.hovertemplate.replace(' days',' hours');}
  const note=$('waitingTrendNote');if(note)note.textContent='Monthly median of booked-to-slot waiting times (days).'+(suppressSmall?' Months below 0.35% of the selected Appointment Types total are hidden ('+suppressedCount+' points).':'')+(ignoreRoutineSameDay?' Routine appointments booked less than one day ahead are excluded.':'');
- renderPreferencePlot(chart,traces,{height:560,autosize:true,margin:{l:72,r:25,t:40,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',hovermode:'x unified',hoverlabel:{bgcolor:'#fff',bordercolor:'#dce6ef',font:{color:'#142d43',size:12},align:'left'},xaxis:{type:'date',title:'Appointment month',tickformat:'%b %Y',gridcolor:'#edf1f5'},yaxis:{title:{text:useHours?'Hours':'Days',standoff:12},rangemode:'tozero',gridcolor:'#edf1f5'},legend:{orientation:'h',y:1.13,x:0}},{responsive:true,displayModeBar:false}).then(()=>installTrendCardTooltip(chart,useHours));
+ renderPreferencePlot(chart,traces,{height:560,autosize:true,margin:{l:72,r:25,t:40,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',hovermode:'x unified',hoverlabel:{bgcolor:'#fff',bordercolor:'#dce6ef',font:{color:'#142d43',size:12},align:'left'},xaxis:{type:'date',title:'Appointment month',gridcolor:'#edf1f5'},yaxis:{title:{text:useHours?'Hours':'Days',standoff:12},rangemode:'tozero',gridcolor:'#edf1f5'},legend:{orientation:'h',y:1.13,x:0}},{responsive:true,displayModeBar:false}).then(()=>installTrendCardTooltip(chart,useHours));
 }
 
 // Day View uses appointment-date availability snapshots and Monday–Friday navigation.

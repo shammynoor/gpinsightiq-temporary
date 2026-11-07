@@ -10,9 +10,27 @@
 #workforceNeedPage .planning-allocation-title { margin:0 0 8px; font-size:16px; }
 #workforceNeedPage #planningWeeklyTitle, #workforceNeedPage #planningCombinedTitle { margin-top:24px; }
 #workforceNeedPage .planning-allocation-source { margin:0 0 9px; }
-#workforceNeedPage .planning-overview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 18px; padding:10px 12px; border-radius:8px; background:#f0f5f9; }
+#workforceNeedPage .planning-overview {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:4px 12px;
+  margin:0 0 14px;
+  padding:7px 10px;
+  border:1px solid #d7e2ed;
+  border-radius:6px;
+  background:#fff;
+  font-variant-numeric:tabular-nums;
+}
+#workforceNeedPage #planningOverviewTitle { grid-area:1/1; margin:0; color:#52697c; font-size:12px; }
+#workforceNeedPage .planning-overview-gap { grid-area:2/1; color:#165c8d; font-size:21px; line-height:1.15; }
+#workforceNeedPage .planning-overview-status { grid-area:1/2; justify-self:end; border-radius:20px; padding:2px 7px; background:#dcecf9; color:#142e46; font-size:11px; }
+#workforceNeedPage .planning-overview-status[data-status="low"] { background:#fce9ea; color:#8d2026; }
+#workforceNeedPage .planning-overview-status[data-status="high"] { background:#e3f3e9; color:#175e38; }
+#workforceNeedPage .planning-overview-counts { grid-area:2/2; display:flex; flex-wrap:wrap; justify-content:end; gap:2px 10px; margin:0; }
+#workforceNeedPage .planning-overview-counts div { display:flex; flex-direction:row-reverse; gap:4px; white-space:nowrap; }
 #workforceNeedPage .planning-overview dt { color:#52697c; font-size:12px; }
-#workforceNeedPage .planning-overview dd { margin:2px 0 0; font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; }
+#workforceNeedPage .planning-overview dd { margin:0; font-size:12px; font-weight:700; }
 #workforceNeedPage .planning-week-picker { width:min(100%,860px); margin-bottom:16px; }
 #workforceNeedPage .planning-week-track {
   height:30px;
@@ -67,6 +85,8 @@
 }
 @media(max-width:580px) {
   #workforceNeedPage .planning-targets { grid-template-columns:minmax(0,1fr); }
+  #workforceNeedPage .planning-overview-gap { font-size:17px; }
+  #workforceNeedPage .planning-overview-counts { flex-direction:column; align-items:end; }
 }
 @media(pointer:coarse) {
   #workforceNeedPage .planning-week-track { height:44px; }
