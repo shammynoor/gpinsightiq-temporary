@@ -5,7 +5,7 @@ import {packContribution,unpackContribution,sourceKey} from './analytics-codec.m
 const $=id=>document.getElementById(id);
 let backend=null,user=null,context=null,practice=null,report=null,members=[],view='analytics',loadVersion=0,busy=false,recovery=false;
 let analyticsFrame=null,analyticsFrameKey=null;
-const invitation=new URL(location.href).searchParams.get('invite');
+let invitation=new URL(location.href).searchParams.get('invite');
 const ownerSetup=new URL(location.href).searchParams.get('setup')==='1';
 function node(tag,text,className){const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;return element;}
 function notice(message,error=false){$('notice').textContent=message;$('notice').classList.toggle('error',error);$('notice').hidden=!message;}
@@ -298,13 +298,59 @@ async function reload(preferred){
  if(version!==loadVersion||practice.id!==selected)return;report=nextReport;members=nextMembers;render();
 }
 async function loadUser(){user=await backend.user();if(!user){context=null;practice=null;report=null;members=[];render();return;}await reload();}
-$('loginForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.login($('email').value,$('password').value);$('password').value='';await loadUser();if(ownerSetup){await backend.claimPlatformAdmin();history.replaceState({},'',location.pathname);await reload();}else if(invitation){await backend.redeem(invitation);history.replaceState({},'',location.pathname);await reload();}});});
-$('signupForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{if(!invitation&&!ownerSetup)throw Error('An invitation link is required.');const query=ownerSetup?'?setup=1':'?invite='+encodeURIComponent(invitation);const live=await backend.signup($('signupEmail').value,$('signupPassword').value,location.origin+location.pathname+query);$('signupPassword').value='';if(live){await loadUser();if(ownerSetup)await backend.claimPlatformAdmin();else await backend.redeem(invitation);await reload();}else notice('Check your email to verify your account, then return to this setup or invitation link.');});});
+function showAuthForm(mode){
+ const signup=mode==='signup';
+ const invited=!!invitation&&!ownerSetup&&(signup||mode==='login');
+ $('loginForm').hidden=mode!=='login';
+ $('signupForm').hidden=!signup;
+ $('recoveryForm').hidden=mode!=='recovery';
+ $('invitationSignIn').hidden=!invited||!signup;
+ $('invitationSignUp').hidden=!invited||signup;
+ $('invitationNext').hidden=!invited||!signup;
+ $('showSignup').hidden=!ownerSetup||mode!=='login';
+ $('returnSetupLogin').hidden=!ownerSetup||!signup;
+ $('authBadge').textContent=invited?'Practice invitation':'Practice workspace';
+ $('signupSubmit').textContent=ownerSetup?'Create administrator account':'Create account';
+ $('signupHint').textContent=ownerSetup?'Use at least 12 characters. Verify your email to activate your designated platform administrator account.':'Use at least 12 characters.';
+ let heading='Welcome back', description='Sign in to your practice workspace.';
+ if(mode==='recovery'){
+  heading='Reset your password';
+  description='Choose a new password for your GP Insight IQ account.';
+ }else if(ownerSetup){
+  heading='Administrator setup';
+  description='Use your designated administrator email to create your account or sign in.';
+ }else if(invited){
+  heading=signup?'Create your account':'Sign in to accept your invitation';
+  description=signup?'You’ve been invited to join a practice on GP Insight IQ. Use the email address where you received the invitation.':'Use the account that matches the email address on your invitation.';
+ }
+ $('authHeading').textContent=heading;
+ $('authDescription').textContent=description;
+}
+async function acceptInvitation(token){
+ await backend.redeem(token);
+ invitation=null;
+ $('inviteCode').value='';
+ history.replaceState({},'',location.pathname);
+ showAuthForm('login');
+ await reload();
+}
+$('loginForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.login($('email').value,$('password').value);$('password').value='';await loadUser();if(ownerSetup){await backend.claimPlatformAdmin();history.replaceState({},'',location.pathname);await reload();}else if(invitation){await acceptInvitation(invitation);}});});
+$('signupForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{if(!invitation&&!ownerSetup)throw Error('An invitation link is required.');const query=ownerSetup?'?setup=1':'?invite='+encodeURIComponent(invitation);const live=await backend.signup($('signupEmail').value,$('signupPassword').value,location.origin+location.pathname+query);$('signupPassword').value='';if(live){await loadUser();if(ownerSetup){await backend.claimPlatformAdmin();await reload();}else await acceptInvitation(invitation);}else notice(ownerSetup?'Check your email to verify your administrator account.':'Check your email to verify your account, then return to the invitation.');});});
 $('forgotPassword').addEventListener('click',()=>run(async()=>{if(!$('email').value||!$('email').checkValidity())throw Error('Enter your email address first.');await backend.reset($('email').value,location.origin+location.pathname);notice('If this account exists, a password-reset email will be sent.');}));
-$('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.password($('newPassword').value);$('newPassword').value='';recovery=false;$('recoveryForm').hidden=true;await loadUser();notice('Your password has been changed.');});});
-$('showSignup').addEventListener('click',()=>{$('loginForm').hidden=true;$('signupForm').hidden=false;$('showSignup').hidden=true;});
-$('returnLogin').addEventListener('click',()=>{$('loginForm').hidden=false;$('signupForm').hidden=true;$('showSignup').hidden=!invitation&&!ownerSetup;});
-$('redeemForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.redeem($('inviteCode').value.trim());history.replaceState({},'',location.pathname);await reload();notice('Invitation accepted. Your practice administrator can now approve your access.');});});
+$('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.password($('newPassword').value);$('newPassword').value='';recovery=false;showAuthForm('login');await loadUser();notice('Your password has been changed.');});});
+$('showSignup').addEventListener('click',()=>showAuthForm('signup'));
+$('returnSetupLogin').addEventListener('click',()=>showAuthForm('login'));
+$('returnLogin').addEventListener('click',()=>{
+ $('email').value||=$('signupEmail').value;
+ showAuthForm('login');
+ $('email').focus();
+});
+$('createInvitedAccount').addEventListener('click',()=>{
+ $('signupEmail').value||=$('email').value;
+ showAuthForm('signup');
+ $('signupEmail').focus();
+});
+$('redeemForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await acceptInvitation($('inviteCode').value.trim());notice('Invitation accepted. Your practice administrator can now approve your access.');});});
 $('enterDemo').addEventListener('click',()=>run(async()=>{backend=new DemoBackend();user=await backend.user();view='home';notice('Demo mode: fictional practices and accounts. No real sign-in or data storage.');await reload();}));
 $('demoIdentity').addEventListener('change',()=>run(async()=>{backend.identity=$('demoIdentity').value;user=await backend.user();view='home';practice=null;await reload();}));
 $('signOut').addEventListener('click',()=>run(async()=>{const old=backend;++loadVersion;user=null;context=null;practice=null;report=null;members=[];render();await old.logout();if(old.demo){backend=null;$('demoIdentity').value='platform';await initialise();}notice('Signed out.');}));
@@ -313,16 +359,16 @@ $('refresh').addEventListener('click',()=>run(async()=>{await reload();analytics
 document.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{view=b.dataset.view;render();}));
 async function initialise(){
  let configured=false;try{configured=validateConfig(window.DARWIN_CONFIG);}catch(error){notice(error.message,true);}
- $('previewChoice').hidden=configured;$('loginForm').hidden=!configured;$('showSignup').hidden=!configured||(!invitation&&!ownerSetup);
- if(ownerSetup){$('authHeading').textContent='Administrator setup';$('authDescription').textContent='Use your designated administrator email to create your account or sign in.';$('showSignup').textContent='Create administrator account';$('signupForm').querySelector('button[type=submit]').textContent='Create administrator account';$('signupForm').querySelector('p').textContent='Use at least 12 characters. Verify your email to activate your designated platform administrator account.';}
+ $('previewChoice').hidden=configured;
+ showAuthForm(!configured?'demo':invitation&&!ownerSetup?'signup':'login');
  if(!configured){backend=null;render();return;}
  try{
   const {createClient}=await import('https://esm.sh/@supabase/supabase-js@2.49.8');
   const client=createClient(window.DARWIN_CONFIG.supabaseUrl,window.DARWIN_CONFIG.publishableKey,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});backend=new SupabaseBackend(client);
-  client.auth.onAuthStateChange((event)=>{if(event==='PASSWORD_RECOVERY'){recovery=true;$('loginForm').hidden=true;$('signupForm').hidden=true;$('recoveryForm').hidden=false;render();}if(event==='SIGNED_OUT'){++loadVersion;user=null;context=null;practice=null;report=null;members=[];render();}});
+  client.auth.onAuthStateChange((event)=>{if(event==='PASSWORD_RECOVERY'){recovery=true;showAuthForm('recovery');render();}if(event==='SIGNED_OUT'){++loadVersion;user=null;context=null;practice=null;report=null;members=[];render();}});
   await loadUser();
-  if(user&&ownerSetup){await backend.claimPlatformAdmin();history.replaceState({},'',location.pathname);await reload();}
-  else if(user&&invitation){await backend.redeem(invitation);history.replaceState({},'',location.pathname);await reload();}
+  if(user&&!recovery&&ownerSetup){await backend.claimPlatformAdmin();history.replaceState({},'',location.pathname);await reload();}
+  else if(user&&!recovery&&invitation){await acceptInvitation(invitation);}
  }catch(error){notice('Account connection could not be completed: '+error.message,true);}
 }
 setInterval(()=>{if(user&&!busy&&!backend.demo&&!document.hidden)run(()=>reload());},60000);
