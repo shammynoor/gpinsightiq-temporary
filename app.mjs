@@ -24,6 +24,11 @@ function updateShell(){
  $('demoBar').hidden=!backend.demo;$('accountEmail').textContent=user.email;
  $('accountRole').textContent=context?.platform_admin?'Platform administrator':practice?.role==='practice_admin'?'Practice administrator':'Practice user';
  const platformView=!!context?.platform_admin;
+ const noPractice=!!context&&!platformView&&context.practices.length===0;
+ $('workspaceNav').hidden=!platformView&&!currentApproved();
+ $('workspaceMain').hidden=!context||noPractice;
+ $('noPracticeScreen').hidden=!noPractice;
+ $('workspaceAccount').hidden=!context||noPractice;
  if(platformView)view='practices';
  $('practicesTab').hidden=!platformView;
  document.querySelectorAll('[data-view]:not([data-view="practices"])').forEach(tab=>{
