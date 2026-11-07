@@ -1014,9 +1014,36 @@ function restoreChartShadowControls(){
  }
 }
 window.gpChartPreferences={read:readChartPreferences,write:writeChartPreference,account:chartPreferenceAccount};
+function plotSeriesKey(trace){return JSON.stringify([trace.type,trace.name,trace.legendgroup]);}
+const plotLegendListeners=new WeakMap();
+function renderPreferencePlot(target,traces,layout,config){
+ const chart=typeof target==='string'?$(target):target;
+ const account=chartPreferenceAccount(),key='plotLegend:'+chart.id;
+ const saved=readChartPreferences()[key]||{};
+ const data=traces.map(trace=>{
+  const visibility=saved[plotSeriesKey(trace)];
+  return trace.visible!==false&&(visibility===true||visibility==='legendonly')?{...trace,visible:visibility}:trace;
+ });
+ return Plotly.react(chart,data,layout,config).then(result=>{
+  const previous=plotLegendListeners.get(chart);
+  if(previous)chart.removeListener?.('plotly_restyle',previous);
+  const remember=([update,indices])=>{
+   if(!account||account!==chartPreferenceAccount()||!Object.hasOwn(update,'visible'))return;
+   const visibility=readChartPreferences()[key]||{};
+   for(const index of indices){
+    const trace=chart.data[index];
+    if(trace&&trace.visible!==false)visibility[plotSeriesKey(trace)]=trace.visible==='legendonly'?'legendonly':true;
+   }
+   writeChartPreference(key,visibility);
+  };
+  chart.on?.('plotly_restyle',remember);
+  plotLegendListeners.set(chart,remember);
+  return result;
+ });
+}
 function chartControlKey(el){
  if(!el||!el.matches?.('input,select'))return null;
- if(el.dataset?.chartProxy)return null;
+ if(el.dataset?.chartProxy||el.closest('#bookingTimesUrgencyFilters'))return null;
  // Month sliders restore both handles together after their data bounds are ready.
  if(/^(demandRange|waitingRange|waitingTrendRange)(Start|End)$/.test(el.id))return null;
  const page=el.closest('[id$="Page"]');
@@ -1038,28 +1065,31 @@ function chartControlValue(el){
  return el.multiple?[...el.selectedOptions].map(option=>option.value):el.value;
 }
 let chartPreferenceRestoring=false,chartRestoredAccount=null;
-const chartRestoredValues=new Map(),chartControlDefaults=new Map();
+let chartRestoredValues=new WeakMap();
+const chartControlDefaults=new Map();
 function restoreChartCheckboxes(){
- const account=chartPreferenceAccount();if(!account)return;
- if(account!==chartRestoredAccount){chartRestoredAccount=account;chartRestoredValues.clear();}
+ const account=chartPreferenceAccount();if(!account||chartPreferenceRestoring)return;
+ const accountChanged=account!==chartRestoredAccount;
+ if(accountChanged){chartRestoredAccount=account;chartRestoredValues=new WeakMap();}
  const saved=readChartPreferences(),changes=[];
  chartPreferenceRestoring=true;
  try{
   document.querySelectorAll('#dashboardShell input,#dashboardShell select').forEach(el=>{
-   const key=chartControlKey(el);if(!key)return;
+   const key=chartControlKey(el);if(!key||el.disabled)return;
    if(!chartControlDefaults.has(key))chartControlDefaults.set(key,chartControlValue(el));
+   if(!Object.hasOwn(saved,key)&&!accountChanged)return;
    // Waiting sliders attach their state handlers only when first opened.
    if(el.type==='range'&&/^waiting/.test(el.id)&&!el.dataset.bound)return;
    const value=key in saved?saved[key]:chartControlDefaults.get(key),signature=JSON.stringify(value);
-   // A handler may reject a saved selection (for example, no matching data).
-   // Replaying it after every chart DOM mutation causes a redraw/restore loop.
-   // Renderers own rebuilt controls after the saved value has been attempted.
-   if(chartRestoredValues.get(key)===signature)return;
+   // Rebuilt controls need their own restoration attempt. Range inputs can
+   // also become usable after report data supplies their actual bounds.
+   const attempt=el.type==='range'?JSON.stringify([value,el.min,el.max,el.step]):signature;
+   if(chartRestoredValues.get(el)===attempt)return;
    if(el.tagName==='SELECT'){
     const wanted=Array.isArray(value)?value:[String(value)];
     if(!wanted.every(v=>[...el.options].some(option=>option.value===v)))return;
    }
-   chartRestoredValues.set(key,signature);
+   chartRestoredValues.set(el,attempt);
    if(JSON.stringify(chartControlValue(el))===signature)return;
    if(el.type==='checkbox'||el.type==='radio'){if(typeof value!=='boolean')return;el.checked=value;}
    else if(el.multiple){for(const option of el.options)option.selected=value.includes(option.value);}
@@ -1070,8 +1100,10 @@ function restoreChartCheckboxes(){
   // A range handler can redraw its paired handle. Reapply the whole pending group
   // before each dispatch so both handlers see the intended saved values.
   const pending=changes.map(el=>[el,chartControlValue(el)]);
-  for(const el of changes){
-   for(const [input,value] of pending)if(input.type==='range')input.value=value;
+  for(const [el,value] of pending){
+   if(!el.isConnected||el.disabled){chartRestoredValues.delete(el);continue;}
+   for(const [input,rangeValue] of pending)if(input.type==='range')input.value=rangeValue;
+   if(el.type==='checkbox'||el.type==='radio')el.checked=value;
    el.dispatchEvent(new Event(['range','search','text'].includes(el.type)?'input':'change',{bubbles:true}));
   }
  }finally{chartPreferenceRestoring=false}
@@ -1080,10 +1112,13 @@ window.gpChartPreferences.restore=restoreChartCheckboxes;
 function rememberChartControl(event){
  if(chartPreferenceRestoring)return;
  const el=event.target,key=chartControlKey(el);
- if(key)queueMicrotask(()=>{const value=chartControlValue(el);writeChartPreference(key,value);chartRestoredValues.set(key,JSON.stringify(value));});
+ if(!key||el.disabled)return;
+ if(event.type==='input'&&(el.type==='checkbox'||el.type==='radio'||el.tagName==='SELECT'))return;
+ // The event bubbles here after the control's own handler validates the change.
+ writeChartPreference(key,chartControlValue(el));
 }
-document.addEventListener('change',rememberChartControl,true);
-document.addEventListener('input',rememberChartControl,true);
+document.addEventListener('change',rememberChartControl);
+document.addEventListener('input',rememberChartControl);
 function chartExpansionKey(button){
  const page=button?.closest('[id$="Page"]');
  if(!page||['categoryPage','practiceSettingsPage','peoplePage','personalSettingsPage'].includes(page.id))return null;
@@ -1880,7 +1915,7 @@ function renderSignpostingChart(){
   hovertemplate:'<b>%{x|%d %b %Y}</b><br>'+destination.replace(/&/g,'&amp;').replace(/</g,'&lt;')+': %{y:,}<extra></extra>',
   connectgaps:false
  }));
- Plotly.react(target,traces,{dragmode:false,
+ renderPreferencePlot(target,traces,{dragmode:false,
   autosize:true,height:535,margin:{l:62,r:24,t:28,b:65},
   paper_bgcolor:'#ffffff',plot_bgcolor:'#ffffff',
   xaxis:{type:'date',title:'Date',tickformat:'%b %Y',gridcolor:'#edf1f5'},
@@ -2222,7 +2257,7 @@ let savedWeeklyIncludeBankHolidays=document.getElementById('excludeBH').checked;
 document.getElementById('periodMode').onchange=e=>{
  monthlyMode=e.target.checked;
  const bankToggle=document.getElementById('excludeBH');
- if(monthlyMode){savedWeeklyIncludeBankHolidays=bankToggle.checked;bankToggle.checked=true;bankToggle.disabled=true;excludeBankHolidays=false;}
+ if(monthlyMode){savedWeeklyIncludeBankHolidays=readChartPreferences()['checkbox:chartPage:excludeBH']??bankToggle.checked;bankToggle.checked=true;bankToggle.disabled=true;excludeBankHolidays=false;}
  else{bankToggle.disabled=false;bankToggle.checked=savedWeeklyIncludeBankHolidays;excludeBankHolidays=!bankToggle.checked;}
  document.getElementById('periodModeValue').textContent=monthlyMode?'Month':'Week';
  document.getElementById('currentPeriodLabel').textContent=monthlyMode?'Show current month':'Show current week';
@@ -2293,7 +2328,7 @@ function changeHistoricBookingToggle(disabled,name,checked,input){
  const wasOff=disabled.has(name);
  if(checked)disabled.delete(name);else disabled.add(name);
  demandFilterCache=new WeakMap();clinicianMatchCache=new Map();
- if(!historicBookingHasData()){
+ if(!chartPreferenceRestoring&&!historicBookingHasData()){
   if(wasOff)disabled.add(name);else disabled.delete(name);
   input.checked=!wasOff;
   demandFilterCache=new WeakMap();clinicianMatchCache=new Map();
@@ -2427,7 +2462,6 @@ function refresh(){
  clinicianMatchCache=new Map();
 const selectedUrgencyCount=groupUrgencyNames.filter(name=>isDashboardToggleOption(name)&&!disabledDemandUrgencyGroups.has(name)).length;
 const additiveControl=$('demandCombineLines');
-if(selectedUrgencyCount<=1&&additiveControl?.checked){additiveControl.checked=false;if(window.Plotly&&$('combinedDemandChart'))Plotly.purge($('combinedDemandChart'));}
 const additiveLines=selectedUrgencyCount>1&&additiveControl?.checked===true;
 const activeWeekSet=new Set();
 for(const r of records){if(includedRecord(r)){const key=periodKey(r);if(key)activeWeekSet.add(key)}}
@@ -2736,7 +2770,7 @@ function drawCombinedDemandChart(){
   const b=Math.min(Date.parse((Number(year)+1)+'-01-01'),Date.parse(visibleWeeks.at(-1)));
   return {xref:'x',yref:'paper',x:new Date((a+b)/2).toISOString(),y:0.97,text:year,showarrow:false,yanchor:'top',font:{size:14,color:'rgba(89,112,128,0.58)'}};
  }):[];
- Plotly.react('combinedDemandChart',traces,{dragmode:false,autosize:true,height:535,
+ renderPreferencePlot('combinedDemandChart',traces,{dragmode:false,autosize:true,height:535,
   margin:{l:62,r:24,t:continuousMode?28:50,b:65},paper_bgcolor:'white',plot_bgcolor:'#fafafa',
   shapes:[...yearBackgroundShapes(visibleWeeks),...averageShapes],
   showlegend:!continuousMode,legend:{orientation:'h',y:1.14,x:0,xanchor:'left',yanchor:'bottom',entrywidth:85,entrywidthmode:'pixels',traceorder:'normal'},
@@ -3304,7 +3338,7 @@ function renderWaitingTimesChart(){
  const visibleDays=suppress?days.filter(day=>bins.get(day)>=cutoff):days;
  const x=visibleDays,y=visibleDays.map(day=>bins.get(day));
  const note=$('waitingTimesNote');if(note)note.textContent=days.length?'Each bar represents one complete 24-hour waiting-time interval (minutes ÷ 1,440).'+(suppress?' Bins below 0.35% of '+total.toLocaleString('en-GB')+' appointments are hidden ('+(days.length-visibleDays.length)+' bins).':' All non-empty bins are shown.'):'No waiting-time records for the selected filters.';
- Plotly.react(chart,[{type:'bar',x,y,width:0.94,hoverinfo:'none',marker:{color:'#7ea9c5'},text:y.map(n=>total?(100*n/total).toFixed(1)+'%':'0%'),textposition:'outside',textfont:{size:10,color:'#47687f'},cliponaxis:false,hovertemplate:'%{x}–%{customdata} days<br>%{y:,} appointments<br>%{text} of total<extra></extra>',customdata:x.map(v=>v+1)}],{
+ renderPreferencePlot(chart,[{type:'bar',x,y,width:0.94,hoverinfo:'none',marker:{color:'#7ea9c5'},text:y.map(n=>total?(100*n/total).toFixed(1)+'%':'0%'),textposition:'outside',textfont:{size:10,color:'#47687f'},cliponaxis:false,hovertemplate:'%{x}–%{customdata} days<br>%{y:,} appointments<br>%{text} of total<extra></extra>',customdata:x.map(v=>v+1)}],{
   height:560,autosize:true,margin:{l:75,r:25,t:55,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',bargap:0.04,
   xaxis:{title:'Waiting time (days)',dtick:max<=35?1:undefined,gridcolor:'#edf1f5',rangemode:'tozero'},
   yaxis:{title:'Number of appointments',rangemode:'tozero',gridcolor:'#edf1f5'},showlegend:false
@@ -3404,7 +3438,7 @@ function renderWaitingTrendChart(){
  const useHours=highestMedian>0&&highestMedian*1.12<2;
  if(useHours)for(const trace of traces){trace.y=trace.y.map(v=>v*24);trace.hovertemplate=trace.hovertemplate.replace(' days',' hours');}
  const note=$('waitingTrendNote');if(note)note.textContent='Monthly median of booked-to-slot waiting times (days).'+(suppressSmall?' Months below 0.35% of the selected Appointment Types total are hidden ('+suppressedCount+' points).':'')+(ignoreRoutineSameDay?' Routine appointments booked less than one day ahead are excluded.':'');
- Plotly.react(chart,traces,{height:560,autosize:true,margin:{l:72,r:25,t:40,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',hovermode:'x unified',hoverlabel:{bgcolor:'#fff',bordercolor:'#dce6ef',font:{color:'#142d43',size:12},align:'left'},xaxis:{type:'date',title:'Appointment month',tickformat:'%b %Y',gridcolor:'#edf1f5'},yaxis:{title:{text:useHours?'Hours':'Days',standoff:12},rangemode:'tozero',gridcolor:'#edf1f5'},legend:{orientation:'h',y:1.13,x:0}},{responsive:true,displayModeBar:false}).then(()=>installTrendCardTooltip(chart,useHours));
+ renderPreferencePlot(chart,traces,{height:560,autosize:true,margin:{l:72,r:25,t:40,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',hovermode:'x unified',hoverlabel:{bgcolor:'#fff',bordercolor:'#dce6ef',font:{color:'#142d43',size:12},align:'left'},xaxis:{type:'date',title:'Appointment month',tickformat:'%b %Y',gridcolor:'#edf1f5'},yaxis:{title:{text:useHours?'Hours':'Days',standoff:12},rangemode:'tozero',gridcolor:'#edf1f5'},legend:{orientation:'h',y:1.13,x:0}},{responsive:true,displayModeBar:false}).then(()=>installTrendCardTooltip(chart,useHours));
 }
 
 // Day View uses appointment-date availability snapshots and Monday–Friday navigation.
@@ -3465,7 +3499,9 @@ function syncDayView2Preferences(){
  if(Array.isArray(saved))for(const name of saved)if(typeof name==='string')dayView2DisabledUrgencies.add(name);
 }
 function chooseDayView2Date(date){
- $('dayView2Date').value=date;writeChartPreference('dayView2:selectedDate',date);closeDayView2Calendar();renderDayView2();
+ $('dayView2Date').value=date;writeChartPreference('dayView2:selectedDate',date);
+ writeChartPreference('month:dayView2Page:dayView2CalendarMonth',date.slice(0,7));
+ closeDayView2Calendar();renderDayView2();
 }
 function saveDayView2Preferences(){writeChartPreference('dayView2:disabledUrgencies',[...dayView2DisabledUrgencies]);}
 let dayView2SegmentObserver=null;
@@ -3564,12 +3600,16 @@ function renderDayView2Calendar(){
 $('dayView2DatePicker')?.addEventListener('click',()=>{
  const calendar=$('dayView2Calendar'),open=calendar.hidden;
  calendar.hidden=!open;$('dayView2DatePicker').setAttribute('aria-expanded',String(open));
- if(open){$('dayView2CalendarMonth').value=($('dayView2Date').value||dayView2WorkingDate(dayView2LocalDate())).slice(0,7);renderDayView2Calendar();}
+ if(open){
+  const month=$('dayView2CalendarMonth');
+  month.value=readChartPreferences()['month:dayView2Page:dayView2CalendarMonth']||($('dayView2Date').value||dayView2WorkingDate(dayView2LocalDate())).slice(0,7);
+  renderDayView2Calendar();
+ }
 });
 $('dayView2CalendarMonth')?.addEventListener('change',renderDayView2Calendar);
 for(const [id,step] of [['dayView2CalendarPrevious',-1],['dayView2CalendarNext',1]]){
  $(id)?.addEventListener('click',()=>{
-  const input=$('dayView2CalendarMonth'),d=new Date(input.value+'-01T12:00:00Z');d.setUTCMonth(d.getUTCMonth()+step);input.value=d.toISOString().slice(0,7);renderDayView2Calendar();
+  const input=$('dayView2CalendarMonth'),d=new Date(input.value+'-01T12:00:00Z');d.setUTCMonth(d.getUTCMonth()+step);input.value=d.toISOString().slice(0,7);input.dispatchEvent(new Event('change',{bubbles:true}));
  });
 }
 document.addEventListener('click',event=>{if(!event.target.closest('#dayView2DateControls'))closeDayView2Calendar();});
@@ -3928,13 +3968,14 @@ $('dayView2Previous')?.addEventListener('click',()=>{chooseDayView2Date(dayView2
 $('dayView2Next')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),1));});
 
 function showPage(which){
- updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
  if(which==='dayView2')which='dayView';
+ if(!isOwner&&['categories','people','practiceSettings'].includes(which))return;
+ writeChartPreference('workspacePage',which);
+ updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
  closeDayView2Calendar();
  closeDashboardMenus();hideDayView2Tooltip();
  for(const id of ['dailyForecastPage','weeklyForecastPage'])$(id)?.classList.add('hidden');
  for(const id of ['navDailyForecast','navWeeklyForecast'])$(id)?.classList.remove('active');
- if(!isOwner&&(which==='categories'||which==='people'||which==='practiceSettings'))return;
  for(const [page,nav,name] of [['workforceNeedPage','navWorkforceNeed','workforceNeed'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']]){
   $(page).classList.toggle('hidden',which!==name);$(nav).classList.toggle('active',which===name);
  }
@@ -4083,7 +4124,7 @@ function changeAvailabilityFilter(page,disabled,name,checked,checkbox){
  if(checked)disabled.delete(name);else disabled.add(name);
  // Reject any change that would remove every appointment from the chart.
  // If source data itself has no matches, do not block filter changes.
- if(availabilityRecordsInRange(page).length&&!availabilityHasVisibleRecords(page)){
+ if(!chartPreferenceRestoring&&availabilityRecordsInRange(page).length&&!availabilityHasVisibleRecords(page)){
   if(previouslyOff)disabled.add(name);else disabled.delete(name);
   checkbox.checked=!previouslyOff;
   return;
@@ -4555,7 +4596,7 @@ function renderAvailabilityChart(){
  }
  buckets.forEach((date,i)=>{if((weekly||weekdays.has(date))&&totals[i])annotations.push({x:date,xref:'x',y:totals[i],yref:'y',text:String(totals[i]),showarrow:false,font:{size:weekly?13:10,color:'#425b70'},yshift:15+Math.max(0,names.length-1)*5,yanchor:'bottom'})});
  const note=$('availabilityNote');if(note)note.textContent=names.length?'':'Select an Urgent detailed Appointment Types to display appointments.';
- Plotly.react(target,traces,{dragmode:false,
+ renderPreferencePlot(target,traces,{dragmode:false,
   autosize:true,height:640,barmode:'stack',barcornerradius:weekly?6:5,bargap:weekly?0.11:0.025,margin:{l:62,r:18,t:40,b:100},paper_bgcolor:'white',plot_bgcolor:'#e1eaf1',
   legend:{orientation:'h',x:0.5,y:-0.23,xanchor:'center',yanchor:'top',font:{size:13,color:'#42576a'},bgcolor:'rgba(255,255,255,0)'},
   xaxis:{type:'category',categoryorder:'array',categoryarray:buckets,tickmode:'array',tickvals:buckets,ticktext:buckets.map(date=>weekly?capacityWeekBeginningLabel(date):weekdays.has(date)?new Date(date+'T12:00:00Z').toLocaleDateString('en-GB',{weekday:'short',timeZone:'UTC'}):''),tickangle:weekly?0:-90,tickfont:{size:12,color:'#444444'},showgrid:false,range:[weekly?-.5:-.9,buckets.length-.5],fixedrange:true},
@@ -4728,7 +4769,7 @@ function renderRoutineAvailabilityChart(){
  if(todayX!==null)annotations.push(capacityTodayAnnotation(todayX,dates.length,target.clientWidth));
  const note=$('routineAvailabilityNote');
  if(note)note.textContent=matched?'':"No matching Routine Appointment Types appointments found. Check Manage categories → Appointment Types.";
- Plotly.react(target,traces,{dragmode:false,
+ renderPreferencePlot(target,traces,{dragmode:false,
   height:640,autosize:true,barmode:'stack',barcornerradius:isDaily?5:6,bargap:isDaily?0.07:0.11,
   margin:{l:62,r:18,t:40,b:100},paper_bgcolor:'#fff',plot_bgcolor:plotBackground,
   legend:{orientation:'h',x:0.5,y:-0.20,xanchor:'center',yanchor:'top',font:{size:13,color:'#42576a'},traceorder:'normal'},
@@ -4800,10 +4841,17 @@ function bookingTimesTogglePanel(id,names,disabled,dimension){
   input.addEventListener('change',()=>{
    if(dimension==='urgency'){
     // Urgency is single-select; clicking the selected group cannot clear it.
-    if(disabled.has(name)){const proposed=new Set(groupUrgencyNames.filter(group=>group!==name));if(bookingTimesHasData({urgency:proposed})){disabled.clear();for(const group of proposed)disabled.add(group)}}
+    if(disabled.has(name)){
+     const proposed=new Set(groupUrgencyNames.filter(group=>group!==name));
+     if(bookingTimesHasData({urgency:proposed})){
+      disabled.clear();for(const group of proposed)disabled.add(group);
+      writeChartPreference('bookingTimes:urgency',name);
+     }
+    }
    }else{
     const proposed=new Set(disabled);if(input.checked)proposed.delete(name);else proposed.add(name);
     if(bookingTimesHasData({[dimension]:proposed})){disabled.clear();for(const group of proposed)disabled.add(group)}
+    input.checked=!disabled.has(name);
    }
    renderBookingTimesChart();
   });
@@ -4818,7 +4866,10 @@ function renderBookingTimesChart(){
  let options=bookingTimesOptions(groupsFor);
  if(!bookingTimesUrgencyInitialised&&bookingTimeRecords.length&&groupUrgencyNames.length){
   const available=groupUrgencyNames.filter(name=>options.urgency.has(name));
-  const preferred=available.find(name=>name.trim().toLowerCase()==='urgent')||available[0];
+  const saved=readChartPreferences();
+  const legacy=available.filter(name=>saved['checkbox:bookingTimesPage:bookingTimesUrgencyFilters:'+name]===true);
+  const lastChoice=saved['bookingTimes:urgency']||(legacy.length===1?legacy[0]:null);
+  const preferred=available.find(name=>name===lastChoice)||available.find(name=>name.trim().toLowerCase()==='urgent')||available[0];
   if(preferred){bookingTimesDisabledUrgency.clear();for(const name of groupUrgencyNames)if(name!==preferred)bookingTimesDisabledUrgency.add(name);bookingTimesUrgencyInitialised=true;}
  }
  const availableUrgency=groupUrgencyNames.filter(name=>options.urgency.has(name));
@@ -4866,7 +4917,7 @@ function renderBookingTimesChart(){
   {type:'bar',name:'Bookings per 15 minutes',x:visibleTimes,y:visibleBins,marker:{color:'#8fb4d3',line:{width:0}},hovertemplate:'%{x}–15 min later<br>%{y:,} bookings<extra></extra>',yaxis:'y'},
   {type:'scatter',mode:'lines',name:'Cumulative %',x:visibleTimes,y:visibleCumulative,yaxis:'y2',line:{color:'#bc756e',width:3.5,shape:'spline',smoothing:0.8},hovertemplate:'%{x}<br>%{y:.1f}% booked by this time<extra></extra>'}
  ];
- Plotly.react(chart,traces,{dragmode:false,
+ renderPreferencePlot(chart,traces,{dragmode:false,
   height:540,autosize:true,margin:{l:90,r:95,t:75,b:85},
   paper_bgcolor:'#fff',plot_bgcolor:'#f1f3f5',bargap:0.04,
   legend:{orientation:'h',x:0,y:1.13,xanchor:'left',yanchor:'bottom'},
@@ -5209,7 +5260,15 @@ async function iqStart(){
   isOwner=iqBridge.manage;folderAccessVerified=true;folderAccessDenied=false;authenticatedOnce=true;
   selectedFolder={id:iqBridge.practice.id,name:iqBridge.practice.name};
   applyAccessMode();setButtons();iqCreateUploadPanel();
-  await loadCloudCategories({strict:true});await loadFolder(true);startDashboardIdleSession();
+  await loadCloudCategories({strict:true});await loadFolder(true);
+  restoreChartCheckboxes();
+  const lastPage=readChartPreferences().workspacePage;
+  if(lastPage==='dailyForecast'||lastPage==='weeklyForecast'){
+   $(lastPage==='dailyForecast'?'navDailyForecast':'navWeeklyForecast')?.click();
+  }else if(['workforceNeed','home','routineCapacity','chart','waitingTimes','waitingTrend','categories','availability','routineAvailability','dayView','bookingTimes','signposting','rapidHealth','people','practiceSettings','personalSettings'].includes(lastPage)){
+   showPage(lastPage);
+  }
+  startDashboardIdleSession();
   $('signIn').onclick=()=>{};$('chooseFolder').onclick=()=>{};$('sourceSetup').onclick=()=>{};
   $('refreshData').onclick=()=>void refreshDashboardData(true);
   if(iqBridge.manage){
