@@ -13,6 +13,13 @@
 #workforcePlanningPage .workforce-group-heading button span { flex:none; width:1em; }
 #workforcePlanningPage .workforce-clinician-row th { padding-inline-start:20px; }
 #workforcePlanningPage .workforce-team-total { background:#f0f6fb; font-weight:700; }
+#workforcePlanningPage.workforce-hide-subtotals .workforce-team-total { display:none; }
+#workforcePlanningPage .workforce-heading { display:flex; flex-wrap:wrap; align-items:center; gap:6px 18px; margin-bottom:10px; }
+#workforcePlanningPage .workforce-heading h2 { margin:0; }
+#workforcePlanningPage .workforce-heading label { display:inline-flex; align-items:center; gap:7px; margin:0; font-size:13px; }
+#workforcePlanningPage .workforce-heading input { appearance:auto; width:16px; height:16px; min-height:0; padding:0; accent-color:#1b5e91; }
+#workforcePlanningPage tfoot { background:#e4eef7; font-weight:700; }
+#workforcePlanningPage tfoot :is(th,td) { border-top:1px solid #b6c9da; border-bottom:0; }
 #workforcePlanningPage .workforce-slot-share { color:#52697c; font-size:11px; white-space:nowrap; }
 #workforcePlanningPage input { box-sizing:border-box; width:100%; max-width:90px; min-width:0; min-height:34px; margin:0; padding:4px 5px; text-align:center; font-size:16px; appearance:textfield; }
 #workforcePlanningPage input::-webkit-inner-spin-button { appearance:none; }
@@ -27,4 +34,5 @@
 }
 @media(pointer:coarse) {
  #workforcePlanningPage input, #workforcePlanningPage .workforce-group-heading button { min-height:44px; }
+ #workforcePlanningPage .workforce-heading label { min-height:44px; }
 }

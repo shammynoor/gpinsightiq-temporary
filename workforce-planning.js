@@ -40,7 +40,7 @@ function clinicianGroups(types){
  return groups;
 }
 
-function addGroupControls(bodies,group){
+function addGroupControls(bodies,group,onChange){
  const rows=[];
  const buttons=bodies.map(body=>{
   const row=body.insertRow();
@@ -68,6 +68,7 @@ function addGroupControls(bodies,group){
   if(collapsedGroups.has(group))collapsedGroups.delete(group);
   else collapsedGroups.add(group);
   refresh();
+  onChange();
  });
  return {rows,refresh};
 }
@@ -88,12 +89,33 @@ function renderWorkforcePlanning(){
  const totals=annualBookedSlots(today);
  const coveredYears=new Set(years.filter(year=>slotReportCoverage.some(({start,end})=>
   start<=today&&start<=year+'-12-31'&&end>=year+'-01-01'&&today>=year+'-01-01')));
+ const toggle=$('workforceShowSubtotals');
+ const preference='workforcePlanning:showSubtotals';
+ toggle.checked=readChartPreferences()[preference]!==false;
+ page.classList.toggle('workforce-hide-subtotals',!toggle.checked);
+ toggle.onchange=()=>{
+  page.classList.toggle('workforce-hide-subtotals',!toggle.checked);
+  writeChartPreference(preference,toggle.checked);
+ };
+ const totalsFoot=$('workforceSlotsFoot');
+ totalsFoot.replaceChildren();
+ const totalRow=addRow(totalsFoot,'Total (expanded groups)');
+ const totalCells=years.map(()=>totalRow.insertCell());
+ const totalsByGroup=new Map();
+ const updateVisibleTotals=()=>{
+  const visibleGroups=[...totalsByGroup].filter(([group])=>!collapsedGroups.has(group));
+  years.forEach((year,index)=>{
+   const count=visibleGroups.reduce((sum,[,groupTotals])=>sum+groupTotals.get(year),0);
+   totalCells[index].textContent=coveredYears.has(year)?integer.format(count):'—';
+  });
+ };
  for(const [group,members] of clinicianGroups(types)){
   if(!members.length)continue;
-  const controls=addGroupControls([slotsBody,sessionsBody,averagesBody],group);
+  const controls=addGroupControls([slotsBody,sessionsBody,averagesBody],group,updateVisibleTotals);
   const groupTotals=new Map(years.map(year=>[
    year,members.reduce((sum,type)=>sum+(totals.get(cellKey(type,year))??0),0)
   ]));
+  totalsByGroup.set(group,groupTotals);
   for(const type of members){
    const sessionsRow=addRow(sessionsBody,type);
    const slotsRow=addRow(slotsBody,type);
@@ -158,6 +180,7 @@ function renderWorkforcePlanning(){
   }
   controls.refresh();
  }
+ updateVisibleTotals();
 }
 
 window.renderWorkforcePlanning=renderWorkforcePlanning;
