@@ -1,6 +1,22 @@
 (function(){
 const byId=id=>document.getElementById(id);
 const statuses=['available','blocked','embargoed'];
+const planningTargetTolerance=.15;
+const planningNeedLabels=[
+ 'Far below the target range',
+ 'Well below the target range',
+ 'Below the target range',
+ 'Just below the target range',
+ 'At the lower end of the target range',
+ 'Slightly below predicted need',
+ 'In line with predicted need',
+ 'Slightly above predicted need',
+ 'At the upper end of the target range',
+ 'Just above the target range',
+ 'Above the target range',
+ 'Well above the target range',
+ 'Far above the target range'
+];
 const teamAliases=[
  /^(urgent care( team)?|uct)$/,
  /^(gp(s)?|general practitioner(s)?|doctor(s)?)$/,
@@ -64,7 +80,7 @@ function showBookedCount(id,count){
 
 function planningRangeStatus(actual,target){
  if(!Number.isFinite(actual)||!Number.isFinite(target))return null;
- const difference=actual-target,tolerance=target*15/100;
+ const difference=actual-target,tolerance=target*planningTargetTolerance;
  return Math.abs(difference)<=tolerance?'within':difference<0?'low':'high';
 }
 
@@ -240,11 +256,18 @@ function renderWeeklyPlanning(){
  byId('planningOverviewSlots').textContent=combinedCount??'—';
  byId('planningOverviewGap').textContent=difference===null?'—'
   :difference===0?'On target':Math.abs(difference).toLocaleString('en-GB')+(difference<0?' slots short':' slots above target');
- const status=completeDaily&&(!weeklyGroups.size||completeWeek)?planningRangeStatus(combinedCount,combinedNeed):null;
+ // Apply Day View's rating tiers to the planning target and its ±15% band.
+ const canRate=difference!==null&&completeDaily&&(!weeklyGroups.size||completeWeek);
+ const tolerance=combinedNeed*planningTargetTolerance;
+ const ratingIndex=canRate?dayView2PaceClassification(combinedCount,{
+  ready:true,mean:combinedNeed,low:combinedNeed-tolerance,high:combinedNeed+tolerance
+ }):null;
+ const rating=DAY_VIEW2_PACE_RATINGS[ratingIndex];
  const badge=byId('planningOverviewStatus');
- badge.dataset.status=status??'unknown';
- badge.textContent=status==='within'?'Within range':status==='low'?'Below range':status==='high'?'Above range':'';
- badge.hidden=!status;
+ badge.textContent=planningNeedLabels[ratingIndex]??'';
+ badge.style.backgroundColor=rating?.color??'';
+ badge.style.color=rating?.text??'';
+ badge.hidden=!rating;
  byId('planningCombinedCoverage').textContent=combinedActual&&(!completeDaily||(weeklyGroups.size&&!completeWeek))
   ?'Total allocation uses the slots reported so far.':'';
  const coverage=!remainingDates.length||reported.size===remainingDates.length?'':reported.size
