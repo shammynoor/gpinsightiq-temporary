@@ -1,0 +1,7 @@
+#loginScreen,#onedrivePanel,#chooseFolder,#sourceSetup,#folderPicker,#signIn,#signOut,#headerAccountMenu{display:none!important}
+ .topbar .gp-compass-brand,.topbar .header-user{display:none!important}.topbar{justify-content:flex-end!important}
+body{background:#f5f7fa}#dashboardShell .main-header{display:none}#dashboardShell{margin-top:0}
+.iq-import-panel{margin:18px 0;padding:18px;border:1px solid #dce4ec;border-radius:12px;background:#f8fbfd}
+.iq-import-panel h3{margin:0 0 8px}.iq-import-panel p{font-size:13px;line-height:1.6;color:#52677c}
+.iq-import-panel input,.iq-import-panel select{max-width:440px}.iq-source-list{list-style:none;padding:0}.iq-source-list li{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:8px 0;font-size:13px}.iq-source-list button{width:auto;font-size:12px;padding:7px 12px}
+.iq-import-panel.drag-over{border:2px dashed #3c6487}.iq-import-status{white-space:pre-wrap;font-size:13px}
