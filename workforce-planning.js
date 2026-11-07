@@ -31,7 +31,16 @@ function projectionCoverage(today){
  };
 }
 
-function annualBookedSlots(today,coverage){
+function listSizeAdjustment(){
+ const months=practiceMonths();
+ const sizes=practiceListValues(months);
+ const reference=sizes.findLastIndex(size=>size>0);
+ if(reference<0)return null;
+ const scaleByMonth=new Map(months.map((month,index)=>[month,sizes[index]>0?sizes[reference]/sizes[index]:1]));
+ return {size:sizes[reference],month:months[reference],scaleByMonth};
+}
+
+function annualBookedSlots(today,coverage,scaleByMonth){
  const totals=new Map();
  for(const row of availabilityRecords){
   const year=row.date.slice(0,4);
@@ -44,7 +53,8 @@ function annualBookedSlots(today,coverage){
   const type=effectiveClinicianType(row.clinician);
   if(!type)continue;
   const key=cellKey(type,year);
-  totals.set(key,(totals.get(key)||0)+row.count);
+  const scale=scaleByMonth?.get(row.date.slice(0,7))??1;
+  totals.set(key,(totals.get(key)||0)+row.count*scale);
  }
  return totals;
 }
@@ -115,11 +125,26 @@ function renderWorkforcePlanning(){
  $('workforcePlanningReadOnly').hidden=isOwner||!types.length;
  const today=GPCorrectness.londonDate();
  const coverage=projectionCoverage(today);
- const totals=annualBookedSlots(today,coverage);
+ const preferences=readChartPreferences();
+ const listSizeToggle=$('workforceAdjustListSize');
+ const listSizePreference='workforcePlanning:adjustListSize';
+ const adjustment=listSizeAdjustment();
+ listSizeToggle.disabled=!adjustment;
+ listSizeToggle.checked=!!adjustment&&preferences[listSizePreference]===true;
+ listSizeToggle.onchange=()=>{
+  writeChartPreference(listSizePreference,listSizeToggle.checked);
+  renderWorkforcePlanning();
+ };
+ const adjusted=listSizeToggle.checked;
+ const listSizeNote=$('workforceListSizeNote');
+ listSizeNote.hidden=!adjusted;
+ listSizeNote.textContent=adjusted
+  ?'Adjusted to a practice list size of '+integer.format(adjustment.size)+' ('+monthFormat.format(Date.parse(adjustment.month+'-01'))+' '+adjustment.month.slice(0,4)+').'
+  :'';
+ const totals=annualBookedSlots(today,coverage,adjusted?adjustment.scaleByMonth:null);
  const coveredYears=new Set(years.filter(year=>slotReportCoverage.some(({start,end})=>
   start<=today&&start<=year+'-12-31'&&end>=year+'-01-01'&&today>=year+'-01-01')));
  if(!coverage.fraction)coveredYears.delete(projectionYear);
- const preferences=readChartPreferences();
  const projection=$('workforceProject');
  const canProject=coverage.fraction>0&&coverage.fraction<1;
  projection.disabled=!canProject;
@@ -129,7 +154,7 @@ function renderWorkforcePlanning(){
   renderWorkforcePlanning();
  };
  const projected=projection.checked;
- const displayCount=(count,year)=>projected&&year===projectionYear?Math.round(count/coverage.fraction):count;
+ const displayCount=(count,year)=>Math.round(projected&&year===projectionYear?count/coverage.fraction:count);
  for(const heading of page.querySelectorAll('[data-workforce-projection-year]')){
   const detail=document.createElement('small');
   detail.textContent=projected?'Projected':canProject?'to '+monthFormat.format(coverage.through):'';
