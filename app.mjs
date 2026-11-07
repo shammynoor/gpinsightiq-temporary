@@ -1,5 +1,5 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=20261107-viewer-removal';
+import {SupabaseBackend} from './backend.mjs?v=20261107-delete-viewer-account';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
@@ -149,12 +149,20 @@ function renderUsers(content,{practiceId=practice?.id,people=members,refresh=rel
    const group=node('div',undefined,'actions');
    if(member.status!=='approved')group.append(button('Approve',async()=>{await backend.setStatus(practiceId,member.user_id,'approved');await refresh();notice('Practice access approved.');}));
    if(member.status!=='suspended')group.append(button('Suspend',async()=>{await backend.setStatus(practiceId,member.user_id,'suspended');await refresh();notice('Practice access suspended.');}));
-   if(!administratorsOnly&&member.role==='viewer')group.append(button('Remove',async()=>{
-    if(!window.confirm('Remove '+member.email+' from this practice? They will need a new invitation and approval to regain access.'))return;
-    await backend.removeViewer(practiceId,member.user_id);
-    await refresh();
-    notice('Viewer removed. You can invite them again at any time.');
-   }));
+   if(!administratorsOnly&&member.role==='viewer'){
+    group.append(button('Remove',async()=>{
+     if(!window.confirm('Remove '+member.email+' from this practice? They will need a new invitation and approval to regain access.'))return;
+     await backend.removeViewer(practiceId,member.user_id);
+     await refresh();
+     notice('Viewer removed. You can invite them again at any time.');
+    }));
+    if(!backend.demo)group.append(button('Delete account',async()=>{
+     if(!window.confirm('Permanently delete the GP Insight IQ account for '+member.email+'? Their email and password will be removed. If you invite them again, they will need to create a new account.'))return;
+     await backend.deleteViewerAccount(practiceId,member.user_id);
+     await refresh();
+     notice('Viewer account deleted. A new invitation will let them create a new account.');
+    }));
+   }
    actions.append(group);
   }
   data.body.append(row);

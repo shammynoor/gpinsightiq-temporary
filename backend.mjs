@@ -26,6 +26,7 @@ export class SupabaseBackend{
  members(practice){return this.rpc('list_members',{p_practice:practice});}
  setStatus(practice,user,status){return this.rpc('set_member_status',{p_practice:practice,p_user:user,p_status:status});}
  removeViewer(practice,user){return this.rpc('remove_practice_viewer',{p_practice:practice,p_user:user});}
+ deleteViewerAccount(practice,user){return this.rpc('delete_practice_viewer_account',{p_practice:practice,p_user:user});}
  importRH(practice,bundle,name){return this.rpc('import_rh',{p_practice:practice,p_tenant:bundle.tenant,p_source:name.slice(0,200),p_rows:bundle.rows});}
  async report(practice){
   const stateResult=await this.client.from('iq_rh_state').select('*').eq('practice_id',practice).maybeSingle();if(stateResult.error)throw stateResult.error;
