@@ -8,6 +8,11 @@
 #workforcePlanningPage :is(th,td) { padding:6px 7px; text-align:center; border-bottom:1px solid #e0e9f1; }
 #workforcePlanningPage th:first-child { width:32%; padding-inline-start:10px; text-align:left; overflow-wrap:anywhere; }
 #workforcePlanningPage tbody tr:last-child > * { border-bottom:0; }
+#workforcePlanningPage .workforce-group-heading th { width:auto; padding-block:0; border-top:1px solid #b6c9da; }
+#workforcePlanningPage .workforce-group-heading button { display:flex; align-items:center; gap:6px; width:100%; min-height:33px; padding:2px 0; border:0; background:transparent; color:#1b5e91; font:inherit; font-weight:700; text-align:left; cursor:pointer; }
+#workforcePlanningPage .workforce-group-heading button span { flex:none; width:1em; }
+#workforcePlanningPage .workforce-clinician-row th { padding-inline-start:20px; }
+#workforcePlanningPage .workforce-team-total { background:#f0f6fb; font-weight:700; }
 #workforcePlanningPage input { box-sizing:border-box; width:100%; max-width:90px; min-width:0; min-height:34px; margin:0; padding:4px 5px; text-align:center; font-size:16px; appearance:textfield; }
 #workforcePlanningPage input::-webkit-inner-spin-button { appearance:none; }
 #workforcePlanningPage input:invalid { border-color:#ad252c; }
@@ -20,5 +25,5 @@
  #workforcePlanningPage input { padding-inline:2px; }
 }
 @media(pointer:coarse) {
- #workforcePlanningPage input { min-height:44px; }
+ #workforcePlanningPage input, #workforcePlanningPage .workforce-group-heading button { min-height:44px; }
 }
