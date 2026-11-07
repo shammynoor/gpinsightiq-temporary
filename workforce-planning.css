@@ -16,23 +16,39 @@
 #workforcePlanningPage.workforce-hide-subtotals .workforce-team-total { display:none; }
 #workforcePlanningPage .workforce-heading { display:flex; flex-wrap:wrap; align-items:center; gap:6px 18px; margin-bottom:10px; }
 #workforcePlanningPage .workforce-heading h2 { margin:0; }
-#workforcePlanningPage .workforce-heading label { display:inline-flex; align-items:center; gap:7px; margin:0; font-size:13px; }
-#workforcePlanningPage .workforce-heading input { appearance:auto; width:16px; height:16px; min-height:0; padding:0; accent-color:#1b5e91; }
+#workforcePlanningPage .workforce-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; margin-bottom:9px; }
+#workforcePlanningPage .workforce-switch { display:inline-flex; align-items:center; gap:8px; min-height:36px; margin:0; font-size:13px; cursor:pointer; }
+#workforcePlanningPage .workforce-switch:has(input:disabled) { opacity:.6; cursor:default; }
+#workforcePlanningPage .workforce-switch .switch { width:36px; height:20px; flex-basis:36px; }
+#workforcePlanningPage .workforce-switch .switch-track { box-sizing:border-box; width:36px; height:20px; border:0; background:#cad7e0; }
+#workforcePlanningPage .workforce-switch .switch-track::before { width:16px; height:16px; }
+#workforcePlanningPage .workforce-switch input:checked + .switch-track { background:#5c8fa8; }
+#workforcePlanningPage .workforce-switch input:checked + .switch-track::before { transform:translateX(16px); }
+#workforcePlanningPage :is(#workforceEnterSessions,#workforceBackToHistory) { width:auto; min-height:36px; margin-inline-start:auto; padding:6px 12px; }
+#workforcePlanningPage .workforce-measure { display:inline-flex; align-items:stretch; gap:4px; width:max-content; max-width:100%; min-width:0; margin:0; padding:6px; border:0; border-radius:17px; background:#ebf1f5; }
+#workforcePlanningPage .workforce-measure label { position:relative; display:flex; min-width:0; margin:0; cursor:pointer; }
+#workforcePlanningPage .workforce-measure input { position:absolute; width:1px; height:1px; opacity:0; }
+#workforcePlanningPage .workforce-measure span { display:grid; place-items:center; min-height:42px; padding:8px clamp(9px,2.5vw,24px); border-radius:12px; color:#52697c; font-size:14px; font-weight:700; line-height:1.2; text-align:center; }
+#workforcePlanningPage .workforce-measure input:checked + span { color:#1b5e91; background:#fff; box-shadow:0 3px 9px rgba(24,55,83,.12); }
+#workforcePlanningPage .workforce-measure input:focus-visible + span { outline:2px solid #1b5e91; }
+#workforcePlanningPage #workforceProjectionNote { margin:8px 0; }
+#workforcePlanningPage [data-workforce-projection-year] small { display:block; font-size:11px; font-weight:400; }
 #workforcePlanningPage tfoot { background:#e4eef7; font-weight:700; }
 #workforcePlanningPage tfoot :is(th,td) { border-top:1px solid #b6c9da; border-bottom:0; }
 #workforcePlanningPage .workforce-slot-share { color:#52697c; font-size:11px; white-space:nowrap; }
-#workforcePlanningPage input { box-sizing:border-box; width:100%; max-width:90px; min-width:0; min-height:34px; margin:0; padding:4px 5px; text-align:center; font-size:16px; appearance:textfield; }
-#workforcePlanningPage input::-webkit-inner-spin-button { appearance:none; }
-#workforcePlanningPage input:invalid { border-color:#ad252c; }
+#workforcePlanningPage input[type="number"] { box-sizing:border-box; width:100%; max-width:90px; min-width:0; min-height:34px; margin:0; padding:4px 5px; text-align:center; font-size:16px; appearance:textfield; }
+#workforcePlanningPage input[type="number"]::-webkit-inner-spin-button { appearance:none; }
+#workforcePlanningPage input[type="number"]:invalid { border-color:#ad252c; }
 #workforcePlanningPage #workforceAveragesBody td { color:#1b5e91; font-weight:700; }
 #workforcePlanningPage .workforce-save-status { margin:8px 0 0; font-size:12px; }
 @media(max-width:520px) {
  #workforcePlanningPage .panel { padding:10px 7px; }
  #workforcePlanningPage :is(th,td) { padding-inline:3px; font-size:12px; }
  #workforcePlanningPage th:first-child { width:34%; padding-inline-start:5px; }
- #workforcePlanningPage input { padding-inline:2px; }
+ #workforcePlanningPage input[type="number"] { padding-inline:2px; }
 }
 @media(pointer:coarse) {
- #workforcePlanningPage input, #workforcePlanningPage .workforce-group-heading button { min-height:44px; }
- #workforcePlanningPage .workforce-heading label { min-height:44px; }
+ #workforcePlanningPage input[type="number"], #workforcePlanningPage .workforce-group-heading button,
+ #workforcePlanningPage .workforce-switch, #workforcePlanningPage .workforce-measure span,
+ #workforcePlanningPage :is(#workforceEnterSessions,#workforceBackToHistory) { min-height:44px; }
 }

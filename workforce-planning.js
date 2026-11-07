@@ -6,13 +6,41 @@ const shareFormat=new Intl.NumberFormat('en-GB',{style:'percent',maximumFraction
 const decimal=new Intl.NumberFormat('en-GB',{minimumFractionDigits:1,maximumFractionDigits:1});
 const cellKey=(type,year)=>JSON.stringify([type,year]);
 const collapsedGroups=new Set();
+const projectionYear='2026';
+const dayMilliseconds=86400000;
+const monthFormat=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
+const dateFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});
 
-function annualBookedSlots(today){
+function projectionCoverage(today){
+ const first=projectionYear+'-01-01',last=projectionYear+'-12-31';
+ const ranges=slotReportCoverage.map(({start,end,asOf})=>[
+  start>first?start:first,[end,asOf||today,today,last].sort()[0]
+ ]).filter(([start,end])=>start<=end).sort(([a],[b])=>a.localeCompare(b));
+ const intervals=[];
+ for(const [start,end] of ranges){
+  const from=Date.parse(start),to=Date.parse(end);
+  const previous=intervals.at(-1);
+  if(previous&&from<=previous[1]+dayMilliseconds)previous[1]=Math.max(previous[1],to);
+  else intervals.push([from,to]);
+ }
+ const days=intervals.reduce((total,[from,to])=>total+(to-from)/dayMilliseconds+1,0);
+ return {
+  intervals,
+  through:intervals.at(-1)?.[1],
+  fraction:days/((Date.parse(last)-Date.parse(first))/dayMilliseconds+1)
+ };
+}
+
+function annualBookedSlots(today,coverage){
  const totals=new Map();
  for(const row of availabilityRecords){
   const year=row.date.slice(0,4);
   if(!years.includes(year)||row.date>today||String(row.availability).toLowerCase()!=='booked'
     ||!isDayView2SlotReportRecord(row)||excludedSlotTypes.has(row.slot)||!(row.count>0))continue;
+  if(year===projectionYear){
+   const date=Date.parse(row.date);
+   if(!coverage.intervals.some(([start,end])=>date>=start&&date<=end))continue;
+  }
   const type=effectiveClinicianType(row.clinician);
   if(!type)continue;
   const key=cellKey(type,year);
@@ -86,12 +114,57 @@ function renderWorkforcePlanning(){
  $('workforcePlanningSaveStatus').hidden=!isOwner||!types.length;
  $('workforcePlanningReadOnly').hidden=isOwner||!types.length;
  const today=GPCorrectness.londonDate();
- const totals=annualBookedSlots(today);
+ const coverage=projectionCoverage(today);
+ const totals=annualBookedSlots(today,coverage);
  const coveredYears=new Set(years.filter(year=>slotReportCoverage.some(({start,end})=>
   start<=today&&start<=year+'-12-31'&&end>=year+'-01-01'&&today>=year+'-01-01')));
+ if(!coverage.fraction)coveredYears.delete(projectionYear);
+ const preferences=readChartPreferences();
+ const projection=$('workforceProject');
+ const canProject=coverage.fraction>0&&coverage.fraction<1;
+ projection.disabled=!canProject;
+ projection.checked=canProject&&preferences['workforcePlanning:projectYear']===true;
+ projection.onchange=()=>{
+  writeChartPreference('workforcePlanning:projectYear',projection.checked);
+  renderWorkforcePlanning();
+ };
+ const projected=projection.checked;
+ const displayCount=(count,year)=>projected&&year===projectionYear?Math.round(count/coverage.fraction):count;
+ for(const heading of page.querySelectorAll('[data-workforce-projection-year]')){
+  const detail=document.createElement('small');
+  detail.textContent=projected?'Projected':canProject?'to '+monthFormat.format(coverage.through):'';
+  heading.replaceChildren(projectionYear,detail);
+ }
+ $('workforceProjectionNote').textContent=coverage.through===undefined?'No 2026 Slot Report coverage yet.'
+  :projected?'2026 projected to December from data through '+dateFormat.format(coverage.through)+' ('+shareFormat.format(coverage.fraction)+' of the year).'
+  :'2026 data through '+dateFormat.format(coverage.through)+'.';
+ const slotsView=$('workforceSlotsView'),averagesView=$('workforceAveragesView');
+ const choices=[...page.querySelectorAll('input[name="workforce-measure"]')];
+ const setMeasure=measure=>{
+  slotsView.hidden=measure==='rate';
+  averagesView.hidden=measure!=='rate';
+  for(const choice of choices)choice.checked=choice.value===measure;
+ };
+ setMeasure(preferences['workforcePlanning:measure']==='rate'?'rate':'slots');
+ for(const choice of choices)choice.onchange=()=>{
+  if(!choice.checked)return;
+  setMeasure(choice.value);
+  writeChartPreference('workforcePlanning:measure',choice.value);
+ };
+ const enter=$('workforceEnterSessions');
+ enter.disabled=!types.length;
+ const overview=$('workforceOverviewView'),sessionsView=$('workforceSessionsView');
+ enter.onclick=()=>{
+  overview.hidden=true;sessionsView.hidden=false;
+  $('workforceSessionsTitle').focus();
+ };
+ $('workforceBackToHistory').onclick=()=>{
+  sessionsView.hidden=true;overview.hidden=false;
+  enter.focus();
+ };
  const toggle=$('workforceShowSubtotals');
  const preference='workforcePlanning:showSubtotals';
- toggle.checked=readChartPreferences()[preference]!==false;
+ toggle.checked=preferences[preference]!==false;
  page.classList.toggle('workforce-hide-subtotals',!toggle.checked);
  toggle.onchange=()=>{
   page.classList.toggle('workforce-hide-subtotals',!toggle.checked);
@@ -112,10 +185,10 @@ function renderWorkforcePlanning(){
  for(const [group,members] of clinicianGroups(types)){
   if(!members.length)continue;
   const controls=addGroupControls([slotsBody,sessionsBody,averagesBody],group,updateVisibleTotals);
-  const groupTotals=new Map(years.map(year=>[
-   year,members.reduce((sum,type)=>sum+(totals.get(cellKey(type,year))??0),0)
-  ]));
-  totalsByGroup.set(group,groupTotals);
+  const countsForYear=(year,transform)=>members.reduce((sum,type)=>sum+transform(totals.get(cellKey(type,year))??0,year),0);
+  const groupTotals=new Map(years.map(year=>[year,countsForYear(year,count=>count)]));
+  const displayedGroupTotals=new Map(years.map(year=>[year,countsForYear(year,displayCount)]));
+  totalsByGroup.set(group,displayedGroupTotals);
   for(const type of members){
    const sessionsRow=addRow(sessionsBody,type);
    const slotsRow=addRow(slotsBody,type);
@@ -129,7 +202,7 @@ function renderWorkforcePlanning(){
     const stored=workforceWeeklySessions.get(key);
     const count=coveredYears.has(year)?totals.get(key)??0:null;
     const slotCell=slotsRow.insertCell();
-    slotCell.textContent=count===null?'—':integer.format(count);
+    slotCell.textContent=count===null?'—':integer.format(displayCount(count,year));
     const groupTotal=groupTotals.get(year);
     if(count!==null&&groupTotal>0){
      const share=document.createElement('span');
@@ -139,7 +212,8 @@ function renderWorkforcePlanning(){
     }
     const average=averagesRow.insertCell();
     const updateAverage=sessions=>{
-     average.textContent=count!==null&&sessions>0?decimal.format(count/(sessions*workingWeeks)):'—';
+     const period=year===projectionYear?coverage.fraction:1;
+     average.textContent=count!==null&&sessions>0?decimal.format(count/(sessions*workingWeeks*period)):'—';
     };
     updateAverage(stored);
     const entry=sessionsRow.insertCell();
@@ -175,7 +249,7 @@ function renderWorkforcePlanning(){
    subtotal.className='workforce-team-total';
    controls.rows.push(subtotal);
    for(const year of years){
-    subtotal.insertCell().textContent=coveredYears.has(year)?integer.format(groupTotals.get(year)):'—';
+    subtotal.insertCell().textContent=coveredYears.has(year)?integer.format(displayedGroupTotals.get(year)):'—';
    }
   }
   controls.refresh();
