@@ -23,6 +23,15 @@ export class SupabaseBackend{
   return data;
  }
  redeem(token){return this.rpc('redeem_invite',{p_token:token});}
+ async viewerAccess(action,fields){
+  const {data,error}=await this.client.functions.invoke('iq-viewer-access-pages',{body:{action,...fields}});
+  if(error){
+   let detail;
+   try{detail=await error.context?.json();}catch{}
+   throw Error(detail?.error||'The request could not be completed. Try again.');
+  }
+  return data;
+ }
  members(practice){return this.rpc('list_members',{p_practice:practice});}
  setStatus(practice,user,status){return this.rpc('set_member_status',{p_practice:practice,p_user:user,p_status:status});}
  removeViewer(practice,user){return this.rpc('remove_practice_viewer',{p_practice:practice,p_user:user});}

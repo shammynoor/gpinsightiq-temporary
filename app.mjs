@@ -1,10 +1,11 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=20261107-delete-viewer-account';
+import {SupabaseBackend} from './backend.mjs?v=20261107-viewer-approval';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
 let backend=null,user=null,context=null,practice=null,report=null,members=[],view='analytics',loadVersion=0,busy=false,recovery=false;
 let analyticsFrame=null,analyticsFrameKey=null;
+const approvalEmailRetries=new Set();
 let invitation=new URL(location.href).searchParams.get('invite');
 const ownerSetup=new URL(location.href).searchParams.get('setup')==='1';
 function node(tag,text,className){const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(className)element.className=className;return element;}
@@ -43,7 +44,9 @@ function updateShell(){
  $('practiceSelect').disabled=!(context?.practices?.length);
  $('pendingPanel').hidden=!!platformView||!!currentApproved();
  $('redeemForm').hidden=backend.demo||['pending','suspended'].includes(practice?.status);
- $('pendingMessage').textContent=practice?.status==='suspended'?'Your practice access is suspended. Contact your practice administrator.':practice?.status==='pending'?'Your invitation has been accepted. Your practice administrator must approve access before you can view data.':'Accept an invitation from your practice administrator to join a workspace.';
+ const viewerPending=practice?.status==='pending'&&practice.role==='viewer';
+ $('pendingHeading').textContent=viewerPending?'Waiting for practice approval':'Approval required';
+ $('pendingMessage').textContent=viewerPending?'Your request has been sent to your practice administrator for approval. We’ll email you when your access is approved.':practice?.status==='suspended'?'Your practice access is suspended. Contact your practice administrator.':practice?.status==='pending'?'Your invitation has been accepted. An administrator must approve your access.':'Accept an invitation from your practice administrator to join a workspace.';
  if(invitation)$('inviteCode').value=invitation;
  if(!canManage(practice)&&view==='users')view='home';if(!context?.platform_admin&&view==='practices')view='home';
  document.querySelectorAll('[data-view]').forEach(b=>{if(b.dataset.view===view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
@@ -147,7 +150,24 @@ function renderUsers(content,{practiceId=practice?.id,people=members,refresh=rel
   const allowed=member.user_id!==user.id&&(context.platform_admin||member.role!=='practice_admin');
   if(allowed){
    const group=node('div',undefined,'actions');
-   if(member.status!=='approved')group.append(button('Approve',async()=>{await backend.setStatus(practiceId,member.user_id,'approved');await refresh();notice('Practice access approved.');}));
+   const approvalKey=practiceId+':'+member.user_id;
+   if(member.status!=='approved')group.append(button('Approve',async()=>{
+    if(backend.demo||member.role!=='viewer'){
+     await backend.setStatus(practiceId,member.user_id,'approved');
+     await refresh();
+     notice('Practice access approved.');
+     return;
+    }
+    await approveViewer(false);
+   }));
+   if(member.status==='approved'&&approvalEmailRetries.has(approvalKey))group.append(button('Retry approval email',()=>approveViewer(true)));
+   async function approveViewer(resend){
+    const result=await backend.viewerAccess('approve',{practice:practiceId,user:member.user_id,resend});
+    if(result.email_submitted===false)approvalEmailRetries.add(approvalKey);
+    else approvalEmailRetries.delete(approvalKey);
+    await refresh();
+    notice(result.email_submitted===false?'Access approved. The email could not be sent. Select Retry approval email.':result.email_submitted?'Access approved and approval email submitted.':'Practice access approved.',result.email_submitted===false);
+   }
    if(member.status!=='suspended')group.append(button('Suspend',async()=>{await backend.setStatus(practiceId,member.user_id,'suspended');await refresh();notice('Practice access suspended.');}));
    if(!administratorsOnly&&member.role==='viewer'){
     group.append(button('Remove',async()=>{
@@ -334,16 +354,48 @@ function showAuthForm(mode){
  $('authHeading').textContent=heading;
  $('authDescription').textContent=description;
 }
-async function acceptInvitation(token){
- await backend.redeem(token);
+async function finishInvitation(){
  invitation=null;
  $('inviteCode').value='';
  history.replaceState({},'',location.pathname);
  showAuthForm('login');
  await reload();
 }
+async function acceptInvitation(token){
+ const result=await backend.viewerAccess('accept',{token});
+ await finishInvitation();
+ if(result.email_submitted===false)notice('Your request is in the approval list. The administrator email could not be sent.',true);
+}
 $('loginForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.login($('email').value,$('password').value);$('password').value='';await loadUser();if(ownerSetup){await backend.claimPlatformAdmin();history.replaceState({},'',location.pathname);await reload();}else if(invitation){await acceptInvitation(invitation);}});});
-$('signupForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{if(!invitation&&!ownerSetup)throw Error('An invitation link is required.');const query=ownerSetup?'?setup=1':'?invite='+encodeURIComponent(invitation);const live=await backend.signup($('signupEmail').value,$('signupPassword').value,location.origin+location.pathname+query);$('signupPassword').value='';if(live){await loadUser();if(ownerSetup){await backend.claimPlatformAdmin();await reload();}else await acceptInvitation(invitation);}else notice(ownerSetup?'Check your email to verify your administrator account.':'Check your email to verify your account, then return to the invitation.');});});
+$('signupForm').addEventListener('submit',event=>{
+ event.preventDefault();
+ run(async()=>{
+  if(!invitation&&!ownerSetup)throw Error('An invitation link is required.');
+  const email=$('signupEmail').value.trim(), password=$('signupPassword').value;
+  if(invitation&&!ownerSetup){
+   const result=await backend.viewerAccess('register',{token:invitation,email,password});
+   if(result.registered){
+    $('signupPassword').value='';
+    $('email').value=email;
+    showAuthForm('login');
+    await backend.login(email,password);
+    user=await backend.user();
+    await finishInvitation();
+    notice(result.email_submitted?'Your practice administrator has been notified.':result.email_submitted===false?'Your request is in the approval list. The administrator email could not be sent.':'Your request is waiting for practice approval.',result.email_submitted===false);
+    return;
+   }
+   if(!result.use_standard_signup)throw Error('Account creation could not be completed. Try again.');
+  }
+  const query=ownerSetup?'?setup=1':'?invite='+encodeURIComponent(invitation);
+  const live=await backend.signup(email,password,location.origin+location.pathname+query);
+  $('signupPassword').value='';
+  if(live){
+   await loadUser();
+   if(ownerSetup){await backend.claimPlatformAdmin();await reload();}
+   else await acceptInvitation(invitation);
+  }else notice(ownerSetup?'Check your email to verify your administrator account.':'Check your email to verify your account, then return to the invitation.');
+ });
+});
 $('forgotPassword').addEventListener('click',()=>run(async()=>{if(!$('email').value||!$('email').checkValidity())throw Error('Enter your email address first.');await backend.reset($('email').value,location.origin+location.pathname);notice('If this account exists, a password-reset email will be sent.');}));
 $('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.password($('newPassword').value);$('newPassword').value='';recovery=false;showAuthForm('login');await loadUser();notice('Your password has been changed.');});});
 $('showSignup').addEventListener('click',()=>showAuthForm('signup'));
@@ -358,7 +410,7 @@ $('createInvitedAccount').addEventListener('click',()=>{
  showAuthForm('signup');
  $('signupEmail').focus();
 });
-$('redeemForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await acceptInvitation($('inviteCode').value.trim());notice('Invitation accepted. Your practice administrator can now approve your access.');});});
+$('redeemForm').addEventListener('submit',event=>{event.preventDefault();run(()=>acceptInvitation($('inviteCode').value.trim()));});
 $('enterDemo').addEventListener('click',()=>run(async()=>{backend=new DemoBackend();user=await backend.user();view='home';notice('Demo mode: fictional practices and accounts. No real sign-in or data storage.');await reload();}));
 $('demoIdentity').addEventListener('change',()=>run(async()=>{backend.identity=$('demoIdentity').value;user=await backend.user();view='home';practice=null;await reload();}));
 $('signOut').addEventListener('click',()=>run(async()=>{const old=backend;++loadVersion;user=null;context=null;practice=null;report=null;members=[];render();await old.logout();if(old.demo){backend=null;$('demoIdentity').value='platform';await initialise();}notice('Signed out.');}));
