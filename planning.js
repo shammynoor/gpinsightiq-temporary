@@ -116,7 +116,8 @@ function renderWeeklyPlanning(){
  slider.parentElement.style.setProperty('--planning-week-progress',offset/Number(slider.max));
  slider.setAttribute('aria-valuetext',weekLabels[offset]);
  page.querySelectorAll('.planning-week-labels span').forEach((label,index)=>label.classList.toggle('active',index===offset));
- const monday=GPCorrectness.shift(GPCorrectness.dateContext(new Date()).week,offset*7);
+ const now=dayView2LondonClock(),minute=Math.floor(now.minute);
+ const monday=GPCorrectness.shift(GPCorrectness.monday(now.date),offset*7);
  const dates=Array.from({length:5},(_,index)=>GPCorrectness.shift(monday,index));
  byId('planningWeekDates').textContent=weekFormat.formatRange(asDate(dates[0]),asDate(dates[4]));
  const targets=window.readUrgentDailyTargets();
@@ -127,9 +128,11 @@ function renderWeeklyPlanning(){
   if(output.value!==value)output.value=value;
  }
  const mixTargets={gp:gp.valueAsNumber,face:face.valueAsNumber};
- const daily=new Map(dates.map(day=>[day,dayTotals()]));
+ const remainingDates=dates.filter(day=>day>=now.date);
+ const daily=new Map(remainingDates.map(day=>[day,dayTotals()]));
  const reported=new Set();
  const snapshot=capacitySnapshotClock();
+ let missingSlotTimes=false;
  for(const row of availabilityRecords){
   const totals=daily.get(row.date);
   if(!totals||row.source==='signposting'||!(row.count>0))continue;
@@ -140,6 +143,10 @@ function renderWeeklyPlanning(){
   const type=effectiveClinicianType(row.clinician),group=clinicianGroupAssignments[type];
   const values=[capacityUrgencyCategory(row.slot),group,purposeAssignments[row.slot],consultAssignments[row.slot],type];
   if(values.some((value,index)=>disabled[index].has(value)))continue;
+  if(row.date===now.date){
+   if(!Number.isFinite(row.minute)){missingSlotTimes=true;continue;}
+   if(row.minute<minute)continue;
+  }
   totals.slots[status]+=row.count;
   const team=teamIndex(group,type);
   if(team>=0)totals.teams[team]+=row.count;
@@ -151,10 +158,23 @@ function renderWeeklyPlanning(){
  body.replaceChildren();footer.replaceChildren();
  const week=dayTotals();
  let targetTotal=0,missingTarget=false,missingSlots=false;
+ let todayNote='';
  for(const day of dates){
+  const label=weekdayFormat.format(asDate(day));
+  if(day<now.date){
+   appendRow(body,label,null,null,mixTargets,{day});
+   continue;
+  }
   const target=targets.get(day),actual=reported.has(day)?daily.get(day):null;
-  appendRow(body,weekdayFormat.format(asDate(day)),target?.bankHoliday?'Bank holiday':target?.suggested,actual,mixTargets,{day});
-  if(target?.suggested!=null)targetTotal+=target.suggested;
+  const today=day===now.date;
+  const suggested=today?target?.remainingNeed?.(minute):target?.suggested;
+  if(today&&!target?.bankHoliday){
+   todayNote=suggested==null?'Today’s remaining demand needs more comparable booking-time history.'
+    :'Today’s predicted need and appointment slots are shown from '+dayView2Time(minute)+'.';
+   if(missingSlotTimes)todayNote+=' Some of today’s slots have no start time and are omitted.';
+  }
+  appendRow(body,label,target?.bankHoliday?'Bank holiday':suggested,actual,mixTargets,{day,compareTotal:!today||!missingSlotTimes});
+  if(suggested!=null)targetTotal+=suggested;
   else if(!target?.bankHoliday)missingTarget=true;
   if(!actual&&!target?.bankHoliday)missingSlots=true;
   if(actual){
@@ -163,10 +183,11 @@ function renderWeeklyPlanning(){
    actual.consultation.forEach((count,index)=>week.consultation[index]+=count);
   }
  }
- appendRow(footer,'Total',missingTarget?null:targetTotal,reported.size?week:null,mixTargets,{compareTotal:!missingSlots});
- byId('planningCoverage').textContent=reported.size===5?'':reported.size
-  ? 'Slot totals cover '+reported.size+' of the 5 weekdays in the report.'
-  : 'The Slot Report contains no appointments for these dates.';
+ appendRow(footer,'Total',!remainingDates.length||missingTarget?null:targetTotal,reported.size?week:null,mixTargets,{compareTotal:!missingSlots&&!missingSlotTimes});
+ const coverage=!remainingDates.length||reported.size===remainingDates.length?'':reported.size
+  ? 'Slot totals cover '+reported.size+' of '+remainingDates.length+' remaining weekdays.'
+  : 'The Slot Report contains no appointments for the remaining dates.';
+ byId('planningCoverage').textContent=[todayNote,coverage].filter(Boolean).join(' ');
 }
 
 window.renderWeeklyPlanning=renderWeeklyPlanning;
@@ -181,5 +202,10 @@ document.addEventListener('DOMContentLoaded',()=>{
  byId('workforceNeedPage').addEventListener('change',event=>{
   if(event.target.matches('[name="planningPeriod"],[data-filter-name]'))scheduleRender();
  });
+ const refreshCurrentWeek=()=>{
+  if(!document.hidden&&byId('planningWeekOffset').value==='0')scheduleRender();
+ };
+ setInterval(refreshCurrentWeek,60000);
+ document.addEventListener('visibilitychange',refreshCurrentWeek);
 });
 })();

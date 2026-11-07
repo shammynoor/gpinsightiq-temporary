@@ -211,6 +211,31 @@ window.readUrgentDailyTargets=()=>{
  renderHistoricalWeekday({planningOnly:true});
  return dailyAppointmentTargets;
 };
+// The daily target and time profile use the same appointment types and fitting dates.
+function bookingTimeProfile(sampleDays,dailyGroups,parts){
+ const samples=new Map(sampleDays.map(day=>[day,{
+  expected:dailyGroups.reduce((count,name)=>count+(parts.get(day)?.get(name)||0),0),
+  timed:0,bins:new Map()
+ }]));
+ const selected=new Set(dailyGroups);
+ for(const row of bookingTimeRecords){
+  const sample=samples.get(row.bookedDay),minute=row.minute;
+  if(!sample||!Number.isInteger(minute)||minute<0||minute>=1440||!(row.count>0)
+   ||excludedSlotTypes.has(row.slot)||!selected.has(capacityUrgencyCategory(row.slot)))continue;
+  sample.timed+=row.count;
+  sample.bins.set(minute,(sample.bins.get(minute)||0)+row.count);
+ }
+ const usable=[...samples.values()].filter(sample=>sample.expected>0
+  &&sample.timed>=sample.expected*.9&&sample.timed<=sample.expected);
+ if(usable.length<6)return null;
+ const remaining=new Float64Array(1441);
+ for(const sample of usable){
+  const scale=sample.expected/sample.timed;
+  for(const [minute,count] of sample.bins)remaining[minute]+=count*scale;
+ }
+ for(let minute=1439;minute>=0;minute--)remaining[minute]+=remaining[minute+1];
+ return remaining;
+}
 function applyForecastHorizon(){
  if(!forecastSuggestionBody||!forecastSuggestionBody.isConnected)return false;
  forecastSuggestionBody.replaceChildren(...forecastSuggestionRows.slice(0,forecastHorizonWeeks()));return true;
@@ -472,6 +497,19 @@ function renderHistoricalWeekday({planningOnly=false}={}){
   }
   forecastSuggestionRows=[...body.children];forecastSuggestionBody=body;
   table.append(body);needsRoot.append(table);applyForecastHorizon();
+  const todayTarget=dailyAppointmentTargets.get(today);
+  if(todayTarget&&todayTarget.suggested!==null){
+   const dow=new Date(today+'T12:00:00Z').getUTCDay();
+   const prediction=dailyPrediction(today,dow),adjacent=adjacentTypes.get(today);
+   const sampleDays=adjacent
+    ? [...adjacentTypes].filter(([day,type])=>type===adjacent&&day>=(earliestBooking||start)&&day<=end).map(([day])=>day)
+    : fittingDays.get(dow);
+   let profile;
+   todayTarget.remainingNeed=minute=>{
+    if(profile===undefined)profile=bookingTimeProfile(sampleDays,dailyGroups,parts);
+    return profile===null?null:Math.ceil(prediction*(profile[minute]/profile[0]));
+   };
+  }
 
  }
  if(panel==='predictions'){forecastRenderCache.predictions={records,signature};return;}
