@@ -2,6 +2,7 @@
 const years=['2023','2024','2025','2026'];
 const workingWeeks=48;
 const integer=new Intl.NumberFormat('en-GB');
+const shareFormat=new Intl.NumberFormat('en-GB',{style:'percent',maximumFractionDigits:1});
 const decimal=new Intl.NumberFormat('en-GB',{minimumFractionDigits:1,maximumFractionDigits:1});
 const cellKey=(type,year)=>JSON.stringify([type,year]);
 const collapsedGroups=new Set();
@@ -90,6 +91,9 @@ function renderWorkforcePlanning(){
  for(const [group,members] of clinicianGroups(types)){
   if(!members.length)continue;
   const controls=addGroupControls([slotsBody,sessionsBody,averagesBody],group);
+  const groupTotals=new Map(years.map(year=>[
+   year,members.reduce((sum,type)=>sum+(totals.get(cellKey(type,year))??0),0)
+  ]));
   for(const type of members){
    const sessionsRow=addRow(sessionsBody,type);
    const slotsRow=addRow(slotsBody,type);
@@ -102,7 +106,15 @@ function renderWorkforcePlanning(){
     const key=cellKey(type,year);
     const stored=workforceWeeklySessions.get(key);
     const count=coveredYears.has(year)?totals.get(key)??0:null;
-    slotsRow.insertCell().textContent=count===null?'—':integer.format(count);
+    const slotCell=slotsRow.insertCell();
+    slotCell.textContent=count===null?'—':integer.format(count);
+    const groupTotal=groupTotals.get(year);
+    if(count!==null&&groupTotal>0){
+     const share=document.createElement('span');
+     share.className='workforce-slot-share';
+     share.textContent='('+shareFormat.format(count/groupTotal)+')';
+     slotCell.append(' ',share);
+    }
     const average=averagesRow.insertCell();
     const updateAverage=sessions=>{
      average.textContent=count!==null&&sessions>0?decimal.format(count/(sessions*workingWeeks)):'—';
@@ -136,11 +148,13 @@ function renderWorkforcePlanning(){
     entry.append(input);
    }
   }
-  const subtotal=addRow(slotsBody,'Total');
-  subtotal.className='workforce-team-total';
-  for(const year of years){
-   const count=members.reduce((sum,type)=>sum+(totals.get(cellKey(type,year))??0),0);
-   subtotal.insertCell().textContent=coveredYears.has(year)?integer.format(count):'—';
+  if(members.length>1){
+   const subtotal=addRow(slotsBody,'Total');
+   subtotal.className='workforce-team-total';
+   controls.rows.push(subtotal);
+   for(const year of years){
+    subtotal.insertCell().textContent=coveredYears.has(year)?integer.format(groupTotals.get(year)):'—';
+   }
   }
   controls.refresh();
  }

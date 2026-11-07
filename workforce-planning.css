@@ -13,6 +13,7 @@
 #workforcePlanningPage .workforce-group-heading button span { flex:none; width:1em; }
 #workforcePlanningPage .workforce-clinician-row th { padding-inline-start:20px; }
 #workforcePlanningPage .workforce-team-total { background:#f0f6fb; font-weight:700; }
+#workforcePlanningPage .workforce-slot-share { color:#52697c; font-size:11px; white-space:nowrap; }
 #workforcePlanningPage input { box-sizing:border-box; width:100%; max-width:90px; min-width:0; min-height:34px; margin:0; padding:4px 5px; text-align:center; font-size:16px; appearance:textfield; }
 #workforcePlanningPage input::-webkit-inner-spin-button { appearance:none; }
 #workforcePlanningPage input:invalid { border-color:#ad252c; }
