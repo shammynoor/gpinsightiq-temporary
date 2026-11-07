@@ -1,0 +1,24 @@
+#workforcePlanningPage .workforce-tables { display:grid; gap:16px; }
+#workforcePlanningPage [hidden] { display:none; }
+#workforcePlanningPage .workforce-table-frame { border:1px solid #b6c9da; border-radius:8px; box-shadow:0 3px 10px rgba(24,55,83,.09); overflow:hidden; }
+#workforcePlanningPage table { width:100%; table-layout:fixed; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+#workforcePlanningPage caption { padding:9px 10px; text-align:left; font-size:14px; font-weight:700; }
+#workforcePlanningPage caption span { display:block; margin-top:3px; color:#52697c; font-size:12px; font-weight:400; }
+#workforcePlanningPage thead { background:#edf4fa; }
+#workforcePlanningPage :is(th,td) { padding:6px 7px; text-align:center; border-bottom:1px solid #e0e9f1; }
+#workforcePlanningPage th:first-child { width:32%; padding-inline-start:10px; text-align:left; overflow-wrap:anywhere; }
+#workforcePlanningPage tbody tr:last-child > * { border-bottom:0; }
+#workforcePlanningPage input { box-sizing:border-box; width:100%; max-width:90px; min-width:0; min-height:34px; margin:0; padding:4px 5px; text-align:center; font-size:16px; appearance:textfield; }
+#workforcePlanningPage input::-webkit-inner-spin-button { appearance:none; }
+#workforcePlanningPage input:invalid { border-color:#ad252c; }
+#workforcePlanningPage #workforceAveragesBody td { color:#1b5e91; font-weight:700; }
+#workforcePlanningPage .workforce-save-status { margin:8px 0 0; font-size:12px; }
+@media(max-width:520px) {
+ #workforcePlanningPage .panel { padding:10px 7px; }
+ #workforcePlanningPage :is(th,td) { padding-inline:3px; font-size:12px; }
+ #workforcePlanningPage th:first-child { width:34%; padding-inline-start:5px; }
+ #workforcePlanningPage input { padding-inline:2px; }
+}
+@media(pointer:coarse) {
+ #workforcePlanningPage input { min-height:44px; }
+}
