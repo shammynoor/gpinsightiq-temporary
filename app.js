@@ -200,9 +200,7 @@ let waitingTrendMonthStart='',waitingTrendMonthEnd='',waitingTrendMonthBounds=''
 const waitingTrendDisabledUrgency=new Set();
 const waitingTrendDisabled={consult:new Set(),purpose:new Set(),capacity:new Set(),clinician:new Set()};
 const waitingDisabledUrgency=new Set();
-let peopleRecords=[];
-let peopleLocum={};
-let peopleClinicianType={};
+let userTypeLocum={};
 // One customisable colour per Clinician Group (never per detailed type).
 let clinicianGroupColours={};
 let clinicianTypeColours={};
@@ -250,36 +248,12 @@ function clinicianColourDot(group){
  const dot=document.createElement('span');dot.className='clinician-colour-dot';
  dot.style.backgroundColor=clinicianGroupColour(group);dot.title=group+' group colour';return dot;
 }
-function normalisePersonName(value){return String(value??'').trim().replace(/\\s+/g,' ')}
-function personKey(name){return normalisePersonName(name).toLocaleLowerCase('en-GB')}
 function suggestedLocum(type){
- // Conservative suggestions only: explicit employment descriptors, not clinical role.
- return /\\b(locum|agency|bank|temporary|temp staff)\\b/i.test(String(type||''))?'yes':'no';
+ if(/\b(locum|agency|bank|temporary|temp staff)\b/i.test(type))return 'yes';
+ return /\b(salaried|permanent)\b/i.test(type)?'no':'unknown';
 }
-function suggestedClinicianType(type){
- const assigned=clinicianAssignments[type];
- if(assigned&&clinicianCategoryNames.includes(assigned))return assigned;
- const exact=clinicianCategoryNames.find(n=>n.toLocaleLowerCase('en-GB')===String(type||'').trim().toLocaleLowerCase('en-GB'));
- return exact||'';
-}
-// Avoid scanning the entire people table for every appointment on every chart refresh.
-let peopleTypeLookup=new Map();
-function rebuildPeopleTypeLookup(){
- peopleTypeLookup=new Map(peopleRecords.map(p=>[personKey(p.name),p.type]));
-}
-function effectiveClinicianType(clinician,person){
- const key=personKey(person);
- if(key){
-  const explicit=peopleClinicianType[key];
-  if(explicit!==undefined){
-   // Explicit Unassigned means use the original CSV user-type mapping.
-   if(explicit&&clinicianCategoryNames.includes(explicit))return explicit;
-  }else{
-   const suggested=suggestedClinicianType(peopleTypeLookup.get(key)||clinician);
-   if(suggested)return suggested;
-  }
- }
- return clinicianAssignments[clinician]||'';
+function effectiveClinicianType(clinician){
+ return Object.hasOwn(clinicianAssignments,clinician)?clinicianAssignments[clinician]||'':'';
 }
 function refreshClinicianCharts(){
  if(!$('chartPage')?.classList.contains('hidden'))scheduleDemandRefresh();
@@ -492,7 +466,6 @@ function renderPeopleGroups(){
   clinicianGroupAssignments[newName]=clinicianGroupAssignments[oldName];
   delete clinicianGroupAssignments[oldName];
   for(const key of Object.keys(clinicianAssignments))if(clinicianAssignments[key]===oldName)clinicianAssignments[key]=newName;
-  for(const key of Object.keys(peopleClinicianType))if(peopleClinicianType[key]===oldName)peopleClinicianType[key]=newName;
   changed();
  };
  for(const group of groups){
@@ -567,11 +540,10 @@ function renderPeopleGroups(){
    });
    const remove=el('button','people-icon-action people-delete-action','×');remove.type='button';remove.title='Delete '+type;remove.setAttribute('aria-label','Delete '+type);
    remove.addEventListener('click',()=>{
-    if(!confirm('Delete clinician type "'+type+'"? Any people or CSV user types assigned to it will become unassigned.'))return;
+    if(!confirm('Delete clinician type "'+type+'"? Any CSV user types assigned to it will become unassigned.'))return;
     clinicianCategoryNames=clinicianCategoryNames.filter(n=>n!==type);delete clinicianTypeColours[type];
     delete clinicianGroupAssignments[type];
     for(const key of Object.keys(clinicianAssignments))if(clinicianAssignments[key]===type)clinicianAssignments[key]='Uncategorised';
-    for(const key of Object.keys(peopleClinicianType))if(peopleClinicianType[key]===type)peopleClinicianType[key]='';
     changed();
    });
    row.append(grip,typeColourPicker(type,'clinician',changed),label,edit,remove);list.append(row);
@@ -907,34 +879,27 @@ function renderPeopleGroupFilter(){
  }
  select.value=clinicianGroupNames.includes(previous)?previous:'';
 }
-function effectivePeopleClinicianType(person){
- const key=personKey(person.name);
- const saved=peopleClinicianType[key];
- // An explicit empty selection means unassigned; don't replace it with a suggestion.
- return saved!==undefined?(clinicianCategoryNames.includes(saved)?saved:''):suggestedClinicianType(person.type);
-}
 function renderPeople(){
  const body=$('peopleTableBody'),count=$('peopleCount');if(!body)return;
  const query=String($('peopleSearch')?.value||'').trim().toLowerCase();
  const group=$('peopleGroupFilter')?.value||'';
  const unassignedOnly=!!$('peopleUnassignedOnly')?.checked;
- const rows=peopleRecords.filter(p=>{
-  const type=effectivePeopleClinicianType(p);
+ const userTypes=[...new Set(availabilityRecords.filter(row=>row.source==='slot').map(row=>row.clinician))]
+  .sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+ const rows=userTypes.filter(userType=>{
+  const type=effectiveClinicianType(userType);
   const assignedGroup=type?clinicianGroupAssignments[type]||'':'';
-  if(unassignedOnly){if(assignedGroup&&assignedGroup!=='Uncategorised')return false;}
+  if(unassignedOnly){if(clinicianCategoryNames.includes(type))return false;}
   else if(group&&assignedGroup!==group)return false;
-  return !query||(p.name+' '+p.type+' '+type+' '+assignedGroup).toLowerCase().includes(query);
- })
-  .sort((a,b)=>a.type.localeCompare(b.type,undefined,{sensitivity:'base'})||a.name.localeCompare(b.name,undefined,{sensitivity:'base'}));
+  return !query||(userType+' '+type+' '+assignedGroup).toLowerCase().includes(query);
+ });
  body.replaceChildren();
- for(const person of rows){
-  const key=personKey(person.name);
+ for(const userType of rows){
   const tr=document.createElement('tr');
-  const name=document.createElement('td');name.textContent=person.name;
-  const type=document.createElement('td');type.textContent=person.type||'Unknown';
+  const type=document.createElement('td');type.textContent=userType;
   const assignedCell=document.createElement('td');assignedCell.className='people-assigned-cell';
   const assigned=document.createElement('select');assigned.className='people-clinician-select';
-  assigned.setAttribute('aria-label','Assigned Clinician Type for '+person.name);
+  assigned.setAttribute('aria-label','Assigned Clinician Type for '+userType);
   const unassigned=document.createElement('option');unassigned.value='';unassigned.textContent='Unassigned';assigned.append(unassigned);
   const clinicianGrouped=new Set();
   for(const groupName of [...clinicianGroupNames].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}))){
@@ -946,10 +911,10 @@ function renderPeople(){
   }
   const ungrouped=clinicianCategoryNames.filter(name=>!clinicianGrouped.has(name)).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
   if(ungrouped.length){const section=document.createElement('optgroup');section.label='Other / Ungrouped';for(const value of ungrouped){const option=document.createElement('option');option.value=value;option.textContent=value;section.append(option)}assigned.append(section)}
-  const stored=peopleClinicianType[key];
-  assigned.value=stored!==undefined&&clinicianCategoryNames.includes(stored)?stored:suggestedClinicianType(person.type);
+  const selectedType=effectiveClinicianType(userType);
+  assigned.value=clinicianCategoryNames.includes(selectedType)?selectedType:'';
   assigned.addEventListener('change',()=>{
-   peopleClinicianType[key]=assigned.value;
+   clinicianAssignments={...clinicianAssignments,[userType]:assigned.value||'Uncategorised'};
    saveCategories();
    refreshClinicianCharts();
    renderPeople();
@@ -957,7 +922,6 @@ function renderPeople(){
   });
   assignedCell.append(assigned);
   const groupCell=document.createElement('td');groupCell.className='people-clinician-group-cell';
-  const selectedType=effectivePeopleClinicianType(person);
   const groupName=selectedType?clinicianGroupAssignments[selectedType]||'':'';
   const validGroup=clinicianGroupNames.includes(groupName);
   const groupBadge=document.createElement('span');groupBadge.className='people-clinician-group-badge';
@@ -967,17 +931,17 @@ function renderPeople(){
   groupCell.append(groupBadge);
   const locumCell=document.createElement('td');locumCell.className='people-locum-cell';
   const locum=document.createElement('select');locum.className='people-locum-select';
-  locum.setAttribute('aria-label','Locum status for '+person.name);
-  for(const [value,label] of [['no','No'],['yes','Yes']]){const option=document.createElement('option');option.value=value;option.textContent=label;locum.append(option)}
-  locum.value=Object.prototype.hasOwnProperty.call(peopleLocum,key)?peopleLocum[key]:suggestedLocum(person.type);
+  locum.setAttribute('aria-label','Locum status for '+userType);
+  for(const [value,label] of [['unknown','Unknown'],['no','No'],['yes','Yes']]){const option=document.createElement('option');option.value=value;option.textContent=label;locum.append(option)}
+  locum.value=Object.hasOwn(userTypeLocum,userType)?userTypeLocum[userType]:suggestedLocum(userType);
   locum.addEventListener('change',()=>{
-   peopleLocum[key]=locum.value;
+   userTypeLocum={...userTypeLocum,[userType]:locum.value};
    saveCategories();
    const status=$('peopleSaveStatus');if(status)status.textContent='Changes are saving automatically to practice workspace.';
   });
-  locumCell.append(locum);tr.append(name,type,assignedCell,groupCell,locumCell);body.append(tr);
+  locumCell.append(locum);tr.append(type,assignedCell,groupCell,locumCell);body.append(tr);
  }
- if(count)count.textContent=rows.length.toLocaleString('en-GB')+' of '+peopleRecords.length.toLocaleString('en-GB')+' people';
+ if(count)count.textContent=rows.length.toLocaleString('en-GB')+' of '+userTypes.length.toLocaleString('en-GB')+' user types';
 }
 
 const slots={selectedOptions:[],replaceChildren(){},append(){},options:[]};
@@ -1200,8 +1164,7 @@ async function loadCloudCategories(options={}){
     try{iqLocalStorage.setItem(PRACTICE_SETTINGS_KEY,JSON.stringify(practiceSettings))}catch(e){}
    }
    updateHomePracticeName();
-   peopleLocum=data.peopleLocum&&typeof data.peopleLocum==='object'&&!Array.isArray(data.peopleLocum)?Object.fromEntries(Object.entries(data.peopleLocum).filter(([key,value])=>typeof key==='string'&&(value==='yes'||value==='no'))):peopleLocum;
-   peopleClinicianType=data.peopleClinicianType&&typeof data.peopleClinicianType==='object'&&!Array.isArray(data.peopleClinicianType)?data.peopleClinicianType:peopleClinicianType;
+   userTypeLocum=Object.fromEntries(Object.entries(data.userTypeLocum||{}).filter(([,value])=>['yes','no','unknown'].includes(value)));
    if(data.clinicianTypeColours&&typeof data.clinicianTypeColours==='object')clinicianTypeColours=Object.fromEntries(Object.entries(data.clinicianTypeColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)));
    if(data.urgencyTypeColours&&typeof data.urgencyTypeColours==='object')urgencyTypeColours=Object.fromEntries(Object.entries(data.urgencyTypeColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)));
    if(data.clinicianGroupColours&&typeof data.clinicianGroupColours==='object'&&!Array.isArray(data.clinicianGroupColours))clinicianGroupColours=Object.fromEntries(Object.entries(data.clinicianGroupColours).filter(([k,v])=>typeof k==='string'&&/^#[0-9a-f]{6}$/i.test(v)));
@@ -1296,8 +1259,7 @@ async function saveCloudCategories(options={}){
   analyticsRoles:ensureAnalyticsRoles(),
    togglePriority:{...togglePriority},
   practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors}},
-  peopleLocum:{...peopleLocum},
-  peopleClinicianType:{...peopleClinicianType},
+  userTypeLocum:{...userTypeLocum},
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
@@ -1511,48 +1473,79 @@ async function showFolderPicker(){$('onedrivePanel').classList.remove('hidden');
 async function showFolderContents(){try{$('pickerPath').textContent=[...folderView.trail.map(x=>x.name),folderView.name].join(' / ');$('pickerEntries').textContent='Loading folders…';const folders=(await children(folderView.id)).filter(x=>x.folder).sort((a,b)=>a.name.localeCompare(b.name));$('pickerEntries').replaceChildren();if(!folders.length)$('pickerEntries').textContent='No subfolders. You can select this folder.';for(const f of folders){const btn=document.createElement('button');btn.className='folder-entry';btn.textContent='📁 '+f.name;btn.onclick=async()=>{folderView={id:f.id,name:f.name,trail:[...folderView.trail,{id:folderView.id,name:folderView.name}]};await showFolderContents()};$('pickerEntries').append(btn)}}catch(e){$('pickerEntries').textContent='Could not list folders: '+e.message}}
 function weekMonday(d){const x=new Date(d);x.setUTCHours(12,0,0,0);x.setUTCDate(x.getUTCDate()-((x.getUTCDay()+6)%7));return x.toISOString().slice(0,10)}
 function parseDate(s){const m=/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec((s||'').trim());if(!m)return null;const mi=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase());if(mi<0)return null;const d=new Date(Date.UTC(Number(m[3]),mi,Number(m[1])));return d.getUTCMonth()===mi&&d.getUTCDate()===Number(m[1])?d:null}
-function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,peopleAggregate,slotStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate){
- const parsed=Papa.parse(csv,{header:true,skipEmptyLines:'greedy'});
- const fields=parsed.meta.fields||[];
- for(const required of ['Appointment Date','Appointment Time','Booked Time to Slot Time','Slot Type','Availability'])if(!fields.includes(required))throw Error('Missing column: '+required);
+const slotUserTypeColumn='User Type of the Session Holder of the Session';
+const slotRequiredColumns=['Appointment Date','Appointment Time','Booked Time to Slot Time',slotUserTypeColumn,'Slot Type','Availability'];
+const slotHeaderlessColumns=[...slotRequiredColumns,'Patient Age','Gender','Town of the Location of the Session','DNA'];
+const slotAvailabilityValues=new Set(['booked','available','blocked','embargoed']);
+
+function parseSlotReportCSV(csv){
+ const parsed=Papa.parse(csv,{delimiter:',',skipEmptyLines:'greedy'});
+ if(parsed.errors.length)throw Error('Slot Report CSV parsing failed: '+parsed.errors[0].message);
+ const clean=value=>String(value??'').trim();
+ const headerIndex=parsed.data.slice(0,30).findIndex(row=>slotRequiredColumns.every(column=>row.some(value=>clean(value)===column)));
+ if(headerIndex>=0){
+  const columns=parsed.data[headerIndex].map(clean);
+  if([...slotRequiredColumns,'DNA'].some(column=>columns.indexOf(column)!==columns.lastIndexOf(column))){
+   throw Error('The Slot Report contains duplicate column headings.');
+  }
+  return {columns,rows:parsed.data.slice(headerIndex+1)};
+ }
+ // Only infer the tested EMIS column order when the first row looks like
+ // appointment data and every row fits the supported positional layout.
+ const first=parsed.data[0];
+ if(!first||!parseDate(clean(first[0]))||!/^\d{1,2}:\d{2}/.test(clean(first[1]))
+     ||!clean(first[3])||!clean(first[4])||!slotAvailabilityValues.has(clean(first[5]).toLowerCase())
+     ||parsed.data.some(row=>row.length<9
+       ||(clean(row[10])&&!/^\d+$/.test(clean(row[10])))
+       ||row.slice(11).some(value=>clean(value)))){
+  throw Error('Slot Report headings were not found and the file does not match the supported headerless layout.');
+ }
+ const hasDNA=parsed.data.some(row=>clean(row[9]));
+ return {columns:slotHeaderlessColumns.slice(0,hasDNA?10:9),rows:parsed.data};
+}
+
+function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,_peopleAggregate,slotStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate){
+ const parsed=parseSlotReportCSV(csv);
+ const columnPositions=new Map(parsed.columns.map((name,index)=>[name,index]));
+ const dna=columnPositions.has('DNA')?{attended:0,didNotAttend:0,unknown:0}:null;
  let valid=0,skipped=0;
  const fillColumns=[
   'Appointment Date',
   'Appointment Time',
-  'User Type of the Session Holder of the Session',
+  slotUserTypeColumn,
   'Slot Type',
   'Availability',
-  'Town of the Location of the Session',
-  'Full Name of the Session Holder of the Session'
+  'Town of the Location of the Session'
  ];
- // Fill down all seven exported fields, independently, within this CSV only.
+ // Fill down the same available fields independently, within this CSV only.
  // Never carry a value from a previous CSV file.
  const previous=Object.fromEntries(fillColumns.map(column=>[column,'']));
- const recognized=new Set(['booked','available','blocked','embargoed']);
- for(const original of parsed.data){
-  const r={...original};
-  const explicitStatus=String(original['Availability']??'').trim();
-  const explicitSlot=String(original['Slot Type']??'').trim();
-  const leadRaw=String(original['Booked Time to Slot Time']??'').trim();
-  const explicitTime=String(original['Appointment Time']??'').trim();
-  // Count every non-empty CSV row after independently filling down the seven columns.
+ for(const original of parsed.rows){
+  const r={};
+  const leadRaw=String(original[columnPositions.get('Booked Time to Slot Time')]??'').trim();
   for(const column of fillColumns){
-   const value=String(r[column]??'').trim();
+   const value=String(original[columnPositions.get(column)]??'').trim();
    if(value)previous[column]=value;
-   else r[column]=previous[column];
+   r[column]=previous[column];
   }
   const day=String(r['Appointment Date']??'').trim();
   const time=String(r['Appointment Time']??'').trim();
   const slotType=String(r['Slot Type']??'').trim();
   const availability=String(r['Availability']??'').trim();
   const status=availability.toLowerCase();
-  if(!recognized.has(status)||!slotType)continue;
+  if(!slotAvailabilityValues.has(status)||!slotType)continue;
   const appointmentDay=parseDate(day);
   if(!appointmentDay)continue;
   const date=appointmentDay.toISOString().slice(0,10);
-  const clinician=String(r['User Type of the Session Holder of the Session']??'').trim()||'Unknown clinician';
-  const person=normalisePersonName(r['Full Name of the Session Holder of the Session']);
-  if(person&&peopleAggregate){const key=JSON.stringify([person,clinician]);peopleAggregate.set(key,(peopleAggregate.get(key)||0)+1)}
+  const clinician=r[slotUserTypeColumn]||'Unknown clinician';
+  // Preserve the aggregate key shape so existing reports can still load.
+  const person='';
+  if(dna){
+   const outcome=String(original[columnPositions.get('DNA')]??'').trim().toLowerCase();
+   if(outcome==='did not attend')dna.didNotAttend++;
+   else if(outcome==='attended')dna.attended++;
+   else dna.unknown++;
+  }
   if(slotStats){const stat=slotStats.get(slotType)||{count:0,min:date,max:date};stat.count++;if(date<stat.min)stat.min=date;if(date>stat.max)stat.max=date;slotStats.set(slotType,stat)}
   const slotClock=/^(\d{1,2}):(\d{2})/.exec(time);
   const appointmentMinute=slotClock&&Number(slotClock[1])<24&&Number(slotClock[2])<60?Number(slotClock[1])*60+Number(slotClock[2]):null;
@@ -1587,7 +1580,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   const key=JSON.stringify([bookedDay,slotType,clinician,person]);
   aggregated.set(key,(aggregated.get(key)||0)+1);valid++;
  }
- return {valid,skipped};
+ return {valid,skipped,dna};
 }
 // Drag-and-drop category editor. Existing practice workspace JSON schema remains unchanged.
 let pickedSlot=null;
@@ -1705,16 +1698,9 @@ function csvFileDrag(event){
  return [...(event.dataTransfer?.types||[])].includes('Files');
 }
 function validateReplacementCSV(text){
- const parsed=Papa.parse(text,{header:true,preview:15,skipEmptyLines:'greedy'});
- if(parsed.errors?.length)throw Error('CSV parsing failed: '+parsed.errors[0].message);
- const columns=(parsed.meta.fields||[]).map(x=>String(x||'').replace(/^\uFEFF/,'').trim());
- const required=['Appointment Date','Appointment Time','Booked Time to Slot Time',
-  'Slot Type','Availability','User Type of the Session Holder of the Session',
-  'Full Name of the Session Holder of the Session','Town of the Location of the Session'];
- const missing=required.filter(x=>!columns.includes(x));
- if(missing.length)throw Error('CSV is incompatible. Missing column(s): '+missing.join(', '));
- if(!parsed.data.length)throw Error('CSV has no appointment rows.');
- return {columns,previewRows:parsed.data.length};
+ const {columns,rows}=parseSlotReportCSV(text);
+ if(!rows.length)throw Error('CSV has no appointment rows.');
+ return {columns,previewRows:Math.min(rows.length,15)};
 }
 function validateSignpostingReplacementCSV(text){
  const parsed=Papa.parse(text,{header:true,preview:15,skipEmptyLines:'greedy',bom:true});
@@ -1998,7 +1984,7 @@ function parseCSVContribution(csvText,name){
  if(!/slot[\s_-]*report/i.test(name))return {kind:'other'};
  const maps=Array.from({length:8},()=>new Map());
  const stats=aggregateCSV(csvText,...maps);
- return {kind:'slot',maps,valid:stats.valid,skipped:stats.skipped};
+ return {kind:'slot',maps,valid:stats.valid,skipped:stats.skipped,dna:stats.dna};
 }
 async function loadFolder(force=true){if(!selectedFolder||busy)return;busy=true;setButtons();showRefreshFeedback('Refreshing data…',true);setSync('Checking practice workspace CSV files…');try{
  const items=(await children(selectedFolder.id)).filter(f=>f.file&&/\.csv$/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name));if(!items.length)throw Error('No CSV files found directly inside this folder.');updateHomeReportDates(items);
@@ -2073,17 +2059,6 @@ async function loadFolder(force=true){if(!selectedFolder||busy)return;busy=true;
    }
   }
  }
- const peopleByName=new Map();
- for(const [key,count] of peopleAggregate){
-  const [name,type]=JSON.parse(key);
-  const id=name.toLocaleLowerCase('en-GB');
-  const entry=peopleByName.get(id)||{name,types:new Map()};
-  entry.types.set(type,(entry.types.get(type)||0)+count);
-  peopleByName.set(id,entry);
- }
- peopleRecords=[...peopleByName.values()].map(({name,types})=>({name,type:[...types].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0][0]})).sort((a,b)=>a.type.localeCompare(b.type)||a.name.localeCompare(b.name));
- rebuildPeopleTypeLookup();
- renderPeople();renderSlotInclusion();renderSlotTable();
  waitingTimeRecords=[...waitingAggregate].map(([key,count])=>{const [slot,day,clinician,person,appointmentMonth]=JSON.parse(key);return {slot,day,clinician,person,appointmentMonth,status:'Booked',count}});
  waitingTrendRecords=[...waitingTrendAggregate].map(([key,count])=>{const [slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes]=JSON.parse(key);return {slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,status:'Booked',count}}).sort((a,b)=>a.leadMinutes-b.leadMinutes);
  waitingTrendDimensionCache=new WeakMap();
@@ -2095,7 +2070,7 @@ async function loadFolder(force=true){if(!selectedFolder||busy)return;busy=true;
  // Assign obvious names on first encounter; retain any existing manual choices.
  // Do not guess assignments: unknown slot types stay Uncategorised until manually assigned.
 
- saveCategories(false);renderSlotInclusion();renderSlotTable();lastFingerprint=fingerprint;
+ saveCategories(false);renderPeople();renderSlotInclusion();renderSlotTable();lastFingerprint=fingerprint;
 const drawingErrors=[];
  for(const [label,draw] of [
   ['category filters',()=>rebuildCategoryFilter()],
@@ -2776,7 +2751,7 @@ let groupUrgencyNames=[],groupUrgencyAssignments={};
 let clinicianGroupNames=[],clinicianGroupAssignments={};
 const STORAGE_KEY='appointment-dashboard-categories-v1';let categoryNames=['Urgent','Routine','Follow up'],assignments={};try{const saved=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');categoryNames=Array.isArray(saved.categories)&&saved.categories.length?saved.categories.filter(x=>typeof x==='string'&&x.trim()&&x!=='Uncategorised'):['Urgent','Routine','Follow up'];assignments=saved.assignments&&typeof saved.assignments==='object'?saved.assignments:{};}catch(e){}let clinicianCategoryNames=[],clinicianAssignments={};try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(Array.isArray(local.clinicianCategories))clinicianCategoryNames=validCategoryNames(local.clinicianCategories);if(local.clinicianAssignments)clinicianAssignments=validAssignments(local.clinicianAssignments,clinicianCategoryNames)}catch(e){}let capacityCategoryNames=['Core Capacity','Additional Capacity'],capacityColours={},capacityAssignments={};try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(Array.isArray(local.capacityCategories))capacityCategoryNames=validCategoryNames(local.capacityCategories);capacityAssignments=validAssignments(local.capacityAssignments||{},capacityCategoryNames);if(local.capacityColours&&typeof local.capacityColours==='object')capacityColours=Object.fromEntries(Object.entries(local.capacityColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)));}catch(e){}let purposeCategoryNames=[],purposeColours={},purposeAssignments={};try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');purposeCategoryNames=validCategoryNames(local.purposeCategories||[]);purposeAssignments=validAssignments(local.purposeAssignments||{},purposeCategoryNames);if(local.purposeColours&&typeof local.purposeColours==='object')purposeColours=Object.fromEntries(Object.entries(local.purposeColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)));}catch(e){}let consultModeColours={};let consultCategoryNames=[],consultAssignments={};try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(Array.isArray(local.consultCategories))consultCategoryNames=validCategoryNames(local.consultCategories);if(local.consultAssignments)consultAssignments=validAssignments(local.consultAssignments,consultCategoryNames);if(local.consultModeColours&&typeof local.consultModeColours==='object')consultModeColours=Object.fromEntries(Object.entries(local.consultModeColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)))}catch(e){}try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(Array.isArray(local.groupUrgencyCategories))groupUrgencyNames=validCategoryNames(local.groupUrgencyCategories);if(local.groupUrgencyAssignments)groupUrgencyAssignments=validAssignments(local.groupUrgencyAssignments,groupUrgencyNames);if(local.urgencyGroupColours&&typeof local.urgencyGroupColours==='object')urgencyGroupColours=local.urgencyGroupColours;if(local.urgencyTypeColours&&typeof local.urgencyTypeColours==='object')urgencyTypeColours=local.urgencyTypeColours}catch(e){}
 try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(Array.isArray(local.clinicianGroupCategories))clinicianGroupNames=validCategoryNames(local.clinicianGroupCategories);if(local.clinicianGroupAssignments)clinicianGroupAssignments=validAssignments(local.clinicianGroupAssignments,clinicianGroupNames)}catch(e){}
-try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(local.peopleLocum&&typeof local.peopleLocum==='object')peopleLocum=local.peopleLocum;if(local.peopleClinicianType&&typeof local.peopleClinicianType==='object')peopleClinicianType=local.peopleClinicianType;if(local.clinicianTypeColours&&typeof local.clinicianTypeColours==='object')clinicianTypeColours=local.clinicianTypeColours;if(local.urgencyTypeColours&&typeof local.urgencyTypeColours==='object')urgencyTypeColours=local.urgencyTypeColours;if(local.clinicianGroupColours&&typeof local.clinicianGroupColours==='object')clinicianGroupColours=local.clinicianGroupColours}catch(e){}
+try{const local=JSON.parse(iqLocalStorage.getItem(STORAGE_KEY)||'{}');if(local.userTypeLocum&&typeof local.userTypeLocum==='object')userTypeLocum=local.userTypeLocum;if(local.clinicianTypeColours&&typeof local.clinicianTypeColours==='object')clinicianTypeColours=local.clinicianTypeColours;if(local.urgencyTypeColours&&typeof local.urgencyTypeColours==='object')urgencyTypeColours=local.urgencyTypeColours;if(local.clinicianGroupColours&&typeof local.clinicianGroupColours==='object')clinicianGroupColours=local.clinicianGroupColours}catch(e){}
 
 const togglePriority={urgency:[],mode:[],purpose:[],capacity:[]};
 const prioritySources={urgency:()=>groupUrgencyNames,mode:()=>consultCategoryNames,purpose:()=>purposeCategoryNames,capacity:()=>capacityCategoryNames};
@@ -2848,7 +2823,7 @@ function setupTogglePriority(){
  refreshPriorityToggles();
 }
 
-function ensureFollowUpCategory(){if(!categoryNames.some(c=>c.toLowerCase().replace(/[\s-]+/g,'')==='followup'))categoryNames.push('Follow up')}ensureFollowUpCategory();function guessCategory(t){return /RED|YELLOW|AMBER|URGENT|SAME DAY|ACUTE/i.test(t)?'Urgent':/GREEN|FOLLOW UP|ROUTINE/i.test(t)?'Routine':null}function saveCategories(sync=true){ensureAnalyticsRoles();queueMicrotask(refreshPrimaryApptTypeBoxes);capacityPaceCache=null;lastConsultFilterNames=[];try{iqLocalStorage.setItem(STORAGE_KEY,JSON.stringify({categories:categoryNames,assignments,clinicianCategories:clinicianCategoryNames,clinicianAssignments,consultCategories:consultCategoryNames,consultAssignments,groupUrgencyCategories:groupUrgencyNames,groupUrgencyAssignments,urgencyGroupColours,appointmentCategoryNames,appointmentCategoryAssignments,appointmentCategoryColours,clinicianGroupCategories:clinicianGroupNames,clinicianGroupAssignments,peopleLocum,peopleClinicianType,clinicianGroupColours,clinicianTypeColours,urgencyTypeColours,purposeCategories:purposeCategoryNames,purposeColours,purposeAssignments,capacityCategories:capacityCategoryNames,capacityColours,capacityAssignments,consultModeColours,togglePriority:{...togglePriority},excludedSlotTypes:[...excludedSlotTypes]}));}catch(e){alert('Could not save settings in this browser. Please try again.')}if(sync)markCategoryDirty()}function allCategories(){return [...categoryNames,'Uncategorised']}function rebuildCategoryFilter(){const old=new Set([...slots.selectedOptions].map(o=>o.value));slots.replaceChildren();for(const c of allCategories()){const o=document.createElement('option');o.value=c;o.textContent=c;o.selected=old.has(c);slots.append(o)}}function renderEditor(){renderDropEditor('urgency');updateAvailabilityUrgencyFilter()}
+function ensureFollowUpCategory(){if(!categoryNames.some(c=>c.toLowerCase().replace(/[\s-]+/g,'')==='followup'))categoryNames.push('Follow up')}ensureFollowUpCategory();function guessCategory(t){return /RED|YELLOW|AMBER|URGENT|SAME DAY|ACUTE/i.test(t)?'Urgent':/GREEN|FOLLOW UP|ROUTINE/i.test(t)?'Routine':null}function saveCategories(sync=true){ensureAnalyticsRoles();queueMicrotask(refreshPrimaryApptTypeBoxes);capacityPaceCache=null;lastConsultFilterNames=[];try{iqLocalStorage.setItem(STORAGE_KEY,JSON.stringify({categories:categoryNames,assignments,clinicianCategories:clinicianCategoryNames,clinicianAssignments,consultCategories:consultCategoryNames,consultAssignments,groupUrgencyCategories:groupUrgencyNames,groupUrgencyAssignments,urgencyGroupColours,appointmentCategoryNames,appointmentCategoryAssignments,appointmentCategoryColours,clinicianGroupCategories:clinicianGroupNames,clinicianGroupAssignments,userTypeLocum,clinicianGroupColours,clinicianTypeColours,urgencyTypeColours,purposeCategories:purposeCategoryNames,purposeColours,purposeAssignments,capacityCategories:capacityCategoryNames,capacityColours,capacityAssignments,consultModeColours,togglePriority:{...togglePriority},excludedSlotTypes:[...excludedSlotTypes]}));}catch(e){alert('Could not save settings in this browser. Please try again.')}if(sync)markCategoryDirty()}function allCategories(){return [...categoryNames,'Uncategorised']}function rebuildCategoryFilter(){const old=new Set([...slots.selectedOptions].map(o=>o.value));slots.replaceChildren();for(const c of allCategories()){const o=document.createElement('option');o.value=c;o.textContent=c;o.selected=old.has(c);slots.append(o)}}function renderEditor(){renderDropEditor('urgency');updateAvailabilityUrgencyFilter()}
 function renderGroupUrgencyEditor(){renderDropEditor('groupUrgency');updateAvailabilityUrgencyFilter()}document.getElementById('addCategory').onclick=()=>{const el=document.getElementById('newCategory');const c=el.value.trim();if(!c)return;if(c.toLowerCase()==='uncategorised'||categoryNames.some(x=>x.toLowerCase()===c.toLowerCase())){alert('This category name already exists or is reserved.');return}categoryNames.push(c);el.value='';saveCategories();rebuildCategoryFilter();renderEditor();renderGroupUrgencyEditor()};document.getElementById('newCategory').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('addCategory').click()});document.getElementById('slotSearch').addEventListener('input',renderEditor);
 
 /* Personal profile is private to this signed-in account and browser. */
@@ -5087,7 +5062,7 @@ function validateCloudCategories(data){
  for(const key of ['categories','clinicianCategories','consultCategories','purposeCategories','capacityCategories','clinicianGroupCategories','groupUrgencyCategories','appointmentCategoryNames','excludedSlotTypes']){
   if(data[key]!==undefined&&(!Array.isArray(data[key])||data[key].some(v=>typeof v!=='string')))invalid(key);
  }
- for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','peopleClinicianType','peopleLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
+ for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
   if(data[key]!==undefined&&(!object(data[key])||Object.entries(data[key]).some(([k,v])=>['__proto__','constructor','prototype'].includes(k)||typeof v!=='string')))invalid(key);
  }
  if(data.analyticsRoles!==undefined&&!object(data.analyticsRoles))invalid('analyticsRoles');
@@ -5190,8 +5165,7 @@ function analyticsSettingsSnapshot(){
   analyticsRoles:ensureAnalyticsRoles(),
    togglePriority:{...togglePriority},
   practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors}},
-  peopleLocum:{...peopleLocum},
-  peopleClinicianType:{...peopleClinicianType},
+  userTypeLocum:{...userTypeLocum},
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
@@ -5344,17 +5318,6 @@ async function loadFolder(force=true){
    }
   }
  }
- const peopleByName=new Map();
- for(const [key,count] of peopleAggregate){
-  const [name,type]=JSON.parse(key);
-  const id=name.toLocaleLowerCase('en-GB');
-  const entry=peopleByName.get(id)||{name,types:new Map()};
-  entry.types.set(type,(entry.types.get(type)||0)+count);
-  peopleByName.set(id,entry);
- }
- peopleRecords=[...peopleByName.values()].map(({name,types})=>({name,type:[...types].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0][0]})).sort((a,b)=>a.type.localeCompare(b.type)||a.name.localeCompare(b.name));
- rebuildPeopleTypeLookup();
- renderPeople();renderSlotInclusion();renderSlotTable();
  waitingTimeRecords=[...waitingAggregate].map(([key,count])=>{const [slot,day,clinician,person,appointmentMonth]=JSON.parse(key);return {slot,day,clinician,person,appointmentMonth,status:'Booked',count}});
  waitingTrendRecords=[...waitingTrendAggregate].map(([key,count])=>{const [slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes]=JSON.parse(key);return {slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,status:'Booked',count}}).sort((a,b)=>a.leadMinutes-b.leadMinutes);
  waitingTrendDimensionCache=new WeakMap();
@@ -5366,7 +5329,7 @@ async function loadFolder(force=true){
  // Assign obvious names on first encounter; retain any existing manual choices.
  // Do not guess assignments: unknown slot types stay Uncategorised until manually assigned.
 
- saveCategories(false);renderSlotInclusion();renderSlotTable();lastFingerprint=fingerprint;
+ saveCategories(false);renderPeople();renderSlotInclusion();renderSlotTable();lastFingerprint=fingerprint;
 const drawingErrors=[];
  for(const [label,draw] of [
   ['category filters',()=>rebuildCategoryFilter()],
@@ -5412,8 +5375,18 @@ function iqRenderSources(){
  for(const source of iqSources){
   const option=document.createElement('option');option.value=source.source_key;option.textContent=(source.kind==='slot'?'Slot: ':'Signposting: ')+source.source_name;iqSourceSelect.append(option);
   const row=document.createElement('li'),text=document.createElement('span'),remove=document.createElement('button');text.textContent=option.textContent+' · '+source.row_count.toLocaleString('en-GB')+' records · '+new Date(source.clinical_at).toLocaleString('en-GB');remove.type='button';remove.textContent='Remove';remove.onclick=async()=>{if(iqUploading)return;if(!confirm('Remove '+source.source_name+' from this practice’s analytics?'))return;try{await iqBridge.remove(source.source_key,source.revision);await loadFolder(true);}catch(error){iqUploadStatus.textContent=error.message;}};row.append(text,remove);list.append(row);
+  if(source.kind==='slot'){
+   const outcomes=document.createElement('small');
+   outcomes.style.display='block';
+   outcomes.textContent=slotOutcomeSummary(iqContributions.get(source.source_key)?.value?.dna);
+   text.append(outcomes);
+  }
  }
  if([...iqSourceSelect.options].some(option=>option.value===selected))iqSourceSelect.value=selected;
+}
+function slotOutcomeSummary(dna){
+ if(!dna)return 'Attendance outcomes unavailable.';
+ return 'Attendance: '+dna.attended.toLocaleString('en-GB')+' attended, '+dna.didNotAttend.toLocaleString('en-GB')+' did not attend, '+dna.unknown.toLocaleString('en-GB')+' unknown.';
 }
 async function replaceExistingCSV(file){
  if(iqUploading)return;
@@ -5424,15 +5397,14 @@ async function replaceExistingCSV(file){
   await iqBridge.ensure();
   const text=await file.text();
   if(/\.json$/i.test(file.name)){
-   const settings=parseSettingsJSON(text);delete settings.folder;if(!confirm('Replace this practice’s shared settings with '+file.name+'? Personal display preferences are kept separately.'))return;
+   const settings=parseSettingsJSON(text);delete settings.folder;delete settings.peopleClinicianType;delete settings.peopleLocum;if(!confirm('Replace this practice’s shared settings with '+file.name+'? Personal display preferences are kept separately.'))return;
    iqSettingsRevision=await iqBridge.saveSettings(settings,iqSettingsRevision);await loadCloudCategories({strict:true});await loadFolder(true);iqUploadStatus.textContent='Practice settings imported.';return;
   }
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
   if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);await loadFolder(true);iqUploadStatus.textContent='Rapid Health import finished.';return;}
-  const kind=headers.includes('Appointment Date')&&headers.includes('Availability')?'slot':headers.includes('Code Term')&&headers.includes('Date')?'signposting':null;
-  if(!kind)throw Error('This is not a recognised Slot, Signposting or Rapid Health export.');
+  const kind=headers.includes('Code Term')&&headers.includes('Date')?'signposting':'slot';
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
-  const count=kind==='slot'?contribution.maps[1].size&&[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
+  const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
   if(!count)throw Error('No valid records were found. The existing report has been preserved.');
   let existing=iqSources.find(row=>row.source_key===iqSourceSelect?.value);
   if(existing&&existing.kind!==kind)throw Error('Choose an existing report source of the same type.');
@@ -5443,7 +5415,9 @@ async function replaceExistingCSV(file){
   if(!confirm(message))return;
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
   await iqBridge.save({existing,kind,name:existing?.source_name||file.name,clinical_at:clinical.toISOString(),count,contribution});
-  await loadFolder(true);iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.';
+  await loadFolder(true);
+  const outcome=kind==='slot'?' '+slotOutcomeSummary(contribution.dna):'';
+  iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.'+outcome;
  }catch(error){if(iqUploadStatus)iqUploadStatus.textContent='Upload failed: '+error.message;csvDropStatus('Upload failed: '+error.message,true);}
  finally{iqUploading=false;csvDropBusy=false;}
 }
