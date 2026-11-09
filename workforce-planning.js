@@ -177,12 +177,17 @@ function renderWorkforcePlanning(){
   writeChartPreference('workforcePlanning:measure',choice.value);
  };
  const enter=$('workforceEnterSessions');
- enter.disabled=!types.length;
+ enter.hidden=!isOwner;
+ enter.disabled=!isOwner||!types.length;
  const overview=$('workforceOverviewView'),sessionsView=$('workforceSessionsView');
- enter.onclick=()=>{
+ if(!isOwner){
+  sessionsView.hidden=true;
+  overview.hidden=false;
+ }
+ enter.onclick=isOwner?()=>{
   overview.hidden=true;sessionsView.hidden=false;
   $('workforceSessionsTitle').focus();
- };
+ }:null;
  $('workforceBackToHistory').onclick=()=>{
   sessionsView.hidden=true;overview.hidden=false;
   enter.focus();
