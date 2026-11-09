@@ -2416,12 +2416,12 @@ function historicBookingHasData(){
   return !!group&&!disabledDemandUrgencyGroups.has(group);
  });
 }
-let historicBulkFilterChange=false;
+let appointmentBulkFilterChange=false;
 function changeHistoricBookingToggle(disabled,name,checked,input){
  const wasOff=disabled.has(name);
  if(checked)disabled.delete(name);else disabled.add(name);
  demandFilterCache=new WeakMap();clinicianMatchCache=new Map();
- if(!historicBulkFilterChange&&!chartPreferenceRestoring&&!historicBookingHasData()){
+ if(!appointmentBulkFilterChange&&!chartPreferenceRestoring&&!historicBookingHasData()){
   if(wasOff)disabled.add(name);else disabled.delete(name);
   input.checked=!wasOff;
   demandFilterCache=new WeakMap();clinicianMatchCache=new Map();
@@ -4216,7 +4216,7 @@ function changeAvailabilityFilter(page,disabled,name,checked,checkbox){
  if(checked)disabled.delete(name);else disabled.add(name);
  // Reject any change that would remove every appointment from the chart.
  // If source data itself has no matches, do not block filter changes.
- if(!chartPreferenceRestoring&&availabilityRecordsInRange(page).length&&!availabilityHasVisibleRecords(page)){
+ if(!appointmentBulkFilterChange&&!chartPreferenceRestoring&&availabilityRecordsInRange(page).length&&!availabilityHasVisibleRecords(page)){
   if(previouslyOff)disabled.add(name);else disabled.delete(name);
   checkbox.checked=!previouslyOff;
   return;
@@ -5028,9 +5028,9 @@ setupTogglePriority();
 
 /* Appointment Type Toggle Box: shared outline fieldsets; individual types own selection. */
 const PRIMARY_APPT_ROOT_IDS=['demandUrgencyToggles','urgentCategoryToggles','routineCategoryToggles','plannedCategoryToggles','dayView2UrgencyToggles','waitingUrgencyToggles','waitingTrendUrgencyToggles','dailyForecastFilters','weeklyForecastFilters','bookingTimesUrgencyFilters','planningAppointment'];
-function historicFilterActions(group,label){
+function appointmentFilterActions(group,label){
  const actions=document.createElement('span');
- actions.className='historic-filter-actions';
+ actions.className='appointment-filter-actions';
  const icons=[
   [false,'Clear','<path d="m7 21-4-4a2 2 0 0 1 0-3L14 3a2 2 0 0 1 3 0l4 4a2 2 0 0 1 0 3L10 21H7Zm1-11 8 8M10 21h12"/>'],
   [true,'Select all in','<path d="m2 12 5 5L19 5m-8 12 3 3L23 9"/>']
@@ -5042,14 +5042,14 @@ function historicFilterActions(group,label){
   button.setAttribute('aria-label',button.title);
   button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+path+'</svg>';
   button.addEventListener('click',()=>{
-   historicBulkFilterChange=true;
+   appointmentBulkFilterChange=true;
    try{
     for(const input of group.querySelectorAll('label.filter-row input[type="checkbox"]')){
      if(input.disabled||input.closest('.filter-row').hidden||input.checked===checked)continue;
      input.checked=checked;
      input.dispatchEvent(new Event('change',{bubbles:true}));
     }
-   }finally{historicBulkFilterChange=false;}
+   }finally{appointmentBulkFilterChange=false;}
    updateCollapsedFilterSummaries();
   });
   actions.append(button);
@@ -5084,19 +5084,13 @@ function enhancePrimaryApptTypeBox(root){
   const children=document.createElement('div');children.className='primary-appt-category-items';
   // Move the original rows, retaining their sizes, checked state and event handlers.
   for(const item of items)children.append(item.row);
-  if(root.id==='demandUrgencyToggles')title.append(historicFilterActions(section,category));
+  title.append(appointmentFilterActions(section,category));
   section.append(title,children);fragment.append(section);
  }
  root.replaceChildren(fragment);
  if(root.contains(focused))focused.focus();
 }
 function installPrimaryApptTypeBoxConvention(){
- for(const id of ['clinicianChartFilters','demandPurposeToggles','demandCapacityToggles','consultChartFilters']){
-  const group=$(id);
-  const heading=group?.closest('section')?.querySelector('.collapsible-filter-heading');
-  const button=heading?.querySelector('.collapse-filter-button');
-  if(button)heading.append(historicFilterActions(group,button.firstChild.textContent.trim()));
- }
  // Observe only the small set of appointment-type filter roots, never the whole
  // dashboard: Plotly and tooltip DOM updates can otherwise cause constant work.
  for(const id of PRIMARY_APPT_ROOT_IDS){
