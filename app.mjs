@@ -1,5 +1,5 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=20261107-viewer-approval';
+import {SupabaseBackend} from './backend.mjs?v=chart-preference-sync';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
@@ -84,6 +84,8 @@ function renderAnalytics(){
   list:()=>checked(()=>targetBackend.analyticsSources(selected)),
   read:key=>checked(async()=>unpackContribution(await targetBackend.analyticsPayload(selected,key))),
   readSettings:()=>checked(()=>targetBackend.analyticsSettings(selected)),
+  readChartPreferences:targetBackend.demo?null:()=>checked(()=>targetBackend.chartPreferences(selected,identity)),
+  writeChartPreferences:targetBackend.demo?null:(values,seed)=>checked(()=>targetBackend.saveChartPreferences(selected,identity,values,seed)),
   saveSettings:(settings,revision)=>checked(()=>targetBackend.saveAnalyticsSettings(selected,settings,revision),true),
   save:source=>checked(async()=>targetBackend.saveAnalyticsSource(selected,{source_key:source.existing?.source_key||await sourceKey(source.kind,source.name),kind:source.kind,source_name:source.name.slice(0,200),clinical_at:source.clinical_at,row_count:source.count,payload:await packContribution(source.contribution),revision:source.existing?.revision||0}),true),
   remove:(key,revision)=>checked(()=>targetBackend.deleteAnalyticsSource(selected,key,revision),true),
@@ -93,7 +95,7 @@ function renderAnalytics(){
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=practice-report-remove';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=waiting-axis-chart-sync';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');

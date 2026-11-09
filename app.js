@@ -964,7 +964,57 @@ setInterval(()=>updateHeaderReportAge(headerReportTimestamp),60000);
 function chartPreferenceAccount(){return activeAccount?.homeAccountId||activeAccount?.localAccountId||activeAccount?.username||null}
 function chartPreferenceKey(){const id=chartPreferenceAccount();return id?'gp-insight-chart-toggles-v1:'+encodeURIComponent(id):null}
 function readChartPreferences(){const key=chartPreferenceKey();if(!key)return {};try{return JSON.parse(iqLocalStorage.getItem(key)||'{}')||{}}catch{return {}}}
-function writeChartPreference(key,value){const storageKey=chartPreferenceKey();if(!storageKey)return;try{const saved=readChartPreferences();saved[key]=value;iqLocalStorage.setItem(storageKey,JSON.stringify(saved))}catch(error){console.warn('Could not save chart preference',error)}}
+let chartPreferenceSyncReady=false,chartPreferenceSyncRunning=false;
+function pendingChartPreferences(){
+ try{return JSON.parse(iqLocalStorage.getItem(chartPreferenceKey()+':pending')||'{}')||{};}catch{return {};}
+}
+async function flushChartPreferences(){
+ if(!chartPreferenceSyncReady||chartPreferenceSyncRunning||!iqBridge?.writeChartPreferences)return;
+ const storageKey=chartPreferenceKey();
+ chartPreferenceSyncRunning=true;
+ try{
+  while(storageKey===chartPreferenceKey()){
+   const pending=pendingChartPreferences();
+   if(!Object.keys(pending).length)break;
+   await iqBridge.writeChartPreferences(pending);
+   const latest=pendingChartPreferences();
+   for(const [key,value] of Object.entries(pending)){
+    if(JSON.stringify(latest[key])===JSON.stringify(value))delete latest[key];
+   }
+   iqLocalStorage.setItem(storageKey+':pending',JSON.stringify(latest));
+  }
+ }catch(error){console.warn('Could not sync chart preferences',error);}
+ finally{chartPreferenceSyncRunning=false;}
+}
+async function loadSyncedChartPreferences(){
+ if(!iqBridge?.readChartPreferences)return;
+ const storageKey=chartPreferenceKey();
+ try{
+  let remote=await iqBridge.readChartPreferences();
+  const local=readChartPreferences();
+  if(!Object.keys(remote).length&&Object.keys(local).length){
+   await iqBridge.writeChartPreferences(local,true);
+   remote=await iqBridge.readChartPreferences();
+  }
+  iqLocalStorage.setItem(storageKey,JSON.stringify({...remote,...pendingChartPreferences()}));
+ }catch(error){console.warn('Could not load synced chart preferences',error);}
+ chartPreferenceSyncReady=true;
+ void flushChartPreferences();
+}
+function writeChartPreference(key,value){
+ const storageKey=chartPreferenceKey();if(!storageKey)return;
+ try{
+  const saved=readChartPreferences();
+  if(JSON.stringify(saved[key])===JSON.stringify(value))return;
+  saved[key]=value;
+  iqLocalStorage.setItem(storageKey,JSON.stringify(saved));
+  if(iqBridge?.writeChartPreferences){
+   iqLocalStorage.setItem(storageKey+':pending',JSON.stringify({...pendingChartPreferences(),[key]:value}));
+   queueMicrotask(flushChartPreferences);
+  }
+ }catch(error){console.warn('Could not save chart preference',error);}
+}
+window.addEventListener('online',flushChartPreferences);
 const chartShadowControls=[
  {id:'urgentChartShadows',key:'chartShadows:urgent'},
  {id:'routineChartShadows',key:'chartShadows:routine'},
@@ -1054,7 +1104,7 @@ function drawCalendarYearBand(chart){
  band.replaceChildren(...segments);
 }
 
-function renderPreferencePlot(target,traces,layout,config){
+function renderPreferencePlot(target,traces,layout,config,useCalendarBand=true){
  const chart=typeof target==='string'?$(target):target;
  const previousBand=calendarYearBandListeners.get(chart);
  if(previousBand){
@@ -1062,7 +1112,7 @@ function renderPreferencePlot(target,traces,layout,config){
   calendarYearBandListeners.delete(chart);
  }
  chart.querySelector('.calendar-year-band')?.remove();
- const calendarAxis=layout.xaxis?.type==='date'&&traces.some(trace=>trace.x?.length);
+ const calendarAxis=useCalendarBand&&layout.xaxis?.type==='date'&&traces.some(trace=>trace.x?.length);
  if(calendarAxis){
   const xaxis=layout.xaxis;
   layout={...layout,margin:{...layout.margin,b:90},xaxis:{...xaxis,
@@ -3455,6 +3505,18 @@ function installTrendCardTooltip(target,useHours){
  });
  target.on('plotly_unhover',()=>{card.hidden=true});
 }
+function waitingTrendMonthAxis(first,last,width){
+ const axis={type:'date',title:'Appointment month',gridcolor:'#edf1f5',tickformat:'%b %Y',hoverformat:'%b %Y',automargin:true};
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(first)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(last)||first>last)return axis;
+ const start=new Date(first+'-01T00:00:00Z'),end=new Date(last+'-01T00:00:00Z');
+ const months=(end.getUTCFullYear()-start.getUTCFullYear())*12+end.getUTCMonth()-start.getUTCMonth()+1;
+ const labelSlots=Math.max(2,Math.floor((width-100)/76));
+ const step=[1,2,3,4,6,12,24].find(n=>Math.ceil(months/n)<=labelSlots)||Math.ceil(months/labelSlots);
+ const tick0=first+'-01';
+ start.setUTCDate(start.getUTCDate()-12);
+ end.setUTCDate(end.getUTCDate()+12);
+ return {...axis,tick0,dtick:'M'+step,range:[start.toISOString(),end.toISOString()]};
+}
 function renderWaitingTrendChart(){
  const chart=$('waitingTrendChart'),root=$('waitingTrendUrgencyToggles');
  if(!chart||!root||$('waitingOverTimePage')?.classList.contains('hidden')||!window.Plotly)return;
@@ -3526,7 +3588,7 @@ function renderWaitingTrendChart(){
  const useHours=highestMedian>0&&highestMedian*1.12<2;
  if(useHours)for(const trace of traces){trace.y=trace.y.map(v=>v*24);trace.hovertemplate=trace.hovertemplate.replace(' days',' hours');}
  const note=$('waitingTrendNote');if(note)note.textContent='Monthly median of booked-to-slot waiting times (days).'+(suppressSmall?' Months below 0.35% of the selected Appointment Types total are hidden ('+suppressedCount+' points).':'')+(ignoreRoutineSameDay?' Routine appointments booked less than one day ahead are excluded.':'');
- renderPreferencePlot(chart,traces,{height:560,autosize:true,margin:{l:72,r:25,t:40,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',hovermode:'x unified',hoverlabel:{bgcolor:'#fff',bordercolor:'#dce6ef',font:{color:'#142d43',size:12},align:'left'},xaxis:{type:'date',title:'Appointment month',gridcolor:'#edf1f5'},yaxis:{title:{text:useHours?'Hours':'Days',standoff:12},rangemode:'tozero',gridcolor:'#edf1f5'},legend:{orientation:'h',y:1.13,x:0}},{responsive:true,displayModeBar:false}).then(()=>installTrendCardTooltip(chart,useHours));
+ renderPreferencePlot(chart,traces,{height:560,autosize:true,margin:{l:72,r:25,t:40,b:75},paper_bgcolor:'#fff',plot_bgcolor:'#fff',hovermode:'x unified',hoverlabel:{bgcolor:'#fff',bordercolor:'#dce6ef',font:{color:'#142d43',size:12},align:'left'},xaxis:waitingTrendMonthAxis(waitingTrendMonthStart,waitingTrendMonthEnd,chart.clientWidth||600),yaxis:{title:{text:useHours?'Hours':'Days',standoff:12},rangemode:'tozero',gridcolor:'#edf1f5'},legend:{orientation:'h',y:1.13,x:0}},{responsive:true,displayModeBar:false},false).then(()=>installTrendCardTooltip(chart,useHours));
 }
 
 // Day View uses appointment-date availability snapshots and Monday–Friday navigation.
@@ -5371,6 +5433,7 @@ async function iqStart(){
  try{
   await iqBridge.ensure();
   activeAccount={homeAccountId:iqBridge.user.id+':'+iqBridge.practice.id,username:iqBridge.user.email,name:iqBridge.user.name||iqBridge.user.email};
+  await loadSyncedChartPreferences();
   const topbar=document.querySelector('#dashboardShell .topbar');
   if(topbar){
    const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='insight-mark.svg';image.alt='';mark.replaceChildren(image);}
