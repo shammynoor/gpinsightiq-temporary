@@ -199,9 +199,41 @@ let waitingTrendAvailableMonths=[];
 let waitingAppointmentMonthStart='',waitingAppointmentMonthEnd='',waitingAppointmentMonthBounds='';
 let waitingTrendMonthStart='',waitingTrendMonthEnd='',waitingTrendMonthBounds='';
 const waitingTrendDisabledUrgency=new Set();
-const waitingTrendDisabled={consult:new Set(),purpose:new Set(),capacity:new Set(),clinician:new Set()};
+const waitingTrendDisabled={consult:new Set(),capacity:new Set(),clinician:new Set()};
 const waitingDisabledUrgency=new Set();
 let userTypeLocum={};
+const locumFilterPages=['chartPage','availabilityPage','routineAvailabilityPage','routineCapacityPage','waitingTimesPage','waitingOverTimePage','dayView2Page','bookingTimesPage','dailyForecastPage','weeklyForecastPage','workforceNeedPage'];
+const locumFilterSelections=new Map();
+function locumCategory(row){
+ return Object.hasOwn(userTypeLocum,row.clinician)&&userTypeLocum[row.clinician]==='yes'?'Locum':'Not Locum';
+}
+function locumMatches(row,page){
+ return locumFilterSelections.get(page)?.[locumCategory(row)]!==false;
+}
+function installLocumFilters(){
+ const preferences=readChartPreferences();
+ for(const page of locumFilterPages){
+  const root=$(page+'Locum');
+  if(!root)continue;
+  const key='locum:'+page;
+  const selection={Locum:preferences[key]?.Locum!==false,'Not Locum':preferences[key]?.['Not Locum']!==false};
+  locumFilterSelections.set(page,selection);
+  for(const input of root.querySelectorAll('input')){
+   const name=input.dataset.filterName;
+   input.checked=selection[name];
+   input.addEventListener('change',event=>{
+    event.stopPropagation();
+    selection[name]=input.checked;
+    writeChartPreference(key,{...selection});
+    demandFilterCache=new WeakMap();
+    capacityPaceCache=null;
+    updateCollapsedFilterSummaries();
+    void renderActiveAnalyticsPage().catch(error=>showRefreshFeedback('Chart refresh failed: '+error.message));
+   });
+  }
+ }
+ updateCollapsedFilterSummaries();
+}
 // One customisable colour per Clinician Group (never per detailed type).
 let clinicianGroupColours={};
 let clinicianTypeColours={};
@@ -248,10 +280,6 @@ function clinicianGroupColour(group){
 function clinicianColourDot(group){
  const dot=document.createElement('span');dot.className='clinician-colour-dot';
  dot.style.backgroundColor=clinicianGroupColour(group);dot.title=group+' group colour';return dot;
-}
-function suggestedLocum(type){
- if(/\b(locum|agency|bank|temporary|temp staff)\b/i.test(type))return 'yes';
- return /\b(salaried|permanent)\b/i.test(type)?'no':'unknown';
 }
 function effectiveClinicianType(clinician){
  return Object.hasOwn(clinicianAssignments,clinician)?clinicianAssignments[clinician]||'':'';
@@ -941,7 +969,7 @@ function renderPeople(){
   const locum=document.createElement('select');locum.className='people-locum-select';
   locum.setAttribute('aria-label','Locum status for '+userType);
   for(const [value,label] of [['unknown','Unknown'],['no','No'],['yes','Yes']]){const option=document.createElement('option');option.value=value;option.textContent=label;locum.append(option)}
-  locum.value=Object.hasOwn(userTypeLocum,userType)?userTypeLocum[userType]:suggestedLocum(userType);
+  locum.value=Object.hasOwn(userTypeLocum,userType)?userTypeLocum[userType]:'unknown';
   locum.addEventListener('change',()=>{
    userTypeLocum={...userTypeLocum,[userType]:locum.value};
    saveCategories();
@@ -2409,25 +2437,17 @@ document.getElementById('currentWeekToggle').onchange=e=>{showCurrentWeek=e.targ
 document.getElementById('displayMode').onchange=e=>{continuousMode=e.target.checked;document.getElementById('timelineValue').textContent=continuousMode?'Continuous':'Superimposed';scheduleDemandRefresh()};
 function periodKey(r){return monthlyMode?r.bookedDay?.slice(0,7):r.bookedWeek}
 let demandFilterCache=null;
-const disabledDemandPurposes=new Set(),disabledDemandCapacities=new Set();
-let demandPurposeDefaultsApplied=false;
-function applyDemandPurposeDefaults(){
- if(demandPurposeDefaultsApplied||!purposeCategoryNames.length)return;
- for(const name of purposeCategoryNames){
-  if(/^(testing\s*(?:and|&)\s*procedures|teaching|admin\s*meetings?|task)$/i.test(name.trim()))disabledDemandPurposes.add(name);
- }
- demandPurposeDefaultsApplied=true;
-}
+const disabledDemandCapacities=new Set();
 function historicBookingFilterCounts(){
  // Count only bookings eligible for the currently displayed chart, while
  // ignoring each option's own on/off state so it can be switched back on.
- const result={purpose:new Map(),capacity:new Map(),consult:new Map(),clinician:new Map()};
+ const result={capacity:new Map(),consult:new Map(),clinician:new Map()};
  const firstAppointment=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort()[0]||'';
  const lastAppointment=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort().at(-1)||'';
  const firstPeriod=firstAppointment?(monthlyMode?firstAppointment.slice(0,7):mondayOf(firstAppointment)):'';
  const lastPeriod=lastAppointment?(monthlyMode?lastAppointment.slice(0,7):mondayOf(lastAppointment)):'';
  for(const r of records){
-  if(r.status!=='Booked'||excludedSlotTypes.has(r.slot)||!(r.count>0))continue;
+  if(r.status!=='Booked'||excludedSlotTypes.has(r.slot)||!(r.count>0)||!locumMatches(r,'chartPage'))continue;
   const period=periodKey(r);if(!period)continue;
   if((firstPeriod&&period<firstPeriod)||(lastPeriod&&period>lastPeriod))continue;
   if(period>(monthlyMode?thisMonth:thisWeek))continue;
@@ -2438,11 +2458,10 @@ function historicBookingFilterCounts(){
   const urgency=capacityUrgencyCategory(r.slot);
   if(!urgency||disabledDemandUrgencyGroups.has(urgency))continue;
   const group=clinicianGroupAssignments[effectiveClinicianType(r.clinician,r.person)];
-  const values={purpose:purposeAssignments[r.slot],capacity:capacityAssignments[r.slot],consult:consultCategoryNames.includes(consultAssignments[r.slot])?consultAssignments[r.slot]:(suggestConsultMode(r.slot)||''),clinician:group};
+  const values={capacity:capacityAssignments[r.slot],consult:consultCategoryNames.includes(consultAssignments[r.slot])?consultAssignments[r.slot]:(suggestConsultMode(r.slot)||''),clinician:group};
   for(const kind of Object.keys(result)){
    const value=values[kind];if(!isDashboardToggleOption(value))continue;
    // Match the chart's other active filters, but not this dimension's filter.
-   if(kind!=='purpose'&&!demandCategoryAllowed(r.slot,purposeCategoryNames,purposeAssignments,disabledDemandPurposes))continue;
    if(kind!=='capacity'&&!demandCategoryAllowed(r.slot,capacityCategoryNames,capacityAssignments,disabledDemandCapacities))continue;
    if(kind!=='consult'&&!consultMatches(r.slot))continue;
    if(kind==='consult'&&(!consultCategoryNames.includes(value)||!group||!clinicianGroupNames.includes(group)||disabledClinicianTypes.has(group)))continue;
@@ -2481,7 +2500,7 @@ function changeHistoricBookingToggle(disabled,name,checked,input){
 }
 function hideEmptyHistoricBookingFilters(){
  const counts=historicBookingFilterCounts();
- for(const [id,kind] of [['demandPurposeToggles','purpose'],['demandCapacityToggles','capacity'],['consultChartFilters','consult'],['clinicianChartFilters','clinician']]){
+ for(const [id,kind] of [['demandCapacityToggles','capacity'],['consultChartFilters','consult'],['clinicianChartFilters','clinician']]){
   const root=$(id);if(!root)continue;
   let visible=0;
   for(const input of root.querySelectorAll('input')){
@@ -2543,7 +2562,7 @@ function renderDemandClassificationToggles(rootId,names,mapping,disabled,colourM
 }
 function includedRecord(r){
  if(demandFilterCache&&demandFilterCache.has(r))return demandFilterCache.get(r);
- const result=!excludedSlotTypes.has(r.slot)&&r.status==='Booked'&&clinicianMatches(r.clinician,r.person)&&consultMatches(r.slot)&&demandCategoryAllowed(r.slot,purposeCategoryNames,purposeAssignments,disabledDemandPurposes)&&demandCategoryAllowed(r.slot,capacityCategoryNames,capacityAssignments,disabledDemandCapacities)&&(monthlyMode||!excludeBankHolidays||!bankHolidayWeeks.has(r.bookedWeek));
+ const result=!excludedSlotTypes.has(r.slot)&&r.status==='Booked'&&clinicianMatches(r.clinician,r.person)&&consultMatches(r.slot)&&locumMatches(r,'chartPage')&&demandCategoryAllowed(r.slot,capacityCategoryNames,capacityAssignments,disabledDemandCapacities)&&(monthlyMode||!excludeBankHolidays||!bankHolidayWeeks.has(r.bookedWeek));
  if(demandFilterCache)demandFilterCache.set(r,result);
  return result;
 }
@@ -2598,7 +2617,7 @@ function reportRangeEndLabel(monthIndex){
 
 function refresh(){
  updateDashboardDateContext();
- renderDemandUrgencyToggles();applyDemandPurposeDefaults();updateDemandSmoothingControl();
+ renderDemandUrgencyToggles();updateDemandSmoothingControl();
  refreshBankHolidayWeeks();
  updateClinicianChartFilter();updateConsultChartFilter();
  demandFilterCache=new WeakMap();
@@ -2784,7 +2803,6 @@ function installDemandCardTooltip(target){
 function drawCombinedDemandChart(){
  if(typeof restoreChartShadowControls==='function')restoreChartShadowControls();
  const adjustmentStatus=$('demandAdjustmentStatus');if(adjustmentStatus)adjustmentStatus.textContent=adjustDemandForListSize?'Adjusted for list size':'Not adjusted for list size';
- renderDemandClassificationToggles('demandPurposeToggles',purposeCategoryNames,purposeAssignments,disabledDemandPurposes,purposeColours);
  renderDemandClassificationToggles('demandCapacityToggles',capacityCategoryNames,capacityAssignments,disabledDemandCapacities,capacityColours);
  setupDemandMonthSlider();
  hideEmptyHistoricBookingFilters();
@@ -2973,7 +2991,6 @@ function refreshPriorityEditors(){
 const priorityToggleIds={
  urgency:['demandUrgencyToggles','dayView2UrgencyToggles','routineCategoryToggles','plannedCategoryToggles','urgentCategoryToggles'],
  mode:['consultChartFilters','routineConsultFilters','plannedConsultFilters','bookingTimesConsultFilters'],
- purpose:['demandPurposeToggles','urgentPurposeToggles','routinePurposeFilters','plannedPurposeFilters','bookingTimesPurposeFilters'],
  capacity:['demandCapacityToggles','urgentCapacityToggles','routineCapacityFilters','plannedCapacityFilters','bookingTimesCapacityFilters']
 };
 function refreshPriorityToggles(){
@@ -3264,7 +3281,7 @@ $('practiceListValue')?.addEventListener('change',e=>{if(!practiceSelectedMonth)
 $('practiceListClear')?.addEventListener('click',()=>{delete practiceSettings.anchors[practiceSelectedMonth];savePracticeSettings();renderPracticeSettings();});
 $('practiceListReset')?.addEventListener('click',()=>{if(!confirm('Reset all monthly list size adjustments to 10,000?'))return;practiceSettings.anchors={};savePracticeSettings();renderPracticeSettings();});
 
-const waitingFilterDisabled={consult:new Set(),purpose:new Set(),capacity:new Set(),clinician:new Set()};
+const waitingFilterDisabled={consult:new Set(),capacity:new Set(),clinician:new Set()};
 // Share classification work across records with the same slot/session holder.
 // Each render gets its own resolver, so settings edits never leave stale mappings.
 function chartDimensionLookup(resolve){
@@ -3285,7 +3302,6 @@ function waitingRowDimensions(r){
  return {
   urgency:capacityUrgencyCategory(r.slot),
   consult:consultCategoryNames.includes(consultAssignments[r.slot])?consultAssignments[r.slot]:(suggestConsultMode(r.slot)||''),
-  purpose:purposeCategoryNames.includes(purposeAssignments[r.slot])?purposeAssignments[r.slot]:'',
   capacity:capacityCategoryNames.includes(capacityAssignments[r.slot])?capacityAssignments[r.slot]:'',
   clinician:clinicianGroupAssignments[clinicianType]||''
  };
@@ -3399,13 +3415,14 @@ function renderWaitingTimesChart(){
  const chart=$('waitingTimesChart'),root=$('waitingUrgencyToggles');
  if(!chart||!root||$('waitingTimesPage')?.classList.contains('hidden')||!window.Plotly)return;
  setupWaitingAppointmentSlider();
- const kinds=['urgency','consult','purpose','capacity','clinician'];
+ const kinds=['urgency','consult','capacity','clinician'];
  const optionsByKind=Object.fromEntries(kinds.map(k=>[k,new Set()]));
  const bins=new Map(),bySlot=new Map();
  const rows=[];
  const dimensionsFor=chartDimensionLookup(waitingRowDimensions);
  // Calculate each row's dimensions and selection once, then reuse for all filter counts.
  for(const r of waitingTimeRecords){
+  if(!locumMatches(r,'waitingTimesPage'))continue;
   if(r.status!=='Booked'||excludedSlotTypes.has(r.slot))continue;
   if(waitingAppointmentMonthStart&&r.appointmentMonth<waitingAppointmentMonthStart)continue;
   if(waitingAppointmentMonthEnd&&r.appointmentMonth>waitingAppointmentMonthEnd)continue;
@@ -3415,7 +3432,6 @@ function renderWaitingTimesChart(){
   const enabled={
    urgency:!waitingDisabledUrgency.has(d.urgency),
    consult:!waitingFilterDisabled.consult.has(d.consult),
-   purpose:!waitingFilterDisabled.purpose.has(d.purpose),
    capacity:!waitingFilterDisabled.capacity.has(d.capacity),
    clinician:!waitingFilterDisabled.clinician.has(d.clinician)
   };
@@ -3438,7 +3454,7 @@ function renderWaitingTimesChart(){
  root.replaceChildren();
  for(const name of groupUrgencyNames.filter(n=>isDashboardToggleOption(n)&&(!optionsByKind.urgency.size||optionsByKind.urgency.has(n))))
   makeToggle(root,name,!waitingDisabledUrgency.has(name),urgencyGroupColour(name),checked=>{if(checked)waitingDisabledUrgency.delete(name);else waitingDisabledUrgency.add(name)});
- const dimensions=[['consult','waitingConsultToggles',consultCategoryNames,consultModeColours],['purpose','waitingPurposeToggles',purposeCategoryNames,purposeColours],['capacity','waitingCapacityToggles',capacityCategoryNames,capacityColours],['clinician','waitingClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
+ const dimensions=[['consult','waitingConsultToggles',consultCategoryNames,consultModeColours],['capacity','waitingCapacityToggles',capacityCategoryNames,capacityColours],['clinician','waitingClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
  for(const [kind,id,allNames,colours] of dimensions){
   const container=$(id);if(!container)continue;
   const options=allNames.filter(n=>isDashboardToggleOption(n)&&optionsByKind[kind].has(n));
@@ -3521,7 +3537,7 @@ function renderWaitingTrendChart(){
  const chart=$('waitingTrendChart'),root=$('waitingTrendUrgencyToggles');
  if(!chart||!root||$('waitingOverTimePage')?.classList.contains('hidden')||!window.Plotly)return;
  setupWaitingTrendSlider();
- const kinds=['urgency','consult','purpose','capacity','clinician'];
+ const kinds=['urgency','consult','capacity','clinician'];
  const optionsByKind=Object.fromEntries(kinds.map(k=>[k,new Set()]));
  const byGroup=new Map();
  const suppressSmall=$('waitingTrendSuppressSmall')?.checked??true;
@@ -3529,6 +3545,7 @@ function renderWaitingTrendChart(){
  const eligibleCounts=new Map();
  const dimensionsFor=chartDimensionLookup(waitingRowDimensions);
  for(const r of waitingTrendRecords){
+  if(!locumMatches(r,'waitingOverTimePage'))continue;
   if(r.status!=='Booked'||excludedSlotTypes.has(r.slot)||!r.appointmentDate||!Number.isFinite(r.leadMinutes))continue;
   if(waitingTrendMonthStart&&r.appointmentMonth<waitingTrendMonthStart)continue;
   if(waitingTrendMonthEnd&&r.appointmentMonth>waitingTrendMonthEnd)continue;
@@ -3556,7 +3573,7 @@ function renderWaitingTrendChart(){
  root.replaceChildren();
  for(const name of groupUrgencyNames.filter(n=>isDashboardToggleOption(n)&&(!optionsByKind.urgency.size||optionsByKind.urgency.has(n))))
   toggle(root,name,!waitingTrendDisabledUrgency.has(name),urgencyGroupColour(name),on=>{if(on)waitingTrendDisabledUrgency.delete(name);else waitingTrendDisabledUrgency.add(name)});
- const dimensions=[['consult','waitingTrendConsultToggles',consultCategoryNames,consultModeColours],['purpose','waitingTrendPurposeToggles',purposeCategoryNames,purposeColours],['capacity','waitingTrendCapacityToggles',capacityCategoryNames,capacityColours],['clinician','waitingTrendClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
+ const dimensions=[['consult','waitingTrendConsultToggles',consultCategoryNames,consultModeColours],['capacity','waitingTrendCapacityToggles',capacityCategoryNames,capacityColours],['clinician','waitingTrendClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
  for(const [kind,id,names,colours] of dimensions){
   const container=$(id);if(!container)continue;container.replaceChildren();
   const options=names.filter(n=>isDashboardToggleOption(n)&&optionsByKind[kind].has(n));
@@ -3780,7 +3797,7 @@ function collectDayView2Capacity(date,names,disabled,rows,clock=capacitySnapshot
  const days=new Map(Array.from({length:8},(_,i)=>[dayView2AddWorkingDays(date,i),{groups:new Map(active.map(name=>[name,empty()])),totals:empty(),unknown:0,matched:0}]));
  for(const r of dayView2RowsForDates(rows,days.keys())){
   const day=days.get(r.date);
-  if(!day||excludedSlotTypes.has(r.slot))continue;
+  if(!day||excludedSlotTypes.has(r.slot)||!locumMatches(r,'dayView2Page'))continue;
   const group=day.groups.get(capacityUrgencyCategory(r.slot));
   if(!group)continue;
   const count=Number(r.count);
@@ -3908,7 +3925,7 @@ function dayView2PaceBaseline(date,minute,names,holidays,remainingMinute=minute)
  const key=JSON.stringify([date,minute,remainingMinute,[...names].sort(),[...excludedSlotTypes].sort()]);
  if(capacityPaceCache?.key===key&&capacityPaceCache.availability===availabilityRecords&&capacityPaceCache.bookings===appointmentTimeRecords)return capacityPaceCache.result;
  const comparisonDates=[];for(let offset=7;offset<=371;offset+=7)comparisonDates.push(dayView2AddDays(date,-offset));
- const result=calculateDayView2PaceBaseline({date,minute,remainingMinute,names,availability:dayView2RowsForDates(availabilityRecords,comparisonDates),bookings:dayView2RowsForDates(appointmentTimeRecords,comparisonDates),excluded:excludedSlotTypes,groupForSlot:capacityUrgencyCategory,holidays});
+ const result=calculateDayView2PaceBaseline({date,minute,remainingMinute,names,availability:dayView2RowsForDates(availabilityRecords,comparisonDates).filter(row=>locumMatches(row,'dayView2Page')),bookings:dayView2RowsForDates(appointmentTimeRecords,comparisonDates).filter(row=>locumMatches(row,'dayView2Page')),excluded:excludedSlotTypes,groupForSlot:capacityUrgencyCategory,holidays});
  capacityPaceCache={key,availability:availabilityRecords,bookings:appointmentTimeRecords,result};return result;
 }
 
@@ -4220,13 +4237,6 @@ function updateAvailabilityUrgencyFilter(){
  select.value=selectedAvailabilityUrgency;
 }
 const urgentClinicianDisabled=new Set();
-const urgentPurposeDisabled=new Set();
-let urgentPurposeInitialised=false;
-function syncUrgentPurposeDefaults(){
- if(urgentPurposeInitialised||!purposeCategoryNames.length)return;
- for(const name of purposeCategoryNames)if(name.toLowerCase().trim()!=='general consultation')urgentPurposeDisabled.add(name);
- urgentPurposeInitialised=true;
-}
 const urgentConsultDisabled=new Set();
 // Eligibility must be independent of currently selected switches: otherwise
 // disabling one dimension can cascade and lock every other dimension off.
@@ -4256,7 +4266,7 @@ function availabilityOptionHasData(page,kind,name){
   const category=String(assignments[r.slot]||'').trim();
   const clinician=clinicianGroupAssignments[effectiveClinicianType(r.clinician,r.person)];
   const consult=consultAssignments[r.slot];
-  return kind==='category'?capacityUrgencyCategory(r.slot)===name:kind==='clinician'?clinician===name:kind==='purpose'?purposeAssignments[r.slot]===name:consult===name;
+  return kind==='category'?capacityUrgencyCategory(r.slot)===name:kind==='clinician'?clinician===name:consult===name;
  });
 }
 function availabilityHasVisibleRecords(page){
@@ -4267,7 +4277,7 @@ function availabilityHasVisibleRecords(page){
   return page==='urgent'?
    !urgentCategoryDisabled.has(capacityUrgencyCategory(r.slot))&&urgentCategoryNames().includes(capacityUrgencyCategory(r.slot))&&
    clinicianGroupNames.includes(clinician)&&!urgentClinicianDisabled.has(clinician)&&
-   consultCategoryNames.includes(consult)&&!urgentConsultDisabled.has(consult)&&urgentPurposeMatches(r.slot):
+   consultCategoryNames.includes(consult)&&!urgentConsultDisabled.has(consult):
    clinicianGroupNames.includes(clinician)&&!(page==='planned'?plannedDisabledClinicianGroups:routineDisabledClinicianGroups).has(clinician)&&
    consultCategoryNames.includes(consult)&&!(page==='planned'?plannedDisabledConsultModes:routineDisabledConsultModes).has(consult)&&
    !(page==='planned'?plannedDisabledTypes:routineDisabledTypes).has(capacityUrgencyCategory(r.slot));
@@ -4297,16 +4307,16 @@ function removeInvalidDashboardToggles(){
 function refreshAvailabilityOptionStates(page){
  removeInvalidDashboardToggles();
  // Build eligibility once per render instead of rescanning all CSV rows per toggle.
- const available={category:new Set(),clinician:new Set(),consult:new Set(),purpose:new Set()};
+ const available={category:new Set(),clinician:new Set(),consult:new Set()};
  const disabledCategories=page==='urgent'?urgentCategoryDisabled:page==='planned'?plannedDisabledTypes:routineDisabledTypes;
  for(const row of availabilityRecordsInRange(page)){
   const group=capacityUrgencyCategory(row.slot);available.category.add(group);
   if(disabledCategories.has(group))continue;
   available.clinician.add(clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)]);
-  available.consult.add(consultAssignments[row.slot]);available.purpose.add(purposeAssignments[row.slot]);
+  available.consult.add(consultAssignments[row.slot]);
  }
  const configs=page==='urgent'?
-  [['urgentCategoryToggles','category',urgentCategoryDisabled],['urgentClinicianToggles','clinician',urgentClinicianDisabled],['urgentConsultToggles','consult',urgentConsultDisabled],['urgentPurposeToggles','purpose',urgentPurposeDisabled]]:
+  [['urgentCategoryToggles','category',urgentCategoryDisabled],['urgentClinicianToggles','clinician',urgentClinicianDisabled],['urgentConsultToggles','consult',urgentConsultDisabled]]:
   page==='planned'?[['plannedClinicianFilters','clinician',plannedDisabledClinicianGroups],['plannedConsultFilters','consult',plannedDisabledConsultModes]]:[['routineClinicianFilters','clinician',routineDisabledClinicianGroups],['routineConsultFilters','consult',routineDisabledConsultModes]];
  for(const [id,kind,disabled] of configs){
   const root=$(id);if(!root)continue;
@@ -4356,7 +4366,7 @@ function renderClinicianTypeFilters(page){
  updateCollapsedFilterSummaries();
 }
 function refreshActivitySecondarySummaries(){
- for(const id of ['demandPurposeToggles','demandCapacityToggles','consultChartFilters','clinicianChartFilters']){
+ for(const id of ['demandCapacityToggles','consultChartFilters','clinicianChartFilters']){
   const root=$(id);if(!root)continue;
   root.querySelectorAll('input').forEach(input=>{
    if(!input.dataset.filterName)input.dataset.filterName=input.dataset.classification||input.getAttribute('aria-label')?.replace(/^Include /,'')||'';
@@ -4448,17 +4458,11 @@ function renderUrgentSideFilters(){
  };
  build('urgentClinicianToggles',clinicianGroupNames,urgentClinicianDisabled,'#a6d6b2');
  build('urgentConsultToggles',consultCategoryNames,urgentConsultDisabled,'#a1c8e8');
- syncUrgentPurposeDefaults();
- build('urgentPurposeToggles',purposeCategoryNames,urgentPurposeDisabled,'#a1c8e8');
 }
 function urgentClinicianMatches(clinician,person){
  if(clinician==='Signposting (no clinician recorded)')return true;
  const detailed=effectiveClinicianType(clinician,person);const group=clinicianGroupAssignments[detailed];
  return clinicianGroupNames.includes(group)&&!urgentClinicianDisabled.has(group)&&!urgentDisabledClinicianTypes.has(detailed);
-}
-function urgentPurposeMatches(slot){
- const purpose=purposeAssignments[slot];
- return isDashboardToggleOption(purpose)&&purposeCategoryNames.includes(purpose)&&!urgentPurposeDisabled.has(purpose);
 }
 function urgentConsultMatches(slot){
  if(signpostingSlotNames.has(slot))return true;
@@ -4711,14 +4715,14 @@ function renderAvailabilityChart(){
  const clock=capacitySnapshotClock();
  const selectedNames=new Set(names);
  for(const r of availabilityRecords){
-  if(!weekdays.has(r.date))continue;
+  if(!weekdays.has(r.date)||!locumMatches(r,'availabilityPage'))continue;
   const capacityStatus=String(capacityAssignments[r.slot]||'').trim().toLowerCase();
   const referral=capacityUrgencyCategory(r.slot).trim().toLowerCase()==='111 referral';
   // Referral slots can be recorded as Sent External; retain them in their
   // configured urgency group instead of hiding them with the retired toggle.
   if(capacityStatus==='sent external'&&!referral)continue;
   if(excludedSlotTypes.has(r.slot))continue;
-  if(!selectedNames.has(capacityUrgencyCategory(r.slot))||(!referral&&!urgentClinicianMatches(r.clinician,r.person))||(!referral&&!urgentConsultMatches(r.slot))||(!referral&&!urgentPurposeMatches(r.slot)))continue;
+  if(!selectedNames.has(capacityUrgencyCategory(r.slot))||(!referral&&!urgentClinicianMatches(r.clinician,r.person))||(!referral&&!urgentConsultMatches(r.slot)))continue;
   const urgency=capacityUrgencyCategory(r.slot);
   const group=urgency;
   const label=capacityChartStatus(r,urgentGroupWithheld,clock)||(referral&&capacityStatus==='sent external'?'Booked':null);
@@ -4889,7 +4893,7 @@ function renderRoutineAvailabilityChart(){
  const weekForDate=new Map();
  for(const r of availabilityRecords){
   // Discard historical rows before category checks or date parsing.
-  if(r.date<firstDate||r.date>=lastDate||excludedSlotTypes.has(r.slot))continue;
+  if(r.date<firstDate||r.date>=lastDate||excludedSlotTypes.has(r.slot)||!locumMatches(r,'routineAvailabilityPage'))continue;
   const group=capacityUrgencyCategory(r.slot);
   if(!activeTypes.has(group)||!routineClinicianMatches(r.clinician,r.person)||!routineConsultMatches(r.slot))continue;
   let bucket=r.date;
@@ -5036,7 +5040,7 @@ function renderBookingTimesChart(){
  const bins=Array(96).fill(0);
  let count=0;
  for(const r of bookingTimeRecords){
-  if(excludedSlotTypes.has(r.slot))continue;
+  if(excludedSlotTypes.has(r.slot)||!locumMatches(r,'bookingTimesPage'))continue;
   const {urgency,clinician,consult}=groupsFor(r);
   if(!groupUrgencyNames.includes(urgency)||bookingTimesDisabledUrgency.has(urgency))continue;
   if(!clinicianGroupNames.includes(clinician)||bookingTimesDisabledClinician.has(clinician))continue;
@@ -5434,6 +5438,7 @@ async function iqStart(){
   await iqBridge.ensure();
   activeAccount={homeAccountId:iqBridge.user.id+':'+iqBridge.practice.id,username:iqBridge.user.email,name:iqBridge.user.name||iqBridge.user.email};
   await loadSyncedChartPreferences();
+  installLocumFilters();
   const topbar=document.querySelector('#dashboardShell .topbar');
   if(topbar){
    const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='insight-mark.svg';image.alt='';mark.replaceChildren(image);}

@@ -68,7 +68,7 @@ const selected=names.filter(groupEnabled);if(!selected.length){root.textContent=
 const today=forecastLocalDate(),latest=records.reduce((x,r)=>r.bookedDay&&r.bookedDay>x?r.bookedDay:x,'');
 const end=latest&&latest<today?latest:shift(today,-1),weeks=Number($(prefix+'History').value),start=shift(end,1-weeks*7);
 const byDate=new Map(),allDates=new Set();
-for(const r of records){if(!r.bookedDay||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;allDates.add(r.bookedDay);const n=capacityUrgencyCategory(r.slot);if(!selected.includes(n))continue;const k=r.bookedDay+'|'+n;byDate.set(k,(byDate.get(k)||0)+r.count)}
+for(const r of records){if(!r.bookedDay||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;allDates.add(r.bookedDay);if(!locumMatches(r,'weeklyForecastPage'))continue;const n=capacityUrgencyCategory(r.slot);if(!selected.includes(n))continue;const k=r.bookedDay+'|'+n;byDate.set(k,(byDate.get(k)||0)+r.count)}
 const earliest=[...allDates].sort()[0]||start;
 const dates=[];for(let d=earliest;d<=end;d=shift(d,1))dates.push(d);
 const recentDays=dates.filter(d=>d>=start);
@@ -217,7 +217,7 @@ window.readUrgentPlanningForecast=()=>{
  return {daily:dailyAppointmentTargets,weekly:weeklyAppointmentTargets,weeklyGroups:weeklyPlanningGroups};
 };
 // The daily target and time profile use the same appointment types and fitting dates.
-function bookingTimeProfile(sampleDays,dailyGroups,parts){
+function bookingTimeProfile(sampleDays,dailyGroups,parts,locumPage){
  const samples=new Map(sampleDays.map(day=>[day,{
   expected:dailyGroups.reduce((count,name)=>count+(parts.get(day)?.get(name)||0),0),
   timed:0,bins:new Map()
@@ -225,7 +225,7 @@ function bookingTimeProfile(sampleDays,dailyGroups,parts){
  const selected=new Set(dailyGroups);
  for(const row of bookingTimeRecords){
   const sample=samples.get(row.bookedDay),minute=row.minute;
-  if(!sample||!Number.isInteger(minute)||minute<0||minute>=1440||!(row.count>0)
+  if(!sample||!locumMatches(row,locumPage)||!Number.isInteger(minute)||minute<0||minute>=1440||!(row.count>0)
    ||excludedSlotTypes.has(row.slot)||!selected.has(capacityUrgencyCategory(row.slot)))continue;
   sample.timed+=row.count;
   sample.bins.set(minute,(sample.bins.get(minute)||0)+row.count);
@@ -263,7 +263,8 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  if(!root||!summary||!select)return;
  const panel=planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
- const signature=JSON.stringify([ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
+ const locumPage=planningOnly?'workforceNeedPage':'dailyForecastPage';
+ const signature=JSON.stringify([locumPage,locumFilterSelections.get(locumPage),userTypeLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
  const cached=forecastRenderCache[panel];
  if(cached?.records===records&&cached.signature===signature){if(panel==='predictions')applyForecastHorizon();return;}
  if(panel==='predictions'){
@@ -287,7 +288,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  for(const r of records){
   if(!r.bookedDay||r.bookedDay<(earliestBooking||start)||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;
   const urgency=capacityUrgencyCategory(r.slot);
-  if(!selectedGroups.has(urgency))continue;
+  if(!selectedGroups.has(urgency)||!locumMatches(r,locumPage))continue;
   if(!weekdayByDate.has(r.bookedDay))weekdayByDate.set(r.bookedDay,new Date(r.bookedDay+'T12:00:00Z').getUTCDay());
   const dow=weekdayByDate.get(r.bookedDay);if(dow>=1&&dow<=5)allWeekdayTotals.set(r.bookedDay,(allWeekdayTotals.get(r.bookedDay)||0)+(Number(r.count)||0));
   const k=r.bookedDay;
@@ -525,7 +526,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
     : fittingDays.get(dow);
    let profile;
    todayTarget.remainingNeed=minute=>{
-    if(profile===undefined)profile=bookingTimeProfile(sampleDays,dailyGroups,parts);
+    if(profile===undefined)profile=bookingTimeProfile(sampleDays,dailyGroups,parts,locumPage);
     return profile===null?null:Math.ceil(prediction*(profile[minute]/profile[0]));
    };
   }

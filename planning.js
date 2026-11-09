@@ -134,7 +134,6 @@ function renderWeeklyPlanning(){
  const dimensions=[
   [byId('planningAppointment'),prioritySort('urgency',groupUrgencyNames),urgencyGroupColour],
   [byId('planningClinicianGroup'),prioritySort('clinician',clinicianGroupNames),clinicianGroupColour],
-  [byId('planningPurpose'),prioritySort('purpose',purposeCategoryNames),name=>purposeColours[name]||'#638fac'],
   [byId('planningConsult'),prioritySort('consult',consultCategoryNames),name=>consultModeColours[name]||'#638fac'],
   [byId('planningClinicianType'),clinicianCategoryNames,clinicianTypeColour]
  ];
@@ -178,8 +177,8 @@ function renderWeeklyPlanning(){
   if((status<0&&availability!=='booked')||(!isWeekly&&!totals))continue;
   const type=effectiveClinicianType(row.clinician),group=clinicianGroupAssignments[type];
   const consultMode=consultAssignments[row.slot];
-  const values=[appointment,group,purposeAssignments[row.slot],consultMode,type];
-  if(values.some((value,index)=>disabled[index].has(value)))continue;
+  const values=[appointment,group,consultMode,type];
+  if(!locumMatches(row,'workforceNeedPage')||values.some((value,index)=>disabled[index].has(value)))continue;
   if(!isWeekly&&row.date===now.date){
    if(!Number.isFinite(row.minute)){
     if(availability!=='booked')missingSlotTimes=true;

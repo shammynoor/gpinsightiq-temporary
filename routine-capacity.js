@@ -24,7 +24,7 @@ function doctorGroups(){
 }
 function rowMode(slot){const assigned=consultAssignments[slot];return consultCategoryNames.includes(assigned)?assigned:(suggestConsultMode(slot)||'')}
 function included(r,doctors){
- if(!r||excludedSlotTypes.has(r.slot)||!isRoutine(capacityUrgencyCategory(r.slot)))return false;
+ if(!r||!locumMatches(r,'routineCapacityPage')||excludedSlotTypes.has(r.slot)||!isRoutine(capacityUrgencyCategory(r.slot)))return false;
  const type=effectiveClinicianType(r.clinician,r.person);
  const group=clinicianGroupAssignments[type]||'';
  return doctors.includes(group);
