@@ -5539,38 +5539,48 @@ function updateHomeReportDates(items){
  $('homeSlotModified').textContent=display('slot');$('homeSignpostingModified').textContent=display('signposting');
  $('homeRapidHealthModified').textContent=iqBridge.rapidDate()||'No report uploaded';
 }
-let iqUploadElement=null,iqSourceSelect=null,iqUploadStatus=null,iqDateInput=null;
+let iqUploadElement=null,iqUploadStatus=null;
 function iqCreateUploadPanel(){
  if(!isOwner)return;
  const panel=document.createElement('section');panel.className='iq-import-panel';iqUploadElement=panel;
  const heading=document.createElement('h3');heading.textContent='Upload practice reports';
- const description=document.createElement('p');description.textContent='Choose or drop one Slot Report, Signposting Report or Rapid Health CSV. For a refreshed export, select its existing report source below to replace it. Rapid Health adds only newer request minutes. You can also import your existing settings JSON.';
- const input=document.createElement('input');input.type='file';input.accept='.csv,.json';input.setAttribute('aria-label','Upload practice CSV or settings JSON');
- const sourceLabel=document.createElement('label');sourceLabel.textContent='Report source to replace (Slot or Signposting)';iqSourceSelect=document.createElement('select');sourceLabel.append(iqSourceSelect);
- const dateLabel=document.createElement('label');dateLabel.textContent='Clinical export date and time (defaults to the file modified time)';iqDateInput=document.createElement('input');iqDateInput.type='datetime-local';dateLabel.append(iqDateInput);
  iqUploadStatus=document.createElement('p');iqUploadStatus.className='iq-import-status';iqUploadStatus.setAttribute('role','status');
  const list=document.createElement('ul');list.id='iqSources';list.className='iq-source-list';
- panel.append(heading,description,input,sourceLabel,dateLabel,iqUploadStatus,list);$('homePage').append(panel);
- input.addEventListener('change',()=>{if(input.files[0])void replaceExistingCSV(input.files[0]);input.value='';});iqRenderSources();
+ panel.append(heading,iqUploadStatus,list);$('homePage').append(panel);
+ iqRenderSources();
 }
 function iqRenderSources(){
- if(!iqSourceSelect)return;const selected=iqSourceSelect.value;iqSourceSelect.replaceChildren();const initial=document.createElement('option');initial.value='';initial.textContent='New source (uses the uploaded filename)';iqSourceSelect.append(initial);
- const list=$('iqSources');list.replaceChildren();
+ const list=$('iqSources');
+ if(!list)return;
+ list.replaceChildren();
  for(const source of iqSources){
-  const option=document.createElement('option');option.value=source.source_key;option.textContent=(source.kind==='slot'?'Slot: ':'Signposting: ')+source.source_name;iqSourceSelect.append(option);
-  const row=document.createElement('li'),text=document.createElement('span'),remove=document.createElement('button');text.textContent=option.textContent+' · '+source.row_count.toLocaleString('en-GB')+' records · '+new Date(source.clinical_at).toLocaleString('en-GB');remove.type='button';remove.textContent='Remove';remove.onclick=async()=>{if(iqUploading)return;if(!confirm('Remove '+source.source_name+' from this practice’s analytics?'))return;try{await iqBridge.remove(source.source_key,source.revision);await loadFolder(true);}catch(error){iqUploadStatus.textContent=error.message;}};row.append(text,remove);list.append(row);
-  if(source.kind==='slot'){
-   const outcomes=document.createElement('small');
-   outcomes.style.display='block';
-   outcomes.textContent=slotOutcomeSummary(iqContributions.get(source.source_key)?.value?.dna);
-   text.append(outcomes);
-  }
+  const row=document.createElement('li');
+  const details=document.createElement('div');
+  const time=new Date(source.clinical_at).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/London'});
+  details.textContent=source.source_name+' · '+source.row_count.toLocaleString('en-GB')+' records · '+time;
+  const coverage=document.createElement('small');
+  coverage.className='iq-source-coverage';
+  coverage.textContent=iqReportCoverage(iqContributions.get(source.source_key)?.value);
+  details.append(coverage);
+  row.append(details);
+  list.append(row);
  }
- if([...iqSourceSelect.options].some(option=>option.value===selected))iqSourceSelect.value=selected;
 }
-function slotOutcomeSummary(dna){
- if(!dna)return 'Attendance outcomes unavailable.';
- return 'Attendance: '+dna.attended.toLocaleString('en-GB')+' attended, '+dna.didNotAttend.toLocaleString('en-GB')+' did not attend, '+dna.unknown.toLocaleString('en-GB')+' unknown.';
+function iqReportCoverage(contribution){
+ let first='',last='';
+ const include=date=>{
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date??''))return;
+  if(!first||date<first)first=date;
+  if(!last||date>last)last=date;
+ };
+ if(contribution?.kind==='slot'){
+  for(const key of contribution.maps[1].keys())include(JSON.parse(key)[0]);
+ }else if(contribution?.kind==='signposting'){
+  for(const event of contribution.events)include(event.date);
+ }
+ if(!first)return 'Date range unavailable';
+ const formatter=new Intl.DateTimeFormat('en-GB',{month:'short',year:'numeric',timeZone:'UTC'});
+ return formatter.format(new Date(first))+' – '+formatter.format(new Date(last));
 }
 async function replaceExistingCSV(file){
  if(iqUploading)return;
@@ -5590,18 +5600,15 @@ async function replaceExistingCSV(file){
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
   if(!count)throw Error('No valid records were found. The existing report has been preserved.');
-  let existing=iqSources.find(row=>row.source_key===iqSourceSelect?.value);
-  if(existing&&existing.kind!==kind)throw Error('Choose an existing report source of the same type.');
-  if(!existing)existing=iqSources.find(row=>row.kind===kind&&row.source_name.toLowerCase()===file.name.toLowerCase());
-  const clinical=iqDateInput?.value?new Date(iqDateInput.value):new Date(file.lastModified);
+  const existing=iqSources.find(row=>row.kind===kind&&row.source_name.toLowerCase()===file.name.toLowerCase());
+  const clinical=new Date(file.lastModified);
   if(!Number.isFinite(clinical.getTime()))throw Error('Set the export date and time.');
   const message=existing?'Replace '+existing.source_name+' with this refreshed export? Its previous counts will be replaced.':'Add '+file.name+' as a new report source? Use a new source only for a separate, non-overlapping reporting period; refreshed exports should replace an existing source.';
   if(!confirm(message))return;
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
   await iqBridge.save({existing,kind,name:existing?.source_name||file.name,clinical_at:clinical.toISOString(),count,contribution});
   await loadFolder(true);
-  const outcome=kind==='slot'?' '+slotOutcomeSummary(contribution.dna):'';
-  iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.'+outcome;
+  iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.';
  }catch(error){if(iqUploadStatus)iqUploadStatus.textContent='Upload failed: '+error.message;csvDropStatus('Upload failed: '+error.message,true);}
  finally{iqUploading=false;csvDropBusy=false;}
 }
