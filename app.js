@@ -1594,7 +1594,21 @@ function parseSlotReportCSV(csv){
   const rows=parsed.data.slice(headerIndex+1);
   const quantityPositions=columns.flatMap((column,index)=>slotQuantityHeadings.has(column.toLowerCase())?[index]:[]);
   if(quantityPositions.length>1)throw Error('The Slot Report contains more than one count column.');
-  return {columns,rows,quantityPosition:quantityPositions[0]};
+  let quantityPosition=quantityPositions[0];
+  if(quantityPosition===undefined){
+   // EMIS can export a quantity after the last named column, with either
+   // an empty header cell or no header cell at all.
+   let trailingPosition=columns.length;
+   while(trailingPosition>0&&!columns[trailingPosition-1])trailingPosition--;
+   if(rows.some(row=>row.slice(trailingPosition+1).some(value=>clean(value)))){
+    throw Error('The Slot Report contains multiple unlabelled columns after its last heading.');
+   }
+   if(rows.some(row=>clean(row[trailingPosition]))){
+    columns[trailingPosition]=slotQuantityColumn;
+    quantityPosition=trailingPosition;
+   }
+  }
+  return {columns,rows,quantityPosition};
  }
  // Only infer the tested EMIS column order when the first row looks like
  // appointment data and every row fits the supported positional layout.
@@ -2029,7 +2043,7 @@ function updateHomeReportDates(items){const slots=items.filter(f=>/slot[\s_-]*re
 // A replacement invalidates only its own contribution, not the other CSV files.
 const csvContributionCache=new Map();
 // Bump this only when CSV parsing or contribution structure changes, not for UI deployments.
-const CSV_CACHE_SCHEMA=5;
+const CSV_CACHE_SCHEMA=6;
 let csvMemoryScope=null;
 function csvCacheScope(){
  const account=activeAccount?.homeAccountId||activeAccount?.localAccountId||activeAccount?.username;
