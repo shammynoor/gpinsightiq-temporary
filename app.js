@@ -1574,7 +1574,10 @@ async function showFolderContents(){try{$('pickerPath').textContent=[...folderVi
 function weekMonday(d){const x=new Date(d);x.setUTCHours(12,0,0,0);x.setUTCDate(x.getUTCDate()-((x.getUTCDay()+6)%7));return x.toISOString().slice(0,10)}
 function parseDate(s){const m=/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec((s||'').trim());if(!m)return null;const mi=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase());if(mi<0)return null;const d=new Date(Date.UTC(Number(m[3]),mi,Number(m[1])));return d.getUTCMonth()===mi&&d.getUTCDate()===Number(m[1])?d:null}
 const slotUserTypeColumn='User Type of the Session Holder of the Session';
-const slotRequiredColumns=['Appointment Date','Appointment Time','Booked Time to Slot Time',slotUserTypeColumn,'Slot Type','Availability'];
+const slotLeadTimeColumn='Booked Time to Slot Time';
+const slotQuantityColumn='Count';
+const slotQuantityHeadings=new Set(['count','slot count','appointment count','quantity','number of slots','number of appointments']);
+const slotRequiredColumns=['Appointment Date','Appointment Time',slotLeadTimeColumn,slotUserTypeColumn,'Slot Type','Availability'];
 const slotHeaderlessColumns=[...slotRequiredColumns,'Patient Age','Gender','Town of the Location of the Session','DNA'];
 const slotAvailabilityValues=new Set(['booked','available','blocked','embargoed']);
 
@@ -1588,7 +1591,10 @@ function parseSlotReportCSV(csv){
   if([...slotRequiredColumns,'DNA'].some(column=>columns.indexOf(column)!==columns.lastIndexOf(column))){
    throw Error('The Slot Report contains duplicate column headings.');
   }
-  return {columns,rows:parsed.data.slice(headerIndex+1)};
+  const rows=parsed.data.slice(headerIndex+1);
+  const quantityPositions=columns.flatMap((column,index)=>slotQuantityHeadings.has(column.toLowerCase())?[index]:[]);
+  if(quantityPositions.length>1)throw Error('The Slot Report contains more than one count column.');
+  return {columns,rows,quantityPosition:quantityPositions[0]};
  }
  // Only infer the tested EMIS column order when the first row looks like
  // appointment data and every row fits the supported positional layout.
@@ -1601,7 +1607,13 @@ function parseSlotReportCSV(csv){
   throw Error('Slot Report headings were not found and the file does not match the supported headerless layout.');
  }
  const hasDNA=parsed.data.some(row=>clean(row[9]));
- return {columns:slotHeaderlessColumns.slice(0,hasDNA?10:9),rows:parsed.data};
+ const hasQuantity=parsed.data.some(row=>clean(row[10]));
+ const columns=slotHeaderlessColumns.slice(0,hasDNA?10:9);
+ if(hasQuantity){
+  if(!hasDNA)columns.push('');
+  columns.push(slotQuantityColumn);
+ }
+ return {columns,rows:parsed.data,quantityPosition:hasQuantity?10:undefined};
 }
 
 function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,_peopleAggregate,slotStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate){
@@ -1609,25 +1621,26 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
  const columnPositions=new Map(parsed.columns.map((name,index)=>[name,index]));
  const dna=columnPositions.has('DNA')?{attended:0,didNotAttend:0,unknown:0}:null;
  let valid=0,skipped=0;
- const fillColumns=[
-  'Appointment Date',
-  'Appointment Time',
-  slotUserTypeColumn,
-  'Slot Type',
-  'Availability',
-  'Town of the Location of the Session'
- ];
- // Fill down the same available fields independently, within this CSV only.
- // Never carry a value from a previous CSV file.
- const previous=Object.fromEntries(fillColumns.map(column=>[column,'']));
- for(const original of parsed.rows){
-  const r={};
-  const leadRaw=String(original[columnPositions.get('Booked Time to Slot Time')]??'').trim();
-  for(const column of fillColumns){
-   const value=String(original[columnPositions.get(column)]??'').trim();
-   if(value)previous[column]=value;
-   r[column]=previous[column];
+ const slotFieldPositions=slotHeaderlessColumns.map(column=>columnPositions.get(column));
+ const leadTimePosition=columnPositions.get(slotLeadTimeColumn);
+ const previous=parsed.columns.map(()=>'');
+ for(const [rowIndex,original] of parsed.rows.entries()){
+  // A row needs at least one value in a recognised Slot Report field before fill-down.
+  const values=parsed.columns.map((_,index)=>String(original[index]??'').trim());
+  if(!slotFieldPositions.some(index=>values[index])&&!values[parsed.quantityPosition])continue;
+  const quantityRaw=values[parsed.quantityPosition];
+  const quantity=parsed.quantityPosition===undefined?1:Number(quantityRaw);
+  if(parsed.quantityPosition!==undefined&&(!/^\d+$/.test(quantityRaw)||!Number.isSafeInteger(quantity))){
+   throw Error('Slot Report data row '+(rowIndex+1)+' must have a non-negative whole number in the count column.');
   }
+  const leadRaw=values[leadTimePosition];
+  const filled=values.map((value,index)=>{
+   if(index===leadTimePosition||index===parsed.quantityPosition)return value;
+   if(value)previous[index]=value;
+   return previous[index];
+  });
+  const r=Object.fromEntries(parsed.columns.map((column,index)=>[column,filled[index]]));
+  if(quantity===0)continue;
   const day=String(r['Appointment Date']??'').trim();
   const time=String(r['Appointment Time']??'').trim();
   const slotType=String(r['Slot Type']??'').trim();
@@ -1641,16 +1654,16 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   // Preserve the aggregate key shape so existing reports can still load.
   const person='';
   if(dna){
-   const outcome=String(original[columnPositions.get('DNA')]??'').trim().toLowerCase();
-   if(outcome==='did not attend')dna.didNotAttend++;
-   else if(outcome==='attended')dna.attended++;
-   else dna.unknown++;
+   const outcome=r.DNA.toLowerCase();
+   if(outcome==='did not attend')dna.didNotAttend+=quantity;
+   else if(outcome==='attended')dna.attended+=quantity;
+   else dna.unknown+=quantity;
   }
-  if(slotStats){const stat=slotStats.get(slotType)||{count:0,min:date,max:date};stat.count++;if(date<stat.min)stat.min=date;if(date>stat.max)stat.max=date;slotStats.set(slotType,stat)}
+  if(slotStats){const stat=slotStats.get(slotType)||{count:0,min:date,max:date};stat.count+=quantity;if(date<stat.min)stat.min=date;if(date>stat.max)stat.max=date;slotStats.set(slotType,stat)}
   const slotClock=/^(\d{1,2}):(\d{2})/.exec(time);
   const appointmentMinute=slotClock&&Number(slotClock[1])<24&&Number(slotClock[2])<60?Number(slotClock[1])*60+Number(slotClock[2]):null;
   const akey=JSON.stringify([date,slotType,availability,clinician,person,appointmentMinute,'slot']);
-  availabilityAggregate.set(akey,(availabilityAggregate.get(akey)||0)+1);
+  availabilityAggregate.set(akey,(availabilityAggregate.get(akey)||0)+quantity);
   if(status!=='booked')continue;
   const lead=Number(leadRaw.replace(/,/g,''));
   if(waitingAggregate&&leadRaw&&Number.isFinite(lead)&&lead>=0){
@@ -1658,27 +1671,27 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
    const appointmentMonth=appointmentDay.toISOString().slice(0,7);
    const appointmentDate=appointmentDay.toISOString().slice(0,10);
    const waitKey=JSON.stringify([slotType,dayBin,clinician,person,appointmentMonth]);
-   waitingAggregate.set(waitKey,(waitingAggregate.get(waitKey)||0)+1);
+   waitingAggregate.set(waitKey,(waitingAggregate.get(waitKey)||0)+quantity);
    const trendKey=JSON.stringify([slotType,clinician,person,appointmentMonth,appointmentDate,lead]);
-   waitingTrendAggregate.set(trendKey,(waitingTrendAggregate.get(trendKey)||0)+1);
+   waitingTrendAggregate.set(trendKey,(waitingTrendAggregate.get(trendKey)||0)+quantity);
   }
   const tm=/^(\d{1,2}):(\d{2})/.exec(time);
-  if(!tm||!leadRaw||!Number.isFinite(lead)){skipped++;continue;}
+  if(!tm||!leadRaw||!Number.isFinite(lead)){skipped+=quantity;continue;}
   const dt=new Date(appointmentDay.getTime());
   dt.setUTCHours(Number(tm[1]),Number(tm[2]),0,0);
   const booked=new Date(dt.getTime()-lead*60000);
-  if(!Number.isFinite(booked.getTime())){skipped++;continue;}
+  if(!Number.isFinite(booked.getTime())){skipped+=quantity;continue;}
   const w=weekMonday(booked);
   const bookedDay=booked.toISOString().slice(0,10);
   // Booking clock time, calculated using the same lead-time arithmetic as the demand charts.
   const bookedMinute=booked.getUTCHours()*60+booked.getUTCMinutes();
   // Day View scheduled workload: appointment DATE is fixed, booking timestamp controls the slider.
   const scheduledKey=JSON.stringify([date,bookedDay,bookedMinute,slotType,clinician,person,'slot']);
-  appointmentTimeAggregate.set(scheduledKey,(appointmentTimeAggregate.get(scheduledKey)||0)+1);
+  appointmentTimeAggregate.set(scheduledKey,(appointmentTimeAggregate.get(scheduledKey)||0)+quantity);
   const timeKey=JSON.stringify([bookedDay,bookedMinute,slotType,clinician,person]);
-  bookingTimeAggregate.set(timeKey,(bookingTimeAggregate.get(timeKey)||0)+1);
+  bookingTimeAggregate.set(timeKey,(bookingTimeAggregate.get(timeKey)||0)+quantity);
   const key=JSON.stringify([bookedDay,slotType,clinician,person]);
-  aggregated.set(key,(aggregated.get(key)||0)+1);valid++;
+  aggregated.set(key,(aggregated.get(key)||0)+quantity);valid+=quantity;
  }
  return {valid,skipped,dna};
 }
@@ -2016,7 +2029,7 @@ function updateHomeReportDates(items){const slots=items.filter(f=>/slot[\s_-]*re
 // A replacement invalidates only its own contribution, not the other CSV files.
 const csvContributionCache=new Map();
 // Bump this only when CSV parsing or contribution structure changes, not for UI deployments.
-const CSV_CACHE_SCHEMA=3;
+const CSV_CACHE_SCHEMA=5;
 let csvMemoryScope=null;
 function csvCacheScope(){
  const account=activeAccount?.homeAccountId||activeAccount?.localAccountId||activeAccount?.username;
