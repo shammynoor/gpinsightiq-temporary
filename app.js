@@ -5563,6 +5563,20 @@ function iqRenderSources(){
   coverage.textContent=iqReportCoverage(iqContributions.get(source.source_key)?.value);
   details.append(coverage);
   row.append(details);
+  if(source.kind==='slot'){
+   const remove=document.createElement('button');
+   remove.type='button';
+   remove.textContent='Remove';
+   remove.setAttribute('aria-label','Remove '+source.source_name);
+   remove.onclick=async()=>{
+    if(iqUploading||!confirm('Remove '+source.source_name+' from this practice’s analytics?'))return;
+    try{
+     await iqBridge.remove(source.source_key,source.revision);
+     await loadFolder(true);
+    }catch(error){iqUploadStatus.textContent=error.message;}
+   };
+   row.append(remove);
+  }
   list.append(row);
  }
 }
