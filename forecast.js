@@ -212,9 +212,10 @@ let forecastSuggestionRows=[],forecastSuggestionBody=null;
 const forecastRenderCache={predictions:null,analytics:null};
 let dailyAppointmentTargets=new Map();
 let weeklyAppointmentTargets=new Map(),weeklyPlanningGroups=new Set();
+let remainingWeeklyAppointmentTarget=null;
 window.readUrgentPlanningForecast=()=>{
  renderHistoricalWeekday({planningOnly:true});
- return {daily:dailyAppointmentTargets,weekly:weeklyAppointmentTargets,weeklyGroups:weeklyPlanningGroups};
+ return {daily:dailyAppointmentTargets,weekly:weeklyAppointmentTargets,weeklyGroups:weeklyPlanningGroups,remainingWeekly:remainingWeeklyAppointmentTarget};
 };
 // The daily target and time profile use the same appointment types and fitting dates.
 function bookingTimeProfile(sampleDays,dailyGroups,parts,locumPage){
@@ -270,6 +271,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  if(panel==='predictions'){
   dailyAppointmentTargets=new Map();
   weeklyAppointmentTargets=new Map();
+  remainingWeeklyAppointmentTarget=null;
  }
  if(panel==='analytics')root.replaceChildren();renderDailyUrgencyFilters();renderUrgencyPlanningModes();
  const today=forecastLocalDate(),end=shift(today,-1);
@@ -469,6 +471,33 @@ function renderHistoricalWeekday({planningOnly=false}={}){
     }
    }
    return total;
+  };
+  const weeklyBookingProfiles=new Map();
+  remainingWeeklyAppointmentTarget=(weekStart,currentDate,minute)=>{
+   if(!weeklyGroups.length)return null;
+   if(shift(weekStart,4)<currentDate)return 0;
+   if(weekStart>currentDate)return weeklyAppointmentTargets.get(weekStart)??null;
+   let remaining=0;
+   for(let dow=1;dow<=5;dow++){
+    const day=shift(weekStart,dow-1);
+    if(day<currentDate||bankHolidayDates.has(day))continue;
+    const estimates=weeklyGroups.map(name=>predict(name,dow,day));
+    if(estimates.some(value=>value===undefined))return null;
+    const prediction=estimates.reduce((total,value)=>total+value,0);
+    if(day!==currentDate){remaining+=prediction;continue;}
+    if(prediction===0)continue;
+    if(!weeklyBookingProfiles.has(day)){
+     const adjacent=adjacentTypes.get(day);
+     const sampleDays=adjacent
+      ? [...adjacentTypes].filter(([sample,type])=>type===adjacent&&sample>=(earliestBooking||start)&&sample<=end).map(([sample])=>sample)
+      : fittingDays.get(dow);
+     weeklyBookingProfiles.set(day,bookingTimeProfile(sampleDays,weeklyGroups,parts,locumPage));
+    }
+    const profile=weeklyBookingProfiles.get(day);
+    if(!profile||!(profile[0]>0))return null;
+    remaining+=prediction*profile[minute]/profile[0];
+   }
+   return Math.ceil(remaining);
   };
   if(hasWeekly){
    const currentMonday=monday(today),prediction=weeklyPredictionFor(currentMonday);

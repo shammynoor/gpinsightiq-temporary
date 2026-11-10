@@ -151,7 +151,7 @@ function renderWeeklyPlanning(){
  const monday=GPCorrectness.shift(GPCorrectness.monday(now.date),offset*7);
  const dates=Array.from({length:5},(_,index)=>GPCorrectness.shift(monday,index));
  byId('planningWeekDates').textContent=weekFormat.formatRange(asDate(dates[0]),asDate(dates[4]));
- const {daily:targets,weekly:allocationTargets,weeklyGroups}=window.readUrgentPlanningForecast();
+ const {daily:targets,weekly:allocationTargets,weeklyGroups,remainingWeekly}=window.readUrgentPlanningForecast();
  const gp=byId('planningGpTarget'),face=byId('planningFaceTarget');
  for(const input of [gp,face]){
   const value=percentFormat.format(input.valueAsNumber/100),output=input.parentElement.querySelector('output');
@@ -179,7 +179,8 @@ function renderWeeklyPlanning(){
   const consultMode=consultAssignments[row.slot];
   const values=[appointment,group,consultMode,type];
   if(!locumMatches(row,'workforceNeedPage')||values.some((value,index)=>disabled[index].has(value)))continue;
-  if(!isWeekly&&row.date===now.date){
+  if(row.date<now.date)continue;
+  if(row.date===now.date){
    if(!Number.isFinite(row.minute)){
     if(availability!=='booked')missingSlotTimes=true;
     continue;
@@ -228,15 +229,17 @@ function renderWeeklyPlanning(){
  const allocationBody=byId('planningAllocation');
  allocationBody.replaceChildren();
  const allocationActual=weeklyGroups.size&&weeklyReported.size?allocation:null;
- const allocationTarget=allocationTargets.get(monday);
+ const allocationTarget=offset===0?remainingWeekly?.(monday,now.date,minute)??null:allocationTargets.get(monday);
  const completeWeek=dates.every(day=>weeklyReported.has(day)||targets.get(day)?.bankHoliday);
  appendRow(allocationBody,'',allocationTarget,allocationActual,mixTargets,{
-  day:monday,compareTotal:completeWeek
+  day:monday,compareTotal:completeWeek&&!missingSlotTimes
  });
  showBookedCount('planningWeeklyBooked',allocation.booked);
  byId('planningAllocationNote').textContent=!weeklyGroups.size?'No appointment types are set to Weekly in Urgent Forecast.'
   :!weeklyReported.size?'The Slot Report contains no appointments for this week.'
-  :!completeWeek?'Slot totals cover '+weeklyReported.size+' of the 5 weekdays.':'';
+  :!completeWeek?'Slot totals cover '+weeklyReported.size+' of the 5 weekdays.'
+  :offset===0&&allocationTarget==null?'Remaining weekly demand needs more comparable booking-time history.'
+  :offset===0?'Remaining allocation from '+weekdayFormat.format(asDate(now.date))+' '+dayView2Time(minute)+'.':'';
 
  const combinedBody=byId('planningCombined');
  combinedBody.replaceChildren();
