@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 215" role="img" aria-labelledby="title desc">
+<title id="title">Illustration of a welcoming GP practice</title><desc id="desc">A warm cream-coloured medical practice with a blue roof, trees and a small garden</desc>
+<defs>
+ <linearGradient id="sky" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#b3e8ff"/><stop offset="1" stop-color="#f7fcff"/></linearGradient>
+ <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff5dd"/><stop offset="1" stop-color="#ebd1a0"/></linearGradient>
+ <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#367ba6"/><stop offset="1" stop-color="#125075"/></linearGradient>
+ <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c4f5ff"/><stop offset="1" stop-color="#59bad8"/></linearGradient>
+ <linearGradient id="grass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c8ee8a"/><stop offset="1" stop-color="#6bbe6b"/></linearGradient>
+</defs>
+<path d="M28 103Q17 53 81 35Q133-2 199 28Q254-2 329 39Q382 59 390 115L369 175H45Z" fill="url(#sky)"/>
+<g fill="#fff" opacity=".85"><path d="M73 56q9-15 25 0q8-7 20 0z"/><path d="M276 46q10-15 24 0q8-7 18 0z"/></g>
+<ellipse cx="210" cy="193" rx="197" ry="19" fill="url(#grass)"/>
+<g stroke="#9c7949" stroke-width="6" stroke-linecap="round"><path d="M57 155V101"/><path d="M360 152V94"/></g>
+<g fill="#69b34b"><circle cx="52" cy="85" r="29"/><circle cx="74" cy="101" r="25"/><circle cx="37" cy="111" r="23"/><circle cx="348" cy="78" r="30"/><circle cx="370" cy="104" r="26"/><circle cx="338" cy="107" r="27"/></g>
+<g fill="#8dce5b"><circle cx="48" cy="74" r="23"/><circle cx="358" cy="70" r="23"/><circle cx="370" cy="92" r="18"/></g>
+<path d="M81 95L210 28L337 96V178H81Z" fill="url(#wall)" stroke="#d4bb96" stroke-width="3"/>
+<path d="M75 99L210 27L344 99L321 103L210 45L101 104Z" fill="url(#roof)" stroke="#1b5274" stroke-width="2"/>
+<path d="M170 92L211 54L249 92V178H170Z" fill="#fdf5e6" stroke="#d9bd94" stroke-width="3"/>
+<path d="M174 90L210 49L246 90" fill="none" stroke="#397ba1" stroke-width="7" stroke-linejoin="round"/>
+<circle cx="210" cy="77" r="6" fill="#f3b75e"/>
+<rect x="105" y="114" width="46" height="39" rx="2" fill="#fff"/><rect x="110" y="118" width="36" height="30" fill="url(#glass)"/><path d="M128 118V148M110 133H146" stroke="#fff" stroke-width="3"/>
+<rect x="268" y="114" width="46" height="39" rx="2" fill="#fff"/><rect x="273" y="118" width="36" height="30" fill="url(#glass)"/><path d="M291 118V148M273 133H309" stroke="#fff" stroke-width="3"/>
+<rect x="194" y="121" width="34" height="57" rx="2" fill="#fff"/><rect x="198" y="126" width="27" height="52" fill="url(#glass)"/><path d="M212 127V178" stroke="#fff" stroke-width="2"/><circle cx="217" cy="155" r="2" fill="#2c6387"/>
+<path d="M180 180H239L253 198H168Z" fill="#e6d1b1"/><path d="M176 187H246" stroke="#fff" stroke-width="3" opacity=".6"/>
+<rect x="176" y="97" width="68" height="18" rx="5" fill="#fff" stroke="#e8d8be"/><path d="M188 106h44" stroke="#40758c" stroke-width="2.2" stroke-linecap="round" opacity=".8"/>
+<g fill="#2b975e"><circle cx="83" cy="169" r="17"/><circle cx="102" cy="171" r="15"/><circle cx="150" cy="174" r="13"/><circle cx="274" cy="174" r="14"/><circle cx="310" cy="169" r="18"/><circle cx="331" cy="170" r="13"/></g>
+<g fill="#83d75e"><circle cx="64" cy="178" r="12"/><circle cx="124" cy="180" r="13"/><circle cx="294" cy="180" r="14"/><circle cx="352" cy="177" r="12"/></g>
+<path d="M24 198q83 15 145 0t228 2" fill="none" stroke="#b1dc74" stroke-width="5" stroke-linecap="round"/>
+</svg>
