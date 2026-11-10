@@ -7,6 +7,7 @@ const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
 const fmtDate=date=>isoDay(date).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
+const fmtLong=date=>isoDay(date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
 const integer=value=>Math.round(value).toLocaleString('en-GB');
 const percent=value=>(value>=0?'+':'')+Math.round(value)+'%';
 const weight=row=>Number.isFinite(Number(row.count))?Math.max(0,Number(row.count)):0;
@@ -117,7 +118,7 @@ function renderCare(section,options){
   const desc=meanForecast===null?'Not enough booked appointment history for a reliable four-week forecast.':
    change===null?'Urgent capacity is forecast for the next four weeks. Recent bookings are insufficient for a trend comparison.':
    'Urgent bookings are forecast to '+(change>=0?'rise':'fall')+' by about '+Math.abs(Math.round(change))+'% over the next four weeks.';
-  setInsight('acute',0,'Seasonal demand',desc+(yoy!==null?' Recent bookings are '+Math.abs(Math.round(yoy))+'% '+(yoy>=0?'above':'below')+' the same weeks last year.':' A reliable last-year comparison is not available.'));
+  setInsight('acute',0,'Seasonal demand',desc+(yoy!==null?Math.abs(Math.round(yoy))===0?' Recent bookings are similar to the same weeks last year.':' Recent bookings are '+Math.abs(Math.round(yoy))+'% '+(yoy>=0?'above':'below')+' the same weeks last year.':' A reliable last-year comparison is not available.'));
   const start=shift(latestCompleteWeek,-21),end=shift(latestCompleteWeek,6);
   const counts=new Map(),missed=new Map();
   const clock=capacitySnapshotClock();
@@ -142,8 +143,8 @@ function renderCare(section,options){
    unfilled>0?integer(unfilled)+' urgent slots remained unfilled in the latest report snapshot'+(topMissed&&topMissed[0]!=='Unassigned'?', most often in '+topMissed[0]:'')+'.':
    'No previously unfilled urgent slots were identified in the latest imported snapshot.');
  }else{
-  let desc=previous!==null?'Routine bookings are '+Math.abs(Math.round(previous))+'% '+(previous>=0?'higher':'lower')+' than the preceding four weeks.':'Routine bookings are available, but the previous period has insufficient data for comparison.';
-  if(yoy!==null)desc+=' They are '+Math.abs(Math.round(yoy))+'% '+(yoy>=0?'above':'below')+' the same period last year.';
+  let desc=previous!==null?(Math.round(previous)===0?'Routine bookings are similar to the preceding four weeks.':'Routine bookings are '+Math.abs(Math.round(previous))+'% '+(previous>=0?'higher':'lower')+' than the preceding four weeks.'):'Routine bookings are available, but the previous period has insufficient data for comparison.';
+  if(yoy!==null)desc+=Math.round(yoy)===0?' They are similar to the same period last year.':' They are '+Math.abs(Math.round(yoy))+'% '+(yoy>=0?'above':'below')+' the same period last year.';
   setInsight('routine',0,'Demand trend',desc);
   const todayIso=today;
   const lastDate=shift(todayIso,-1);
@@ -221,7 +222,7 @@ function update(){
    const totalRecords=slots.length;
    const earliest=slots.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,'');
    const current=slots.reduce((max,r)=>r.bookedDay&&r.bookedDay<date&&r.bookedDay>max?r.bookedDay:max,'');
-   caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtDate(earliest)+' to '+fmtDate(current)+'). ':'')+
+   caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtLong(earliest)+' to '+fmtLong(current)+'). ':'')+
     'Charts show the latest five complete weeks and next four weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
   }
  }catch(error){
