@@ -1,0 +1,89 @@
+/* GP Insight IQ homepage v2. All overview rules are scoped to #homePage. */
+/* The overview must never override the dashboard's .hidden navigation state. */
+#homePage.hidden{display:none!important}
+#homePage:not(.hidden){display:block}
+#homePage.iq-overview{padding:0!important;margin:0!important;background:transparent!important;border:0!important;box-shadow:none!important}
+#homePage *{box-sizing:border-box}
+@media(min-width:1450px){#dashboardShell:has(#homePage:not(.hidden)) .wrap{max-width:1570px}}
+/* Use the existing brand and existing menu destinations, only refresh appearance. */
+#dashboardShell .dashboard-header{background:#fff!important;border:1px solid #e0eaf4!important;border-radius:15px!important;box-shadow:0 3px 16px #284f700b!important;color:#152a49!important;margin-bottom:20px!important}
+#dashboardShell .dashboard-header .topbar{background:transparent!important;color:#152a49!important;padding:9px 14px!important}
+#dashboardShell .dashboard-header .gp-compass-brand{gap:8px!important}
+#dashboardShell .dashboard-header .gp-compass-mark{background:transparent!important;border:0!important;width:38px!important;height:38px!important;box-shadow:none!important}
+#dashboardShell .dashboard-header .gp-compass-mark svg{width:36px!important;height:36px!important}
+#dashboardShell .dashboard-header .gp-compass-name{font-size:24px!important;font-weight:800!important;letter-spacing:-.8px!important;color:#102b4d!important}
+#dashboardShell .dashboard-header .brand-gp,#dashboardShell .dashboard-header .brand-insight{color:#102b4d!important}
+#dashboardShell .dashboard-header .brand-iq{color:#08bad5!important}
+#dashboardShell .dashboard-header .header-report-time,#dashboardShell .dashboard-header .header-user,#dashboardShell .dashboard-header .header-user span{color:#49657e!important}
+#dashboardShell .dashboard-header .header-user{border-left:1px solid #e2ebf4!important}
+#dashboardShell .dashboard-nav{background:#fff!important;margin:0!important;padding:4px 12px 9px!important;gap:5px!important;align-items:center!important;border-radius:0 0 15px 15px!important}
+#dashboardShell .dashboard-nav .nav-module-tile{width:auto!important;min-width:0!important;height:46px!important;min-height:46px!important;border-radius:11px!important;padding:8px 12px!important;border:1px solid transparent!important;background:transparent!important;box-shadow:none!important;color:#1d3d5e!important;gap:6px!important}
+#dashboardShell .dashboard-nav .nav-module-tile:hover,#dashboardShell .dashboard-nav .nav-module-tile.active{background:#e8f3ff!important;color:#134c84!important;border-color:#e2efff!important}
+#dashboardShell .dashboard-nav .nav-module-tile>svg{width:20px!important;height:20px!important;flex-basis:20px!important}
+#dashboardShell .dashboard-nav .nav-module-tile .module-name{font-size:14px!important;font-weight:750!important;line-height:21px!important;min-height:21px!important}
+#dashboardShell .dashboard-nav .nav-module-tile .module-iq{font-size:9px!important;top:-5px!important;color:#08a8c9!important}
+#dashboardShell .dashboard-nav .nav-module-chevron{width:12px!important;height:12px!important;flex-basis:12px!important}
+#dashboardShell .dashboard-nav .nav-compass-placeholder{opacity:.4!important}
+#dashboardShell .dashboard-nav .nav-settings-spacer{flex:1 0 0!important;min-width:6px!important}
+@media(min-width:1550px){
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto;align-items:center}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.topbar{display:contents!important}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .gp-compass-brand{grid-column:1;grid-row:1;margin:0 10px 0 14px}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.dashboard-nav{grid-column:2;grid-row:1;min-width:0;justify-content:center!important;padding:10px 4px!important}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .top-actions{grid-column:3;grid-row:1;margin:0 14px 0 0}
+ #dashboardShell:has(#homePage:not(.hidden)) .header-download-status{display:none}
+}
+.iq-overview .iq-home-hero{display:grid;grid-template-columns:300px minmax(0,1fr) auto;align-items:center;gap:26px;margin:2px 0 18px;min-height:155px}
+.iq-overview .iq-home-illustration{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}
+.iq-overview .iq-home-illustration img{width:100%;max-width:290px;height:auto;display:block;filter:drop-shadow(0 4px 5px #39799710)}
+.iq-overview .iq-home-practice-name{color:#526b83;font-size:11px;font-weight:650;min-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.iq-overview .iq-home-welcome h2{font-size:37px;line-height:1.12;letter-spacing:-1px;color:#101f49;font-weight:800;margin:0 0 10px}
+.iq-overview .iq-home-welcome p{font-size:17px;line-height:1.45;color:#233b5a;max-width:680px;margin:0}
+.iq-overview .iq-home-updated{background:#fff;border:1px solid #d8e7f7;border-radius:17px;padding:16px 19px;box-shadow:0 7px 19px #285d8a12;display:flex;flex-direction:column;gap:6px;min-width:220px;max-width:265px;align-self:center}
+.iq-overview .iq-home-updated .iq-home-update-label{font-size:14px;font-weight:750;color:#335675}
+.iq-overview .iq-home-updated strong{color:#112d50;font-size:16px;line-height:1.35}
+.iq-overview .iq-home-updated details{font-size:11px;color:#688096;margin-top:6px}
+.iq-overview .iq-home-updated summary{cursor:pointer}
+.iq-overview .iq-home-updated details p{font-size:11px;line-height:1.45;margin:5px 0;color:#687d91}
+.iq-overview .iq-home-panes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.iq-overview .iq-home-lane{display:flex;flex-direction:column;gap:15px;min-width:0}
+.iq-overview .iq-home-card{border-radius:22px;border:1px solid #e6eaf0;box-shadow:0 6px 19px #31587c10;overflow:hidden}
+.iq-overview .iq-home-acute .iq-home-chart-card{background:linear-gradient(155deg,#fff1f4 0%,#ffe8ef 48%,#fffafd 100%);border-color:#f5d6e0}
+.iq-overview .iq-home-routine .iq-home-chart-card{background:linear-gradient(155deg,#ecfbf7 0%,#e3f8f1 50%,#fafffd 100%);border-color:#d0f0e7}
+.iq-overview .iq-home-card-heading{display:flex;gap:16px;align-items:center;padding:17px 22px 13px}
+.iq-overview .iq-home-symbol{width:67px;height:67px;border-radius:50%;display:grid;place-items:center;flex:0 0 67px;background:linear-gradient(140deg,#ff5d79,#e92356);color:#fff;box-shadow:0 5px 12px #db477229}
+.iq-overview .iq-home-routine .iq-home-symbol{background:linear-gradient(140deg,#12bf9a,#008d70);box-shadow:0 5px 12px #14977b29}
+.iq-overview .iq-home-symbol svg{width:33px;height:33px;stroke:currentColor;stroke-width:2.9}
+.iq-overview .iq-home-heading-text{flex:1;min-width:0}
+.iq-overview .iq-home-heading-text h3{font-size:26px;line-height:1.13;font-weight:800;color:#12244d;letter-spacing:-.5px}
+.iq-overview .iq-home-heading-text p{font-size:15px;color:#24425e;margin:6px 0 0}
+.iq-overview .iq-home-outlook{background:#ffffffc9;border:1px solid #f0dce4;border-radius:16px;padding:10px 16px;text-align:center;box-shadow:0 4px 10px #35567712;margin-left:auto;min-width:129px}
+.iq-overview .iq-home-routine .iq-home-outlook{border-color:#ccece4}
+.iq-overview .iq-home-outlook strong{font-size:29px;font-weight:800;line-height:1.1;display:block;color:#e22e58}
+.iq-overview .iq-home-routine .iq-home-outlook strong{color:#05956c}
+.iq-overview .iq-home-outlook small{font-size:12px;color:#234563;font-weight:650}
+.iq-overview .iq-home-plot{margin:0 14px 14px;padding:12px 14px 10px;background:#fff;border:1px solid #f5eef1;border-radius:17px}
+.iq-overview .iq-home-legend{text-align:center;color:#405b75;font-size:12px;display:flex;gap:18px;justify-content:center;align-items:center;min-height:19px}
+.iq-overview .iq-home-legend span{display:flex;align-items:center;gap:6px}
+.iq-overview .iq-home-dot{display:inline-block;border-radius:50%;width:8px;height:8px;background:var(--care-accent)}
+.iq-overview .iq-home-dot.is-hollow{background:#fff;border:2px solid var(--care-accent)}
+.iq-overview .iq-home-chart-svg{width:100%;height:auto;display:block;margin-top:4px;overflow:visible}
+.iq-overview .iq-home-acute{--care-accent:#f03265;--care-pale:#ffe2ec}
+.iq-overview .iq-home-routine{--care-accent:#0b9c7f;--care-pale:#dcf8ed}
+.iq-overview .iq-home-insights{background:linear-gradient(180deg,var(--care-pale) 0,#fff 95px);border:1px solid #dce7f0;padding:0 18px 7px}
+.iq-overview .iq-home-insights h3{padding:14px 13px 12px;color:#14284e;font-size:23px;line-height:1.1;font-weight:800;letter-spacing:-.3px}
+.iq-overview .iq-home-insight{width:100%!important;border:0!important;border-bottom:1px solid #dde6f0!important;border-radius:0!important;background:#fff!important;min-height:90px!important;padding:12px 8px!important;display:flex;gap:17px;align-items:center;text-align:left;color:#203b55!important;box-shadow:none!important;cursor:pointer}
+.iq-overview .iq-home-insight:last-child{border-bottom:0!important}
+.iq-overview .iq-home-insight:hover,.iq-overview .iq-home-insight:focus-visible{background:#f3f9ff!important}
+.iq-overview .iq-home-insight .iq-home-insight-icon{flex:0 0 52px;display:grid;place-items:center}
+.iq-overview .iq-home-insight .iq-home-insight-icon svg{width:35px;height:35px;stroke:currentColor;stroke-width:2.3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.iq-overview .iq-home-insight[data-icon-theme=purple] .iq-home-insight-icon{color:#853af4}
+.iq-overview .iq-home-insight[data-icon-theme=blue] .iq-home-insight-icon{color:#2585e5}
+.iq-overview .iq-home-insight[data-icon-theme=orange] .iq-home-insight-icon{color:#e9910d}
+.iq-overview .iq-home-insight-copy{flex:1;min-width:0}
+.iq-overview .iq-home-insight-copy strong{display:block;color:#14284e;font-size:16px;font-weight:800;margin-bottom:3px}
+.iq-overview .iq-home-insight-copy small{display:block;color:#243951;font-size:13px;line-height:1.48;font-weight:450}
+.iq-overview .iq-home-go{font-size:28px;line-height:1;color:#17395b}
+.iq-overview .iq-home-caveat{font-size:11px;line-height:1.45;color:#61798c;margin:12px 5px 0}
+@media(max-width:1050px){.iq-overview .iq-home-hero{grid-template-columns:190px 1fr;gap:16px}.iq-overview .iq-home-updated{grid-column:1/-1;justify-self:end;max-width:none}.iq-overview .iq-home-panes{grid-template-columns:1fr}.iq-overview .iq-home-illustration img{max-width:190px}}
+@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:110px 1fr;gap:10px}.iq-overview .iq-home-welcome h2{font-size:24px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{justify-self:stretch;width:100%}.iq-overview .iq-home-card-heading{padding:14px;gap:10px}.iq-overview .iq-home-symbol{width:47px;height:47px;flex-basis:47px}.iq-overview .iq-home-symbol svg{width:25px;height:25px}.iq-overview .iq-home-heading-text h3{font-size:19px}.iq-overview .iq-home-heading-text p{font-size:12px}.iq-overview .iq-home-outlook{min-width:92px;padding:9px}.iq-overview .iq-home-outlook strong{font-size:23px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:20px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{flex-basis:36px}.iq-overview .iq-home-insight .iq-home-insight-icon svg{width:29px;height:29px}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
