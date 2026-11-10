@@ -398,6 +398,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
     }
     return hasWorkingDay?Math.ceil(total):null;
    };
+   if(allHistory){
    // Uncertainty is based on empirical residuals from the existing weekday/seasonal model.
    // The homepage selects all available history; these are indicative ranges, not formal CIs.
    const weeklyResiduals=[],dailyResiduals=new Map(Array.from({length:5},(_,i)=>[i+1,[]]));
@@ -439,6 +440,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
    capacityPrediction.historyStart=start;
    capacityPrediction.historyEnd=end;
    capacityPrediction.historicalSamples=weeklyResiduals.length;
+   }
    forecastRenderCache.capacity={records,signature:cacheKey,capacityPrediction};
    return capacityPrediction;
   }
