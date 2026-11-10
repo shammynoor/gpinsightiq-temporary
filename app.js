@@ -5457,7 +5457,7 @@ async function iqStart(){
   installLocumFilters();
   const topbar=document.querySelector('#dashboardShell .topbar');
   if(topbar){
-   const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='insight-mark.svg';image.alt='';mark.replaceChildren(image);}
+   const mark=topbar.querySelector('.gp-compass-mark');if(mark){const image=document.createElement('img');image.src='overview-brand-mark.svg';image.alt='';mark.replaceChildren(image);}
    const brand=topbar.querySelector('.gp-compass-brand');brand?.setAttribute('aria-label','GP Insight IQ');
    const practiceIdentity=document.createElement('div');practiceIdentity.className='iq-header-practice';
    const caption=document.createElement('span');caption.className='iq-header-practice-caption';caption.textContent='Practice';
@@ -5471,12 +5471,8 @@ async function iqStart(){
   applyAccessMode();setButtons();iqCreateUploadPanel();
   await loadCloudCategories({strict:true});await loadFolder(true);
   restoreChartCheckboxes();
-  const lastPage=readChartPreferences().workspacePage;
-  if(lastPage==='dailyForecast'||lastPage==='weeklyForecast'){
-   $(lastPage==='dailyForecast'?'navDailyForecast':'navWeeklyForecast')?.click();
-  }else if(['workforceNeed','workforcePlanning','home','routineCapacity','chart','waitingTimes','waitingTrend','categories','availability','routineAvailability','dayView','bookingTimes','signposting','rapidHealth','people','practiceSettings','personalSettings'].includes(lastPage)){
-   showPage(lastPage);
-  }
+  // Open the overview first after sign-in; retain per-page chart preferences.
+  showPage('home');
   startDashboardIdleSession();
   $('signIn').onclick=()=>{};$('chooseFolder').onclick=()=>{};$('sourceSetup').onclick=()=>{};
   $('refreshData').onclick=()=>void refreshDashboardData(true);
