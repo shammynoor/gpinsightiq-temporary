@@ -92,3 +92,13 @@
 .iq-overview .iq-home-caveat{font-size:11px;line-height:1.45;color:#61798c;margin:12px 5px 0}
 @media(max-width:1050px){.iq-overview .iq-home-hero{grid-template-columns:190px 1fr;gap:16px}.iq-overview .iq-home-updated{grid-column:1/-1;justify-self:end;max-width:none}.iq-overview .iq-home-panes{grid-template-columns:1fr}.iq-overview .iq-home-illustration img{max-width:190px}}
 @media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:110px 1fr;gap:10px}.iq-overview .iq-home-welcome h2{font-size:24px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{justify-self:stretch;width:100%}.iq-overview .iq-home-card-heading{padding:14px;gap:10px}.iq-overview .iq-home-symbol{width:47px;height:47px;flex-basis:47px}.iq-overview .iq-home-symbol svg{width:25px;height:25px}.iq-overview .iq-home-heading-text h3{font-size:19px}.iq-overview .iq-home-heading-text p{font-size:12px}.iq-overview .iq-home-outlook{min-width:92px;padding:9px}.iq-overview .iq-home-outlook strong{font-size:23px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:20px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{flex-basis:36px}.iq-overview .iq-home-insight .iq-home-insight-icon svg{width:29px;height:29px}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
+
+/* Keep the mobile menu visible on the refreshed white navigation bar. */
+#dashboardShell .header-menu-toggle{background:#eaf4fd!important;color:#1e476d!important;border:1px solid #d7e7f6!important;border-radius:10px!important}
+#dashboardShell .header-menu-toggle svg{color:#1e476d!important}
+@media(max-width:900px){
+ #dashboardShell .dashboard-header .topbar{flex-wrap:wrap!important;gap:8px!important}
+ #dashboardShell .dashboard-header .top-actions{margin-left:auto!important}
+ #dashboardShell .dashboard-header .iq-header-practice{order:3;flex:1 1 100%;min-width:0;max-width:none}
+ #dashboardShell .dashboard-nav{justify-content:flex-start!important}
+}
