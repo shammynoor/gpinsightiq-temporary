@@ -212,9 +212,14 @@ let forecastSuggestionRows=[],forecastSuggestionBody=null;
 const forecastRenderCache={predictions:null,analytics:null};
 let dailyAppointmentTargets=new Map();
 let weeklyAppointmentTargets=new Map(),weeklyPlanningGroups=new Set();
+let capacityForecastDaily=new Map(),capacityForecastWeekly=new Map();
 window.readUrgentPlanningForecast=()=>{
  renderHistoricalWeekday({planningOnly:true});
  return {daily:dailyAppointmentTargets,weekly:weeklyAppointmentTargets,weeklyGroups:weeklyPlanningGroups};
+};
+window.readUrgentCapacityForecast=()=>{
+ renderHistoricalWeekday({planningOnly:true});
+ return {daily:capacityForecastDaily,weekly:capacityForecastWeekly,weeklyGroups:weeklyPlanningGroups};
 };
 // The daily target and time profile use the same appointment types and fitting dates.
 function bookingTimeProfile(sampleDays,dailyGroups,parts,locumPage){
@@ -270,6 +275,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  if(panel==='predictions'){
   dailyAppointmentTargets=new Map();
   weeklyAppointmentTargets=new Map();
+  capacityForecastDaily=new Map();capacityForecastWeekly=new Map();weeklyPlanningGroups=new Set();
  }
  if(panel==='analytics')root.replaceChildren();renderDailyUrgencyFilters();renderUrgencyPlanningModes();
  const today=forecastLocalDate(),end=shift(today,-1);
@@ -470,6 +476,27 @@ function renderHistoricalWeekday({planningOnly=false}={}){
    }
    return total;
   };
+  // Retain per-type predictions for the capacity chart, using the same fitted models
+  // and holiday rules as the planning table. Weekly allocations are not daily targets.
+  for(let week=0;week<=14;week++){
+   const weekStart=shift(monday(today),week*7),weeklyByGroup=new Map();
+   for(const name of groups){
+    let values=[],valid=true;
+    for(let dow=1;dow<=5;dow++){
+     const day=shift(weekStart,dow-1);
+     if(bankHolidayDates.has(day))continue;
+     const estimate=predict(name,dow,day);
+     if(estimate===undefined){valid=false;continue;}
+     values.push(estimate);
+     if(!weeklyPlanningGroups.has(name)){
+      if(!capacityForecastDaily.has(day))capacityForecastDaily.set(day,new Map());
+      capacityForecastDaily.get(day).set(name,estimate);
+     }
+    }
+    weeklyByGroup.set(name,valid?{weekly:weeklyPlanningGroups.has(name),values}:null);
+   }
+   capacityForecastWeekly.set(weekStart,weeklyByGroup);
+  }
   if(hasWeekly){
    const currentMonday=monday(today),prediction=weeklyPredictionFor(currentMonday);
    weeklyAppointmentTargets.set(currentMonday,prediction===null?null:Math.ceil(prediction));
