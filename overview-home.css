@@ -25,12 +25,17 @@
 #dashboardShell .dashboard-nav .nav-module-chevron{width:12px!important;height:12px!important;flex-basis:12px!important}
 #dashboardShell .dashboard-nav .nav-compass-placeholder{opacity:.4!important}
 #dashboardShell .dashboard-nav .nav-settings-spacer{flex:1 0 0!important;min-width:6px!important}
+#dashboardShell .dashboard-header .iq-header-practice{color:#183654!important;background:#f5f9fd;border:1px solid #e2edf5;border-radius:10px;padding:7px 10px!important;min-width:135px;max-width:190px}
+#dashboardShell .dashboard-header .iq-header-practice-caption{font-size:10px;color:#668197!important}
+#dashboardShell .dashboard-header .iq-header-practice-name{color:#193d5f!important;font-weight:700!important;font-size:12px!important}
+#dashboardShell .dashboard-header #refreshData,#dashboardShell .dashboard-header .header-account-menu summary{color:#335978!important}
 @media(min-width:1550px){
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto;align-items:center}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center}
  #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.topbar{display:contents!important}
  #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .gp-compass-brand{grid-column:1;grid-row:1;margin:0 10px 0 14px}
  #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.dashboard-nav{grid-column:2;grid-row:1;min-width:0;justify-content:center!important;padding:10px 4px!important}
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .top-actions{grid-column:3;grid-row:1;margin:0 14px 0 0}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .iq-header-practice{grid-column:3;grid-row:1}
+ #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .top-actions{grid-column:4;grid-row:1;margin:0 14px 0 0}
  #dashboardShell:has(#homePage:not(.hidden)) .header-download-status{display:none}
 }
 .iq-overview .iq-home-hero{display:grid;grid-template-columns:300px minmax(0,1fr) auto;align-items:center;gap:26px;margin:2px 0 18px;min-height:155px}
