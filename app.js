@@ -4742,10 +4742,22 @@ function renderAvailabilityChart(){
  const extras=[];
  const {traces,totals}=capacityGroupedSeries(buckets,names,counts,urgentGroupWithheld,heading,extras);
  target._capacityHoverData=capacityHoverDetails(buckets,names,counts,urgentGroupWithheld,heading);
- const max=Math.ceil(Math.max(1,...totals)*1.2/10)*10;
+ const forecast=window.readUrgentCapacityForecast?.();
+ const forecastNames=names;
+ const predicted=buckets.map(date=>{
+  if(!forecast||!forecastNames.length||(!weekly&&date<todayLondon)||(weekly&&date<thisWeek))return null;
+  const byGroup=(weekly?forecast.weekly:forecast.daily).get(date);
+  if(!byGroup||forecastNames.some(name=>!byGroup.has(name)||byGroup.get(name)==null))return null;
+  if(!weekly)return Math.ceil(forecastNames.reduce((sum,name)=>sum+byGroup.get(name),0));
+  const dayCount=byGroup.get(forecastNames[0]).values.length;
+  return Array.from({length:dayCount},(_,i)=>Math.ceil(forecastNames.reduce((sum,name)=>sum+byGroup.get(name).values[i],0))).reduce((a,b)=>a+b,0);
+ });
+ const max=Math.ceil(Math.max(1,...totals,...predicted.filter(value=>value!==null))*1.2/10)*10;
  const weekLabels=Array.from({length:weekCount},(_,i)=>{const offset=i-urgentWeeksBack;return offset===0?'This Week':offset===-1?'Last Week':offset<0?Math.abs(offset)+' weeks ago':offset===1?'Next Week':offset+' weeks'});
  const annotations=weekLabels.map((text,i)=>({x:weekly?buckets[i]:dates[i*7+2],xref:'x',y:1.045,yref:'paper',text,showarrow:false,font:{size:13,color:'#344b60'},xanchor:'center',yanchor:'bottom'}));
  const shapes=Array.from({length:weekCount-1},(_,i)=>({type:'line',xref:'x',yref:'paper',x0:weekly?i+0.5:i*7+5.5,x1:weekly?i+0.5:i*7+5.5,y0:0,y1:1,line:{color:'#bdcbd6',width:1,dash:'dot'}}));
+ predicted.forEach((value,i)=>{if(value!==null)shapes.push({type:'line',xref:'x',yref:'y',x0:i+(weekly?-.445:-.4875),x1:i+(weekly?.445:.4875),y0:value,y1:value,line:{color:'#142f48',width:3},layer:'above'})});
+ if(predicted.some(value=>value!==null))traces.push({type:'scatter',mode:'lines',name:'Predicted need',x:[null],y:[null],line:{color:'#142f48',width:3},showlegend:true,hoverinfo:'skip'});
  if(dateSet.has(todayLondon)){
   const x=weekly?weeklyCapacityTodayX(urgentWeeksBack,(new Date(todayLondon+'T12:00:00Z').getUTCDay()+6)%7):dates.indexOf(todayLondon);
   shapes.unshift({type:'rect',xref:'x',yref:'paper',x0:weekly?-.5:-.9,x1:x,y0:0,y1:1,fillcolor:'rgba(97,112,130,0.12)',line:{width:0},layer:'above'});
@@ -4753,7 +4765,7 @@ function renderAvailabilityChart(){
   annotations.push(capacityTodayAnnotation(x,buckets.length,target.clientWidth));
  }
  buckets.forEach((date,i)=>{if((weekly||weekdays.has(date))&&totals[i])annotations.push({x:date,xref:'x',y:totals[i],yref:'y',text:String(totals[i]),showarrow:false,font:{size:weekly?13:10,color:'#425b70'},yshift:15+Math.max(0,names.length-1)*5,yanchor:'bottom'})});
- const note=$('availabilityNote');if(note)note.textContent=names.length?'':'Select an Urgent detailed Appointment Types to display appointments.';
+ const note=$('availabilityNote');if(note)note.textContent=!names.length?'Select an Urgent detailed Appointment Types to display appointments.':!predicted.some(value=>value!==null)?'Predicted need is unavailable for the selected appointment types or dates. Check the Urgent Forecast settings and historical data.':'The dark line shows predicted need for '+forecastNames.join(', ')+'. Forecasts use Urgent Forecast settings and are not filtered by the capacity chart’s clinician or consult mode filters.';
  renderPreferencePlot(target,traces,{dragmode:false,
   autosize:true,height:640,barmode:'stack',barcornerradius:weekly?6:5,bargap:weekly?0.11:0.025,margin:{l:62,r:18,t:40,b:100},paper_bgcolor:'white',plot_bgcolor:'#e1eaf1',
   legend:{orientation:'h',x:0.5,y:-0.23,xanchor:'center',yanchor:'top',font:{size:13,color:'#42576a'},bgcolor:'rgba(255,255,255,0)'},
