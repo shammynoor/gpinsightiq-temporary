@@ -257,7 +257,7 @@ function forecastHistoryPolicy(panel,selectedWeekday){
  const special=weekday===6||weekday===7;
  return {weekday,special,excludeHolidayWeeks:!special};
 }
-function renderHistoricalWeekday({planningOnly=false,capacityGroups=null}={}){
+function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHistory=false,capacitySourcePage='availabilityPage'}={}){
  if(!capacityGroups){
   updateForecastHorizonLabels();
   syncForecastPreferences();
@@ -266,9 +266,9 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null}={}){
  if(!root||!summary||!select)return;
  const panel=capacityGroups?'capacity':planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
- const locumPage=capacityGroups?'availabilityPage':planningOnly?'workforceNeedPage':'dailyForecastPage';
+ const locumPage=capacityGroups?capacitySourcePage:planningOnly?'workforceNeedPage':'dailyForecastPage';
  const signature=JSON.stringify([locumPage,locumFilterSelections.get(locumPage),userTypeLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
- const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups]):signature;
+ const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups,allHistory,capacitySourcePage]):signature;
  const cached=forecastRenderCache[panel];
  if(cached?.records===records&&cached.signature===cacheKey){if(panel==='predictions')applyForecastHorizon();return cached.capacityPrediction;}
  if(panel==='predictions'){
@@ -281,7 +281,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null}={}){
  const today=forecastLocalDate(),end=shift(today,-1);
  const earliestBooking=records.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,null);
  const historyStart=shift(end,1-7*Number($('dailyForecastHistory')?.value||52));
- const start=special?(earliestBooking||shift(end,-365)):capacityGroups&&earliestBooking>historyStart?earliestBooking:historyStart;
+ const start=allHistory&&earliestBooking?earliestBooking:special?(earliestBooking||shift(end,-365)):capacityGroups&&earliestBooking>historyStart?earliestBooking:historyStart;
  const holidayDates=new Set();for(let year=Number((earliestBooking||start).slice(0,4))-1;year<=Number(end.slice(0,4))+6;year++)for(const holiday of englandWalesBankHolidays(year))holidayDates.add(holiday);
  const workingDay=d=>{const dow=new Date(d+'T12:00:00Z').getUTCDay();return dow>=1&&dow<=5&&!holidayDates.has(d)};
  const adjacentWorkingDay=(holiday,direction)=>{let d=shift(holiday,direction);while(!workingDay(d))d=shift(d,direction);return d};
@@ -398,6 +398,47 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null}={}){
     }
     return hasWorkingDay?Math.ceil(total):null;
    };
+   // Uncertainty is based on empirical residuals from the existing weekday/seasonal model.
+   // The homepage selects all available history; these are indicative ranges, not formal CIs.
+   const weeklyResiduals=[],dailyResiduals=new Map(Array.from({length:5},(_,i)=>[i+1,[]]));
+   for(let d=start;d<=end;d=shift(d,1)){
+    const dow=new Date(d+'T12:00:00Z').getUTCDay();
+    if(dow<1||dow>5||!parts.has(d)||!workingDay(d)||(excludeHolidayWeeks&&holidayWeeks.has(monday(d))))continue;
+    const estimates=capacityGroups.map(name=>predict(name,dow,d));
+    if(estimates.some(v=>!Number.isFinite(v)))continue;
+    const observed=capacityGroups.reduce((sum,name)=>sum+normalise(d,parts.get(d).get(name)||0),0);
+    dailyResiduals.get(dow).push(observed-estimates.reduce((sum,v)=>sum+v,0));
+   }
+   for(let w=monday(start);shift(w,4)<=end;w=shift(w,7)){
+    if(excludeHolidayWeeks&&holidayWeeks.has(w))continue;
+    let observed=0,expected=0,observedDays=0,valid=true;
+    for(let dow=1;dow<=5;dow++){
+     const day=shift(w,dow-1);if(!workingDay(day))continue;
+     if(!parts.has(day)){valid=false;break}
+     const estimates=capacityGroups.map(name=>predict(name,dow,day));
+     if(estimates.some(v=>!Number.isFinite(v))){valid=false;break}
+     observed+=capacityGroups.reduce((sum,name)=>sum+normalise(day,parts.get(day).get(name)||0),0);
+     expected+=estimates.reduce((sum,v)=>sum+v,0);observedDays++;
+    }
+    if(valid&&observedDays>=4)weeklyResiduals.push(observed-expected);
+   }
+   const residualBounds=values=>{
+    if(values.length<8)return null;
+    const sorted=[...values].sort((a,b)=>a-b);
+    const at=p=>{const i=(sorted.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i);return sorted[lo]+(sorted[hi]-sorted[lo])*(i-lo)};
+    return [at(.15),at(.85)];
+   };
+   capacityPrediction.range=(bucket,weekly)=>{
+    const estimate=capacityPrediction(bucket,weekly);
+    if(!Number.isFinite(estimate))return null;
+    const dow=new Date(bucket+'T12:00:00Z').getUTCDay();
+    const values=weekly?weeklyResiduals:dailyResiduals.get(dow)||[];
+    const errors=residualBounds(values);
+    return {estimate,low:errors?Math.max(0,Math.floor(estimate+errors[0])):null,high:errors?Math.max(estimate,Math.ceil(estimate+errors[1])):null,samples:values.length};
+   };
+   capacityPrediction.historyStart=start;
+   capacityPrediction.historyEnd=end;
+   capacityPrediction.historicalSamples=weeklyResiduals.length;
    forecastRenderCache.capacity={records,signature:cacheKey,capacityPrediction};
    return capacityPrediction;
   }
@@ -720,6 +761,8 @@ function selectForecastTab(tab){
  requestAnimationFrame(renderHistoricalWeekday);
 }
 window.getUrgentCapacityPredictor=groups=>renderHistoricalWeekday({capacityGroups:groups});
+// Homepage forecast shares the existing fitted model and uses all uploaded history.
+window.getHomeOverviewPredictor=(groups,care)=>Array.isArray(groups)&&groups.length?renderHistoricalWeekday({capacityGroups:groups,allHistory:true,capacitySourcePage:care==='routine'?'routineAvailabilityPage':'availabilityPage'}):null;
 window.refreshForecastCharts=()=>{forecastRenderCache.analytics=null;forecastRenderCache.predictions=null;if(!$('dailyForecastPage')?.classList.contains('hidden'))renderHistoricalWeekday();if(!$('weeklyForecastPage')?.classList.contains('hidden'))render('weekly')};
 function open(mode){window.gpChartPreferences?.write('workspacePage',mode==='daily'?'dailyForecast':'weeklyForecast');window.gpChartPreferences?.restore?.();window.closeDashboardMenus?.();for(const p of ['dailyForecastPage','weeklyForecastPage'])$(p)?.classList.toggle('hidden',p!==(mode==='daily'?'dailyForecastPage':'weeklyForecastPage'));for(const p of ['workforceNeedPage','workforcePlanningPage','routineCapacityPage','homePage','chartPage','waitingTimesPage','waitingOverTimePage','categoryPage','availabilityPage','routineAvailabilityPage','dayView2Page','bookingTimesPage','signpostingPage','rapidHealthPage','peoplePage','practiceSettingsPage','personalSettingsPage'])$(p)?.classList.add('hidden');document.querySelectorAll('.dashboard-nav button.active').forEach(b=>b.classList.remove('active'));$('nav'+(mode==='daily'?'Daily':'Weekly')+'Forecast')?.classList.add('active');if(mode==='daily'){const tab=window.gpChartPreferences?.read().forecastActiveTab;selectForecastTab(tab==='analytics'?'analytics':'predictions');}else render(mode)}
 let forecastResizeTimer;window.addEventListener('resize',()=>{clearTimeout(forecastResizeTimer);forecastResizeTimer=setTimeout(()=>{if(!$('dailyForecastPage')?.classList.contains('hidden')&&!$('forecastAnalyticsPanel')?.classList.contains('hidden'))renderHistoricalWeekday();},120);});
