@@ -285,7 +285,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  const workingDay=d=>{const dow=new Date(d+'T12:00:00Z').getUTCDay();return dow>=1&&dow<=5&&!holidayDates.has(d)};
  const adjacentWorkingDay=(holiday,direction)=>{let d=shift(holiday,direction);while(!workingDay(d))d=shift(d,direction);return d};
  const eventDates=direction=>[...new Set([...holidayDates].map(h=>adjacentWorkingDay(h,direction)))].sort();
- const groups=forecastUrgencyNames().filter(forecastUrgencyEnabled);
+ const modelGroups=forecastUrgencyNames(),groups=modelGroups.filter(forecastUrgencyEnabled);
  if(panel==='predictions')weeklyPlanningGroups=new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly'));
  const adjust=$('dailyForecastAdjustListSize')?.checked===true;const populationMonths=adjust?practiceMonths():[];const referencePopulation=populationMonths.length?listSizeAtMonth(populationMonths[populationMonths.length-1]):null;
  const populationCache=new Map();const normalise=(day,count)=>{if(!adjust||!referencePopulation)return count;const month=day.slice(0,7);if(!populationCache.has(month))populationCache.set(month,listSizeAtMonth(month));return count*referencePopulation/Math.max(1,populationCache.get(month))};
@@ -294,11 +294,11 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  for(const r of records){
   if(!r.bookedDay||r.bookedDay<(earliestBooking||start)||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;
   const urgency=capacityUrgencyCategory(r.slot);
-  if(!selectedGroups.has(urgency)||!locumMatches(r,locumPage))continue;
+  if(!modelGroups.includes(urgency)||!locumMatches(r,locumPage))continue;
   if(!weekdayByDate.has(r.bookedDay))weekdayByDate.set(r.bookedDay,new Date(r.bookedDay+'T12:00:00Z').getUTCDay());
-  const dow=weekdayByDate.get(r.bookedDay);if(dow>=1&&dow<=5)allWeekdayTotals.set(r.bookedDay,(allWeekdayTotals.get(r.bookedDay)||0)+(Number(r.count)||0));
+  const dow=weekdayByDate.get(r.bookedDay);if(selectedGroups.has(urgency)&&dow>=1&&dow<=5)allWeekdayTotals.set(r.bookedDay,(allWeekdayTotals.get(r.bookedDay)||0)+(Number(r.count)||0));
   const k=r.bookedDay;
-  totals.set(k,(totals.get(k)||0)+(Number(r.count)||0));
+  if(selectedGroups.has(urgency))totals.set(k,(totals.get(k)||0)+(Number(r.count)||0));
   if(!parts.has(k))parts.set(k,new Map());
   const detail=parts.get(k);detail.set(urgency,(detail.get(urgency)||0)+(Number(r.count)||0));
  }
@@ -306,7 +306,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  const days=[];let skippedHolidayDays=0;
  if(special){for(const d of eventDates(weekday===6?-1:1))if(d>=start&&d<=end)days.push(d)}
  else for(let d=start;d<=end;d=shift(d,1))if(new Date(d+'T12:00:00Z').getUTCDay()===weekday){if(excludeHolidayWeeks&&holidayWeeks.has(monday(d))){skippedHolidayDays++;continue}days.push(d)}
- if(!records.length||!groups.length||!days.length){summary.textContent=!days.length?'No matching weekdays remain after excluding bank holiday weeks.':'No historical booking data or matching Appointment Types are available.';return}
+ if(!records.length||!modelGroups.length||!days.length){summary.textContent=!days.length?'No matching weekdays remain after excluding bank holiday weeks.':'No historical booking data or matching Appointment Types are available.';return}
  const values=days.map(d=>normalise(d,totals.get(d)||0));
  const average=values.reduce((a,b)=>a+b,0)/values.length;
  const sd=Math.sqrt(values.reduce((a,b)=>a+(b-average)**2,0)/values.length);
@@ -357,7 +357,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
    if(fittingDays.has(dow)&&!(excludeHolidayWeeks&&holidayWeeks.has(monday(d))))fittingDays.get(dow).push(d);
   }
   const forecasts=new Map();
-  for(const name of groups){
+  for(const name of modelGroups){
    const byWeekday=new Map();
    for(let dow=1;dow<=5;dow++){
     const sampleDays=fittingDays.get(dow);
@@ -376,7 +376,7 @@ function renderHistoricalWeekday({planningOnly=false}={}){
   for(const type of ['before','after']){
    const sampleDays=[...adjacentTypes].filter(([d,t])=>t===type&&d>=(earliestBooking||start)&&d<=end).map(([d])=>d);
    const byGroup=new Map();
-   for(const name of groups){
+   for(const name of modelGroups){
     const vals=sampleDays.map(d=>normalise(d,(parts.get(d)||new Map()).get(name)||0));
     // Sparse annual holiday events do not support reliable extrapolated linear trends.
     // Use a recency-weighted historical level instead; avoid unstable near-zero forecasts.
@@ -477,10 +477,10 @@ function renderHistoricalWeekday({planningOnly=false}={}){
    return total;
   };
   // Retain per-type predictions for the capacity chart, using the same fitted models
-  // and holiday rules as the planning table. Weekly allocations are not daily targets.
+  // and holiday rules as the planning table, treating every type as daily.
   for(let week=0;week<=14;week++){
    const weekStart=shift(monday(today),week*7),weeklyByGroup=new Map();
-   for(const name of groups){
+   for(const name of modelGroups){
     let values=[],valid=true;
     for(let dow=1;dow<=5;dow++){
      const day=shift(weekStart,dow-1);
@@ -488,12 +488,10 @@ function renderHistoricalWeekday({planningOnly=false}={}){
      const estimate=predict(name,dow,day);
      if(estimate===undefined){valid=false;continue;}
      values.push(estimate);
-     if(!weeklyPlanningGroups.has(name)){
-      if(!capacityForecastDaily.has(day))capacityForecastDaily.set(day,new Map());
-      capacityForecastDaily.get(day).set(name,estimate);
-     }
+     if(!capacityForecastDaily.has(day))capacityForecastDaily.set(day,new Map());
+     capacityForecastDaily.get(day).set(name,estimate);
     }
-    weeklyByGroup.set(name,valid?{weekly:weeklyPlanningGroups.has(name),values}:null);
+    weeklyByGroup.set(name,valid?{values}:null);
    }
    capacityForecastWeekly.set(weekStart,weeklyByGroup);
   }
