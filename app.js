@@ -4148,7 +4148,7 @@ function showPage(which){
  }
  if(which==='workforceNeed')window.renderWeeklyPlanning?.();
  if(which==='workforcePlanning')window.renderWorkforcePlanning?.();
- if(which==='home')updateHomePracticeName();
+ if(which==='home'){updateHomePracticeName();window.updateHomeOverview?.();}
  if(which==='chart')setTimeout(()=>{refresh();scheduleChartResize()},0);
  else if(which==='waitingTimes')setTimeout(renderWaitingTimesChart,0);
  else if(which==='routineCapacity')setTimeout(()=>window.renderRoutineCapacity?.(),0);
@@ -5293,7 +5293,7 @@ window.addEventListener('storage',event=>{
 
 async function renderActiveAnalyticsPage(){
  updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
- const renderers={workforcePlanningPage:()=>window.renderWorkforcePlanning?.(),workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
+ const renderers={homePage:()=>window.updateHomeOverview?.(),workforcePlanningPage:()=>window.renderWorkforcePlanning?.(),workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
  for(const [id,draw] of Object.entries(renderers)){const page=$(id);if(page&&!page.classList.contains("hidden"))await draw()}
 }
 function refreshOnDateRollover(){if(document.hidden||!folderAccessVerified)return;if(updateDashboardDateContext())void renderActiveAnalyticsPage().catch(e=>showRefreshFeedback("Chart refresh failed: "+e.message))}
