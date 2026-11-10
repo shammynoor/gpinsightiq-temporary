@@ -4746,8 +4746,7 @@ function renderAvailabilityChart(){
  const extras=[];
  const {traces,totals}=capacityGroupedSeries(buckets,names,counts,urgentGroupWithheld,heading,extras);
  target._capacityHoverData=capacityHoverDetails(buckets,names,counts,urgentGroupWithheld,heading);
- const predictNeed=names.length&&typeof renderHistoricalWeekday==='function'
-  ?renderHistoricalWeekday({capacityGroups:names}):null;
+ const predictNeed=names.length?window.getUrgentCapacityPredictor?.(names):null;
  const predictedNeeds=buckets.map(bucket=>predictNeed?.(bucket,weekly)??null);
  const max=Math.ceil(Math.max(1,...totals,...predictedNeeds)*1.2/10)*10;
  const weekLabels=Array.from({length:weekCount},(_,i)=>{const offset=i-urgentWeeksBack;return offset===0?'This Week':offset===-1?'Last Week':offset<0?Math.abs(offset)+' weeks ago':offset===1?'Next Week':offset+' weeks'});
