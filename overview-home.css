@@ -102,3 +102,9 @@
  #dashboardShell .dashboard-header .iq-header-practice{order:3;flex:1 1 100%;min-width:0;max-width:none}
  #dashboardShell .dashboard-nav{justify-content:flex-start!important}
 }
+
+/* Real-data loading and diagnostic states for the homepage plots. */
+#homePage .iq-home-chart-empty{display:flex;align-items:center;justify-content:center;min-height:143px;font-size:13px;color:#58718a;text-align:center;padding:16px;margin:0;line-height:1.5}
+#homePage .iq-home-legend{font-size:12px;letter-spacing:.1px;white-space:normal;color:#4a657c}
+#homePage .iq-home-caveat{font-size:11px;line-height:1.6;color:#647b8e}
+#homePage .iq-home-insight-copy small{font-weight:400}
