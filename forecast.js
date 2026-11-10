@@ -257,31 +257,36 @@ function forecastHistoryPolicy(panel,selectedWeekday){
  const special=weekday===6||weekday===7;
  return {weekday,special,excludeHolidayWeeks:!special};
 }
-function renderHistoricalWeekday({planningOnly=false}={}){
- updateForecastHorizonLabels();
- syncForecastPreferences();
+function renderHistoricalWeekday({planningOnly=false,capacityGroups=null}={}){
+ if(!capacityGroups){
+  updateForecastHorizonLabels();
+  syncForecastPreferences();
+ }
  const root=$('dailyForecastHistoryChart'),summary=$('dailyForecastHistorySummary'),select=$('dailyForecastWeekday');
  if(!root||!summary||!select)return;
- const panel=planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
+ const panel=capacityGroups?'capacity':planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
- const locumPage=planningOnly?'workforceNeedPage':'dailyForecastPage';
+ const locumPage=capacityGroups?'availabilityPage':planningOnly?'workforceNeedPage':'dailyForecastPage';
  const signature=JSON.stringify([locumPage,locumFilterSelections.get(locumPage),userTypeLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
+ const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups]):signature;
  const cached=forecastRenderCache[panel];
- if(cached?.records===records&&cached.signature===signature){if(panel==='predictions')applyForecastHorizon();return;}
+ if(cached?.records===records&&cached.signature===cacheKey){if(panel==='predictions')applyForecastHorizon();return cached.capacityPrediction;}
  if(panel==='predictions'){
   dailyAppointmentTargets=new Map();
   weeklyAppointmentTargets=new Map();
   remainingWeeklyAppointmentTarget=null;
  }
- if(panel==='analytics')root.replaceChildren();renderDailyUrgencyFilters();renderUrgencyPlanningModes();
+ if(panel==='analytics')root.replaceChildren();
+ if(!capacityGroups){renderDailyUrgencyFilters();renderUrgencyPlanningModes();}
  const today=forecastLocalDate(),end=shift(today,-1);
  const earliestBooking=records.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,null);
- const start=special?(earliestBooking||shift(end,-365)):shift(end,1-7*Number($('dailyForecastHistory')?.value||52));
+ const historyStart=shift(end,1-7*Number($('dailyForecastHistory')?.value||52));
+ const start=special?(earliestBooking||shift(end,-365)):capacityGroups&&earliestBooking>historyStart?earliestBooking:historyStart;
  const holidayDates=new Set();for(let year=Number((earliestBooking||start).slice(0,4))-1;year<=Number(end.slice(0,4))+6;year++)for(const holiday of englandWalesBankHolidays(year))holidayDates.add(holiday);
  const workingDay=d=>{const dow=new Date(d+'T12:00:00Z').getUTCDay();return dow>=1&&dow<=5&&!holidayDates.has(d)};
  const adjacentWorkingDay=(holiday,direction)=>{let d=shift(holiday,direction);while(!workingDay(d))d=shift(d,direction);return d};
  const eventDates=direction=>[...new Set([...holidayDates].map(h=>adjacentWorkingDay(h,direction)))].sort();
- const groups=forecastUrgencyNames().filter(forecastUrgencyEnabled);
+ const groups=capacityGroups||forecastUrgencyNames().filter(forecastUrgencyEnabled);
  if(panel==='predictions')weeklyPlanningGroups=new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly'));
  const adjust=$('dailyForecastAdjustListSize')?.checked===true;const populationMonths=adjust?practiceMonths():[];const referencePopulation=populationMonths.length?listSizeAtMonth(populationMonths[populationMonths.length-1]):null;
  const populationCache=new Map();const normalise=(day,count)=>{if(!adjust||!referencePopulation)return count;const month=day.slice(0,7);if(!populationCache.has(month))populationCache.set(month,listSizeAtMonth(month));return count*referencePopulation/Math.max(1,populationCache.get(month))};
@@ -302,7 +307,11 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  const days=[];let skippedHolidayDays=0;
  if(special){for(const d of eventDates(weekday===6?-1:1))if(d>=start&&d<=end)days.push(d)}
  else for(let d=start;d<=end;d=shift(d,1))if(new Date(d+'T12:00:00Z').getUTCDay()===weekday){if(excludeHolidayWeeks&&holidayWeeks.has(monday(d))){skippedHolidayDays++;continue}days.push(d)}
- if(!records.length||!groups.length||!days.length){summary.textContent=!days.length?'No matching weekdays remain after excluding bank holiday weeks.':'No historical booking data or matching Appointment Types are available.';return}
+ if(capacityGroups&&!parts.size)return;
+ if(!records.length||!groups.length||!days.length){
+  if(!capacityGroups)summary.textContent=!days.length?'No matching weekdays remain after excluding bank holiday weeks.':'No historical booking data or matching Appointment Types are available.';
+  return;
+ }
  const values=days.map(d=>normalise(d,totals.get(d)||0));
  const average=values.reduce((a,b)=>a+b,0)/values.length;
  const sd=Math.sqrt(values.reduce((a,b)=>a+(b-average)**2,0)/values.length);
@@ -324,28 +333,9 @@ function renderHistoricalWeekday({planningOnly=false}={}){
  // Refit the same annual seasonal/trend model independently for each weekday.
  // The table uses a forward calendar horizon, not the last observed weekday plus three weeks.
  const needsRoot=$('dailyForecastNeedsTable');
- if(needsRoot&&panel==='predictions'){
-  needsRoot.replaceChildren();
-  const nextMonday=shift(today,(8-new Date(today+'T12:00:00Z').getUTCDay())%7);
-  const table=document.createElement('table');table.className='forecast-needs-table';
-  const head=document.createElement('thead'),heading=document.createElement('tr');
-  const dailyGroups=groups.filter(name=>!weeklyPlanningGroups.has(name)),weeklyGroups=[...weeklyPlanningGroups];
-  const hasWeekly=weeklyGroups.length>0;
-  const colgroup=document.createElement('colgroup');
-  const widths=hasWeekly?[14,12,12,12,12,12,13,13]:[16,14,14,14,14,14,14];
-  for(const width of widths){const col=document.createElement('col');col.style.width=width+'%';colgroup.append(col)}
-  table.append(colgroup);
-  const groupHeader=document.createElement('tr');
-  const blank=document.createElement('th');blank.className='forecast-needs-group-header';groupHeader.append(blank);
-  const dailyHeader=document.createElement('th');dailyHeader.colSpan=5;dailyHeader.className='forecast-needs-group-header';dailyHeader.textContent='Daily targets based on: '+(dailyGroups.length?dailyGroups.join(', '):'None selected');groupHeader.append(dailyHeader);
-  if(hasWeekly){const weeklyHeader=document.createElement('th');weeklyHeader.className='forecast-needs-group-header';weeklyHeader.textContent='Weekly allocation of: '+weeklyGroups.join(', ');groupHeader.append(weeklyHeader)}
-  const totalHeader=document.createElement('th');totalHeader.className='forecast-needs-group-header';totalHeader.textContent='Total of all allocations';groupHeader.append(totalHeader);
-  head.append(groupHeader);
-  for(const name of ['Week beginning','Monday','Tuesday','Wednesday','Thursday','Friday',...(hasWeekly?['Weekly allocation']:[]),'Total']){
-   const th=document.createElement('th');th.textContent=name;heading.append(th);
-  }
-  head.append(heading);table.append(head);
-  const body=document.createElement('tbody');
+ if(capacityGroups||(needsRoot&&panel==='predictions')){
+  const dailyGroups=capacityGroups?[]:groups.filter(name=>!weeklyPlanningGroups.has(name));
+  const weeklyGroups=capacityGroups?[]:[...weeklyPlanningGroups];
   // Build the fitting calendar once, shared by every urgency and error calculation.
   const fittingDays=new Map(Array.from({length:5},(_,i)=>[i+1,[]]));
   for(let d=start;d<=end;d=shift(d,1)){
@@ -392,6 +382,45 @@ function renderHistoricalWeekday({planningOnly=false}={}){
    specialErrors.set(type,[quantileNeeds(errors,.15),quantileNeeds(errors,.85)]);
   }
   const predict=(name,dow,day)=>{const type=adjacentTypes.get(day);return type?(specialForecasts.get(type)?.get(name)?.(day)??undefined):forecasts.get(name)?.get(dow)?.(day)};
+  if(capacityGroups){
+   const capacityPrediction=(bucket,weekly)=>{
+    let total=0,hasWorkingDay=false;
+    for(let offset=0;offset<(weekly?5:1);offset++){
+     const day=shift(bucket,offset);
+     if(!workingDay(day))continue;
+     hasWorkingDay=true;
+     const dow=new Date(day+'T12:00:00Z').getUTCDay();
+     for(const name of capacityGroups){
+      const estimate=predict(name,dow,day);
+      if(estimate===undefined)return null;
+      total+=estimate;
+     }
+    }
+    return hasWorkingDay?Math.ceil(total):null;
+   };
+   forecastRenderCache.capacity={records,signature:cacheKey,capacityPrediction};
+   return capacityPrediction;
+  }
+  needsRoot.replaceChildren();
+  const nextMonday=shift(today,(8-new Date(today+'T12:00:00Z').getUTCDay())%7);
+  const table=document.createElement('table');table.className='forecast-needs-table';
+  const head=document.createElement('thead'),heading=document.createElement('tr');
+  const hasWeekly=weeklyGroups.length>0;
+  const colgroup=document.createElement('colgroup');
+  const widths=hasWeekly?[14,12,12,12,12,12,13,13]:[16,14,14,14,14,14,14];
+  for(const width of widths){const col=document.createElement('col');col.style.width=width+'%';colgroup.append(col)}
+  table.append(colgroup);
+  const groupHeader=document.createElement('tr');
+  const blank=document.createElement('th');blank.className='forecast-needs-group-header';groupHeader.append(blank);
+  const dailyHeader=document.createElement('th');dailyHeader.colSpan=5;dailyHeader.className='forecast-needs-group-header';dailyHeader.textContent='Daily targets based on: '+(dailyGroups.length?dailyGroups.join(', '):'None selected');groupHeader.append(dailyHeader);
+  if(hasWeekly){const weeklyHeader=document.createElement('th');weeklyHeader.className='forecast-needs-group-header';weeklyHeader.textContent='Weekly allocation of: '+weeklyGroups.join(', ');groupHeader.append(weeklyHeader)}
+  const totalHeader=document.createElement('th');totalHeader.className='forecast-needs-group-header';totalHeader.textContent='Total of all allocations';groupHeader.append(totalHeader);
+  head.append(groupHeader);
+  for(const name of ['Week beginning','Monday','Tuesday','Wednesday','Thursday','Friday',...(hasWeekly?['Weekly allocation']:[]),'Total']){
+   const th=document.createElement('th');th.textContent=name;heading.append(th);
+  }
+  head.append(heading);table.append(head);
+  const body=document.createElement('tbody');
   // Empirical 70% uncertainty from the residuals of each day's combined selected groups.
   const dailyErrors=new Map();
   for(let dow=1;dow<=5;dow++){

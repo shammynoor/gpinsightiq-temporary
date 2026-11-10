@@ -4418,6 +4418,10 @@ function installAvailabilityCardTooltip(target){
     }
    }
    const total=document.createElement('div');total.className='availability-tooltip-line availability-tooltip-total';total.textContent='Total: '+number(details.total);card.append(total);
+   if(details.predictedNeed!=null){
+    const predicted=document.createElement('div');predicted.className='availability-tooltip-line';
+    predicted.textContent='Predicted need: '+number(details.predictedNeed);card.append(predicted);
+   }
   }else{
    const raw=point.customdata;if(typeof raw!=='string'){card.hidden=true;return}
    const div=document.createElement('div');div.innerHTML=raw.replaceAll('<br>','<br>');card.textContent=div.textContent||'';
@@ -4742,7 +4746,10 @@ function renderAvailabilityChart(){
  const extras=[];
  const {traces,totals}=capacityGroupedSeries(buckets,names,counts,urgentGroupWithheld,heading,extras);
  target._capacityHoverData=capacityHoverDetails(buckets,names,counts,urgentGroupWithheld,heading);
- const max=Math.ceil(Math.max(1,...totals)*1.2/10)*10;
+ const predictNeed=names.length&&typeof renderHistoricalWeekday==='function'
+  ?renderHistoricalWeekday({capacityGroups:names}):null;
+ const predictedNeeds=buckets.map(bucket=>predictNeed?.(bucket,weekly)??null);
+ const max=Math.ceil(Math.max(1,...totals,...predictedNeeds)*1.2/10)*10;
  const weekLabels=Array.from({length:weekCount},(_,i)=>{const offset=i-urgentWeeksBack;return offset===0?'This Week':offset===-1?'Last Week':offset<0?Math.abs(offset)+' weeks ago':offset===1?'Next Week':offset+' weeks'});
  const annotations=weekLabels.map((text,i)=>({x:weekly?buckets[i]:dates[i*7+2],xref:'x',y:1.045,yref:'paper',text,showarrow:false,font:{size:13,color:'#344b60'},xanchor:'center',yanchor:'bottom'}));
  const shapes=Array.from({length:weekCount-1},(_,i)=>({type:'line',xref:'x',yref:'paper',x0:weekly?i+0.5:i*7+5.5,x1:weekly?i+0.5:i*7+5.5,y0:0,y1:1,line:{color:'#bdcbd6',width:1,dash:'dot'}}));
@@ -4753,6 +4760,16 @@ function renderAvailabilityChart(){
   annotations.push(capacityTodayAnnotation(x,buckets.length,target.clientWidth));
  }
  buckets.forEach((date,i)=>{if((weekly||weekdays.has(date))&&totals[i])annotations.push({x:date,xref:'x',y:totals[i],yref:'y',text:String(totals[i]),showarrow:false,font:{size:weekly?13:10,color:'#425b70'},yshift:15+Math.max(0,names.length-1)*5,yanchor:'bottom'})});
+ let showNeedLegend=true;
+ predictedNeeds.forEach((value,index)=>{
+  if(value===null)return;
+  const marker={type:'line',xref:'x',yref:'y',x0:index-.46,x1:index+.46,y0:value,y1:value,layer:'above',legendgroup:'urgent-predicted-need'};
+  shapes.push({...marker,showlegend:false,line:{color:'#fff',width:5,dash:'8px,4px'}});
+  shapes.push({...marker,showlegend:showNeedLegend,name:'Predicted need',line:{color:'#087c83',width:3,dash:'8px,4px'}});
+  showNeedLegend=false;
+  const details=target._capacityHoverData.get(buckets[index]);
+  if(details)details.predictedNeed=value;
+ });
  const note=$('availabilityNote');if(note)note.textContent=names.length?'':'Select an Urgent detailed Appointment Types to display appointments.';
  renderPreferencePlot(target,traces,{dragmode:false,
   autosize:true,height:640,barmode:'stack',barcornerradius:weekly?6:5,bargap:weekly?0.11:0.025,margin:{l:62,r:18,t:40,b:100},paper_bgcolor:'white',plot_bgcolor:'#e1eaf1',
