@@ -1,5 +1,5 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=chart-preference-sync';
+import {SupabaseBackend} from './backend.mjs?v=home-ai-insights-v1';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
@@ -84,6 +84,8 @@ function renderAnalytics(){
   list:()=>checked(()=>targetBackend.analyticsSources(selected)),
   read:key=>checked(async()=>unpackContribution(await targetBackend.analyticsPayload(selected,key))),
   readSettings:()=>checked(()=>targetBackend.analyticsSettings(selected)),
+  readHomeInsights:targetBackend.demo?null:()=>checked(()=>targetBackend.homeInsights(selected)),
+  regenerateHomeInsights:targetBackend.demo?null:(period,metrics)=>checked(()=>targetBackend.regenerateHomeInsights(selected,period,metrics),true),
   readChartPreferences:targetBackend.demo?null:()=>checked(()=>targetBackend.chartPreferences(selected,identity)),
   writeChartPreferences:targetBackend.demo?null:(values,seed)=>checked(()=>targetBackend.saveChartPreferences(selected,identity,values,seed)),
   saveSettings:(settings,revision)=>checked(()=>targetBackend.saveAnalyticsSettings(selected,settings,revision),true),
@@ -95,7 +97,7 @@ function renderAnalytics(){
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=homepage-live-v1';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=home-ai-insights-v1';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');

@@ -95,7 +95,73 @@ function renderChart(section,history,forecast,colour){
  for(let i=0;i<stamps.length;i++)if(stamps[i])svg.append(svgElement('text',{x:xpos(i),y:139,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},fmtDate(stamps[i])));
  root.append(svg);
 }
-function renderCare(section,options){
+
+const insightCards={
+ seasonalDemand:['acute',0,'Seasonal demand'],
+ extraCapacity:['acute',1,'Extra capacity'],
+ unusedCapacity:['acute',2,'Unused capacity'],
+ routineDemand:['routine',0,'Demand trend'],
+ waitingTimes:['routine',1,'Waiting times'],
+ forwardAvailability:['routine',2,'Forward availability']
+};
+let aiState=null;
+function renderSavedInsights(state){
+ const row=state.saved;
+ if(!row||row.snapshot!==state.snapshot||!Object.keys(insightCards).every(key=>typeof row.bullets?.[key]==='string'))return false;
+ for(const [key,args] of Object.entries(insightCards))setInsight(...args,row.bullets[key]);
+ return true;
+}
+function showAiInsights(home,period,metrics){
+ const button=$('iqRegenerateInsights'),status=$('iqInsightStatus');
+ const bridge=window.parent===window?null:window.parent.DarwinAnalytics;
+ if(!bridge?.readHomeInsights||Object.values(metrics).every(value=>value===null)){
+  aiState=null;button.hidden=true;status.textContent='';
+  return;
+ }
+ button.hidden=!bridge.manage;
+ const signature=JSON.stringify([period,metrics]);
+ if(aiState?.bridge===bridge&&aiState.signature===signature){
+  renderSavedInsights(aiState);
+  return;
+ }
+ const state={bridge,signature,snapshot:null,saved:null,busy:false};
+ aiState=state;
+ button.disabled=true;
+ status.textContent='';
+ const apply=()=>{
+  if(aiState!==state||home.classList.contains('hidden'))return;
+  status.textContent=renderSavedInsights(state)?'AI-generated insights':'';
+ };
+ void (async()=>{
+  try{
+   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature));
+   state.snapshot=[...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('');
+   state.saved=await bridge.readHomeInsights();
+   apply();
+  }catch{
+   if(aiState===state&&bridge.manage)status.textContent='Saved AI insights could not be loaded.';
+  }finally{
+   if(aiState===state)button.disabled=false;
+  }
+ })();
+ button.onclick=async()=>{
+  if(aiState!==state||state.busy||!state.snapshot)return;
+  state.busy=true;button.disabled=true;status.textContent='Generating insights…';
+  try{
+   state.saved=await bridge.regenerateHomeInsights(period,metrics);
+   apply();
+  }catch(error){
+   if(aiState===state)status.textContent=error.message||'AI insights could not be generated.';
+  }finally{
+   state.busy=false;
+   if(aiState===state)button.disabled=false;
+  }
+ };
+}
+
+const reportableCount=n=>n>=10?Math.round(n):null;
+const reportableChange=(change,first,second)=>Number.isFinite(change)&&first>=30&&second>=30?Math.round(change):null;
+function renderCare(section,options,metrics){
  const {history,forecast,groups,bookingMap,latestCompleteWeek,earliestBooked,today}=options;
  const care=section==='acute'?'acute':'routine',groupSet=new Set(groups);
  const values=history.map(x=>x===null?0:x);
@@ -119,6 +185,8 @@ function renderCare(section,options){
    change===null?'Urgent capacity is forecast for the next four weeks. Recent bookings are insufficient for a trend comparison.':
    'Urgent bookings are forecast to '+(change>=0?'rise':'fall')+' by about '+Math.abs(Math.round(change))+'% over the next four weeks.';
   setInsight('acute',0,'Seasonal demand',desc+(yoy!==null?Math.abs(Math.round(yoy))===0?' Recent bookings are similar to the same weeks last year.':' Recent bookings are '+Math.abs(Math.round(yoy))+'% '+(yoy>=0?'above':'below')+' the same weeks last year.':' A reliable last-year comparison is not available.'));
+  metrics.forecast=reportableChange(change,recentMean,meanForecast);
+  metrics.acuteYear=reportableChange(yoy,sumWeeks(currentWeeks),sumWeeks(lastYearWeeks));
   const start=shift(latestCompleteWeek,-21),end=shift(latestCompleteWeek,6);
   const counts=new Map(),missed=new Map();
   const clock=capacitySnapshotClock();
@@ -135,6 +203,8 @@ function renderCare(section,options){
   }
   const first=(map)=>[...map].sort((a,b)=>b[1]-a[1])[0];
   const topExtra=first(counts),topMissed=first(missed);
+  metrics.extra=reportableCount(extra);
+  metrics.unused=clock===null?null:reportableCount(unfilled);
   const configuredExtra=Object.values(capacityAssignments).some(x=>String(x).trim().toLowerCase()==='extra');
   setInsight('acute',1,'Extra capacity',extra>0?
    integer(extra)+' urgent Extra slots were booked over the last four complete weeks'+(topExtra&&topExtra[0]!=='Unassigned'?', most often by '+topExtra[0]:'')+'.':
@@ -146,6 +216,8 @@ function renderCare(section,options){
   let desc=previous!==null?(Math.round(previous)===0?'Routine bookings are similar to the preceding four weeks.':'Routine bookings are '+Math.abs(Math.round(previous))+'% '+(previous>=0?'higher':'lower')+' than the preceding four weeks.'):'Routine bookings are available, but the previous period has insufficient data for comparison.';
   if(yoy!==null)desc+=Math.round(yoy)===0?' They are similar to the same period last year.':' They are '+Math.abs(Math.round(yoy))+'% '+(yoy>=0?'above':'below')+' the same period last year.';
   setInsight('routine',0,'Demand trend',desc);
+  metrics.routineTrend=reportableChange(previous,sumWeeks(currentWeeks),sumWeeks(previousWeeks));
+  metrics.routineYear=reportableChange(yoy,sumWeeks(currentWeeks),sumWeeks(lastYearWeeks));
   const todayIso=today;
   const lastDate=shift(todayIso,-1);
   const recentStart=shift(todayIso,-28),previousStart=shift(todayIso,-56);
@@ -164,6 +236,10 @@ function renderCare(section,options){
   const future=availabilityRecords.filter(r=>allowed(r)&&careFor(r.slot)==='routine'&&r.date>=today&&String(r.availability).toLowerCase()==='available'&&weight(r)>0);
   const allSlots=future.reduce((n,r)=>n+weight(r),0);
   const finalDate=future.reduce((last,r)=>r.date>last?r.date:last,'');
+  metrics.wait=latest===null?null:Math.round(latest*10)/10;
+  metrics.priorWait=latest===null||older===null?null:Math.round(older*10)/10;
+  metrics.available=reportableCount(allSlots);
+  metrics.horizon=metrics.available===null||!finalDate?null:Math.ceil((isoDay(finalDate)-isoDay(today))/604800000);
   setInsight('routine',2,'Forward availability',finalDate?
    integer(allSlots)+' routine slots are currently marked available in the uploaded diary, with the latest on '+fmtDate(finalDate)+'. This is the diary horizon, not a predicted run-out date.':
    'No future available routine slots were identified in the latest import. Check the Slot Report coverage before interpreting this as a shortage.');
@@ -178,6 +254,7 @@ function update(){
   const all=Array.isArray(records)?records:[];
   const date=typeof todayLondon==='string'?todayLondon:new Date().toISOString().slice(0,10);
   if(!all.length){
+   showAiInsights(home,date,{});
    for(const care of ['acute','routine']){
     setOutlook(care,'—','No appointment data');
     renderChart(care,[null,null,null,null,null],[],care==='acute'?'#f03265':'#0b9c7f');
@@ -202,6 +279,7 @@ function update(){
    if(kind==='urgent')groupNames.acute.push(name);
    if(kind==='routine')groupNames.routine.push(name);
   }
+  const metrics={};
   for(const care of ['acute','routine']){
    const weekCounts=new Map();
    for(const row of slots){
@@ -216,8 +294,9 @@ function update(){
     const range=predictor?.range?.(weekStart,true);
     return range?{...range,weekStart}:null;
    });
-   renderCare(care,{history,forecast:projection,groups:groupNames[care],bookingMap:weekCounts,latestCompleteWeek,earliestBooked,today:date});
+   renderCare(care,{history,forecast:projection,groups:groupNames[care],bookingMap:weekCounts,latestCompleteWeek,earliestBooked,today:date},metrics);
   }
+  showAiInsights(home,date,metrics);
   if(caveat){
    const totalRecords=slots.length;
    const earliest=slots.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,'');
@@ -226,6 +305,7 @@ function update(){
     'Charts show the latest five complete weeks and next four weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
   }
  }catch(error){
+  showAiInsights(home,'',{});
   console.error('Home overview calculations could not be completed',error);
   const note=home.querySelector('.iq-home-caveat');if(note)note.textContent='Could not calculate the home overview from the imported data. Detailed pages remain available.';
   for(const care of ['acute','routine']){setOutlook(care,'—','Unavailable');renderChart(care,[null,null,null,null,null],[],care==='acute'?'#f03265':'#0b9c7f');}

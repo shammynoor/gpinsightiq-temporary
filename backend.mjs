@@ -11,6 +11,22 @@ export class SupabaseBackend{
  async analyticsSources(practice){const {data,error}=await this.client.from('iq_analytics_sources').select('source_key,kind,source_name,clinical_at,imported_at,row_count,revision').eq('practice_id',practice).order('source_name');if(error)throw error;return data;}
  async analyticsPayload(practice,key){const {data,error}=await this.client.from('iq_analytics_sources').select('payload').eq('practice_id',practice).eq('source_key',key).single();if(error)throw error;return data.payload;}
  async analyticsSettings(practice){const {data,error}=await this.client.from('iq_analytics_settings').select('settings,revision').eq('practice_id',practice).maybeSingle();if(error)throw error;return data||{settings:null,revision:0};}
+
+ async homeInsights(practice){
+  const {data,error}=await this.client.from('iq_home_insights').select('snapshot,bullets,generated_at').eq('practice_id',practice).maybeSingle();
+  if(error)throw error;
+  return data;
+ }
+ async regenerateHomeInsights(practice,period,metrics){
+  const {data,error}=await this.client.functions.invoke('iq-home-insights',{body:{practice,period,metrics}});
+  if(error){
+   let details;
+   try{details=await error.context?.json();}catch{}
+   throw Error(details?.error||'AI insights could not be generated.');
+  }
+  return data;
+ }
+
  async chartPreferences(practice,user){
   const {data,error}=await this.client.from('iq_chart_preferences').select('preference_key,value').eq('practice_id',practice).eq('user_id',user);
   if(error)throw error;
