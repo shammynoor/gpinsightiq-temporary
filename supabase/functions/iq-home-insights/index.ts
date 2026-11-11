@@ -84,6 +84,7 @@ Deno.serve(async request => {
   const url = Deno.env.get('SUPABASE_URL');
   const publicKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  let stage = 'authentication';
   try {
     const identity = await fetch(url + '/auth/v1/user', {headers:{apikey:publicKey, Authorization:token}});
     if (!identity.ok) return json(401, {error:'Sign in to continue.'});
@@ -101,6 +102,7 @@ Deno.serve(async request => {
     if (!key) return json(503, {error:'AI insights are awaiting API setup.'});
     const headers = {apikey:serviceKey, Authorization:'Bearer '+serviceKey, 'Content-Type':'application/json'};
     const attempt = crypto.randomUUID();
+    stage = 'reservation';
     const claim = await fetch(url + '/rest/v1/rpc/iq_claim_home_insight_refresh', {
       method:'POST', headers, body:JSON.stringify({p_practice:body.practice,p_user:user.id,p_attempt:attempt})
     });
@@ -108,6 +110,7 @@ Deno.serve(async request => {
     const claimed = await claim.json();
     if (claimed === 'forbidden') return json(403, {error:'Practice administrator access is required.'});
     if (claimed !== 'claimed') return json(429, {error:'Wait 30 seconds between regenerations. Each practice can regenerate up to 30 times a day.'});
+    stage = 'openai_request';
     const response = await fetch('https://api.openai.com/v1/responses', {
       method:'POST',
       headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
@@ -118,13 +121,29 @@ Deno.serve(async request => {
         text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema}}
       })
     });
-    if (!response.ok) throw Error('Generation failed.');
+    if (!response.ok) {
+      const failure = await response.json().catch(() => null);
+      const reported = failure?.error?.code;
+      const code = typeof reported === 'string' && /^[a-z0-9_]{1,50}$/.test(reported) ? reported : 'unknown';
+      console.warn(JSON.stringify({event:'home_insights_provider_error', status:response.status, code}));
+      if (code === 'insufficient_quota' || code === 'billing_hard_limit_reached') {
+        return json(503, {error:'OpenAI billing or credits are required for AI insights.'});
+      }
+      if (response.status === 401) return json(503, {error:'OpenAI rejected the API key. Check the key saved in Supabase.'});
+      if (response.status === 403 || code === 'model_not_found') {
+        return json(503, {error:'The OpenAI project or API key lacks access to the configured model or Responses API.'});
+      }
+      if (response.status === 429) return json(503, {error:'OpenAI is rate limiting requests. Try regenerating in a minute.'});
+      return json(502, {error:'OpenAI could not process this generation request.'});
+    }
+    stage = 'openai_output';
     const answer = await response.json();
     if (answer.status !== 'completed') throw Error('Generation did not complete.');
     const output = answer.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text');
     const bullets = renderBullets(JSON.parse(output?.text || 'null'), metrics);
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
+    stage = 'save';
     const saved = await fetch(url + '/rest/v1/iq_home_insights?practice_id=eq.'+body.practice+'&attempt_id=eq.'+attempt, {
       method:'PATCH', headers:{...headers,Prefer:'return=representation'},
       body:JSON.stringify({snapshot, bullets, generated_at:new Date().toISOString()})
@@ -134,7 +153,9 @@ Deno.serve(async request => {
     if (!record) return json(409, {error:'A newer regeneration is in progress.'});
     return json(200, {snapshot:record.snapshot,bullets:record.bullets,generated_at:record.generated_at});
   } catch {
-    return json(502, {error:'AI insights could not be generated. The existing overview is still available.'});
+    console.warn(JSON.stringify({event:'home_insights_failed', stage}));
+    return json(502, {error:stage === 'openai_output'
+      ? 'The AI response could not be verified against the dashboard figures. Try regenerating.'
+      : 'AI insights could not be generated. The existing overview is still available.'});
   }
 });
-
