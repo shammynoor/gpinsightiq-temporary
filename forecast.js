@@ -424,19 +424,21 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
     }
     if(valid&&observedDays>=4)weeklyResiduals.push(observed-expected);
    }
-   const residualBounds=values=>{
+   const residualBounds=(values,coverage)=>{
     if(values.length<8)return null;
     const sorted=[...values].sort((a,b)=>a-b);
     const at=p=>{const i=(sorted.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i);return sorted[lo]+(sorted[hi]-sorted[lo])*(i-lo)};
-    return [at(.15),at(.85)];
+    const tail=(1-coverage)/2;
+    return [at(tail),at(1-tail)];
    };
-   capacityPrediction.range=(bucket,weekly)=>{
+   capacityPrediction.range=(bucket,weekly,coverage=.70,horizon=1)=>{
     const estimate=capacityPrediction(bucket,weekly);
     if(!Number.isFinite(estimate))return null;
     const dow=new Date(bucket+'T12:00:00Z').getUTCDay();
     const values=weekly?weeklyResiduals:dailyResiduals.get(dow)||[];
-    const errors=residualBounds(values);
-    return {estimate,low:errors?Math.max(0,Math.floor(estimate+errors[0])):null,high:errors?Math.max(estimate,Math.ceil(estimate+errors[1])):null,samples:values.length};
+    const errors=residualBounds(values,coverage);
+    const spread=Math.sqrt(1+(horizon-1)/13);
+    return {estimate,low:errors?Math.max(0,Math.floor(estimate+Math.min(0,errors[0])*spread)):null,high:errors?Math.ceil(estimate+Math.max(0,errors[1])*spread):null,samples:values.length};
    };
    capacityPrediction.historyStart=start;
    capacityPrediction.historyEnd=end;

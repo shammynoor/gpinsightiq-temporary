@@ -109,8 +109,53 @@ function sharedAxis(series){
  const step=[1,2,2.5,5,10].map(n=>n*magnitude).find(n=>n>=target);
  return {step,top:step*4};
 }
+let fitObserver;
+const chartDrawers=new WeakMap();
+const chartObserver=new ResizeObserver(entries=>{
+ for(const {target,contentRect:{width,height}} of entries){
+  if(width>0&&height>0)chartDrawers.get(target)?.(width,height);
+ }
+});
+function fitOverviewCharts(){
+ const home=$('homePage');
+ const chart=home?.querySelector('.iq-home-chart-svg,.iq-home-chart-empty');
+ if(!chart||home.classList.contains('hidden'))return;
+ const stacked=window.matchMedia('(max-width:1050px)').matches;
+ const bounds=home.getBoundingClientRect();
+ const rows=stacked?2:1;
+ const otherHeight=bounds.height-chart.getBoundingClientRect().height*rows;
+ const available=window.innerHeight-bounds.top-window.scrollY-otherHeight-12;
+ const height=Math.max(stacked?180:165,Math.floor(available/rows));
+ const value=height+'px';
+ if(home.style.getPropertyValue('--overview-chart-height')!==value)home.style.setProperty('--overview-chart-height',value);
+}
+function drawForecastBand(svg,forecast,hasBand,xpos,ypos,colour,spacing,left,right){
+ const draw=rows=>{
+  if(!rows.length)return;
+  const upper=rows.map(row=>[row.x,ypos(row.high)]);
+  const lower=rows.map(row=>[row.x,ypos(row.low)]);
+  if(rows.length===1){
+   for(const edge of [upper,lower]){
+    const [x,y]=edge[0];
+    edge.splice(0,1,[Math.max(left,x-spacing/2),y],[Math.min(right,x+spacing/2),y]);
+   }
+  }
+  const points=upper.concat(lower.reverse()).map(point=>point.join(',')).join(' ');
+  const area=svgElement('polygon',{class:'iq-home-forecast-band',points,fill:colour,'fill-opacity':.23});
+  area.append(svgElement('title',{},'Estimated 85% prediction interval'));
+  svg.append(area);
+ };
+ let segment=[];
+ forecast.forEach((row,i)=>{
+  if(hasBand(row))segment.push({...row,x:xpos(i)});
+  else{draw(segment);segment=[];}
+ });
+ draw(segment);
+}
 function renderChart(section,history,forecast,colour,axis,historyStart,adjustedHistory=history){
  const root=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-plot');if(!root)return;
+ const previous=root.querySelector('.iq-home-chart-svg');
+ if(previous)chartObserver.unobserve(previous);
  root.replaceChildren();
  if(!history.some(Number.isFinite)&&!forecast.some(item=>Number.isFinite(item?.estimate))){
   const empty=document.createElement('p');empty.className='iq-home-chart-empty';
@@ -121,6 +166,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  const average=observed.length?observed.reduce((sum,value)=>sum+value,0)/observed.length:null;
  const legend=document.createElement('div');legend.className='iq-home-legend';
  const legendItems=[['Bookings','iq-home-dot'],['Forecast','iq-home-legend-line']];
+ const hasBand=row=>Number.isFinite(row?.estimate)&&Number.isFinite(row.low)&&Number.isFinite(row.high);
+ if(forecast.some(hasBand))legendItems.push(['85% prediction interval','iq-home-legend-band']);
  if(average!==null)legendItems.push(['Average','iq-home-legend-line is-average']);
  for(const [text,className] of legendItems){
   const item=document.createElement('span'),symbol=document.createElement('i');
@@ -129,8 +176,15 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  }
  root.append(legend);
  const averageLabel=average===null?'':' Historical weekly average: '+integer(average)+' list-size-adjusted bookings.';
- const svg=svgElement('svg',{viewBox:'0 0 728 207',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel});
- const left=58,right=706,bottom=152,top=14;
+ const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+(forecast.some(hasBand)?' Shading shows the estimated 85% prediction interval.':'')});
+ let lastWidth=0,lastHeight=0;
+ const draw=(width,height)=>{
+ width=Math.round(width);height=Math.round(height);
+ if(width===lastWidth&&height===lastHeight)return;
+ lastWidth=width;lastHeight=height;
+ svg.setAttribute('viewBox','0 0 '+width+' '+height);
+ svg.replaceChildren();
+ const left=width<440?42:52,right=width-16,bottom=height-53,top=12;
  // Use calendar spacing even when the latest uploaded booking week is older.
  const firstForecast=Math.round((isoDay(forecast[0].weekStart)-isoDay(historyStart))/604800000);
  const spacing=(right-left)/(firstForecast+forecast.length-1);
@@ -142,6 +196,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   svg.append(svgElement('line',{x1:left,y1:y,x2:right,y2:y,stroke:'#d9e5ef','stroke-width':tick===0?1.5:1}));
   svg.append(svgElement('text',{x:left-8,y:y+4,'text-anchor':'end',fill:'#2f526e','font-size':12,'font-family':'Arial, sans-serif'},axisNumber.format(value)));
  }
+ drawForecastBand(svg,forecast,hasBand,i=>xpos(firstForecast+i),ypos,colour,spacing,left,right);
  const divider=xpos(firstForecast-.5);
  svg.append(svgElement('line',{x1:divider,y1:top,x2:divider,y2:bottom,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
  if(average!==null){
@@ -177,8 +232,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   years.get(year)[1]=x;
   if(month!==lastMonth){
    const monthIndex=Number(date.slice(5,7))-1;
-   if((i===0||monthIndex%2===0)&&x-lastLabelX>=36){
-    label(x,173,monthLabel.format(isoDay(date)));
+   if(i===0||(monthIndex%(width<440?3:2)===0&&x-lastLabelX>=36)){
+    label(x,bottom+20,monthLabel.format(isoDay(date)));
     lastLabelX=x;
    }
    lastMonth=month;
@@ -192,21 +247,21 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  for(const [year,[from,to]] of years){
   const a=Math.max(left,from-spacing/2),b=Math.min(right,to+spacing/2);
   if(b-a<27)continue;
-  svg.append(svgElement('line',{x1:a+2,y1:182,x2:b-2,y2:182,stroke:'#bacbd9','stroke-width':1}));
-  label((a+b)/2,198,year);
+  svg.append(svgElement('line',{x1:a+2,y1:bottom+29,x2:b-2,y2:bottom+29,stroke:'#bacbd9','stroke-width':1}));
+  label((a+b)/2,bottom+45,year);
  }
  forecast.forEach((row,i)=>{
-  if(!row)return;
-  const x=xpos(firstForecast+i);
   if(!Number.isFinite(row.estimate))return;
-  if(Number.isFinite(row.low)&&Number.isFinite(row.high)){
-   const cap=Math.min(5,spacing*.39);
-   const bar=svgElement('path',{d:'M'+x+' '+ypos(row.low)+'V'+ypos(row.high)+' M'+(x-cap)+' '+ypos(row.low)+'H'+(x+cap)+' M'+(x-cap)+' '+ypos(row.high)+'H'+(x+cap),stroke:colour,'stroke-width':Math.min(2,spacing*.4),fill:'none'});
-   bar.append(svgElement('title',{},fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted (indicative range '+integer(row.low)+'–'+integer(row.high)+')'));
-   svg.append(bar);
-  }
+  const x=xpos(firstForecast+i);
+  const hit=svgElement('rect',{x:x-spacing/2,y:top,width:spacing,height:bottom-top,fill:'transparent'});
+  const interval=hasBand(row)?' (85% prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
+  hit.append(svgElement('title',{},fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted'+interval));
+  svg.append(hit);
  });
+ };
+ chartDrawers.set(svg,draw);
  root.append(svg);
+ chartObserver.observe(svg);
 }
 let aiState=null;
 function renderSavedInsights(state,row=state.saved){
@@ -565,7 +620,11 @@ function update(){
  const home=$('homePage');if(!home||home.classList.contains('hidden')||rendering)return;
  rendering=true;
  try{
-  const caveat=home.querySelector('.iq-home-caveat');
+  if(!fitObserver){
+   fitObserver=new ResizeObserver(fitOverviewCharts);
+   fitObserver.observe(home);
+   window.addEventListener('resize',fitOverviewCharts);
+  }
   const all=Array.isArray(records)?records:[];
   const date=typeof todayLondon==='string'?todayLondon:new Date().toISOString().slice(0,10);
   if(!all.length){
@@ -575,12 +634,11 @@ function update(){
     renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');
     for(const card of home.querySelectorAll('.iq-home-'+care+' .iq-home-insight'))card.querySelector('small').textContent='Upload appointment reports to see this insight.';
    }
-   if(caveat)caveat.textContent='No appointment records are available. Upload Slot Reports and check slot mappings.';
    return;
   }
   const availableDays=all.map(r=>r.bookedDay).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&d<date).sort();
-  const earliestBooked=availableDays[0],latestBooked=availableDays.at(-1);
-  if(!earliestBooked||!latestBooked)throw Error('No completed booking days found.');
+  const earliestBooked=availableDays[0];
+  if(!earliestBooked)throw Error('No completed booking days found.');
   const presentMonday=monday(date);
   let latestCompleteWeek=shift(presentMonday,-7);
   const fullWeeks=new Set(all.filter(r=>r.bookedDay<date&&r.bookedWeek<presentMonday).map(r=>r.bookedWeek));
@@ -624,7 +682,7 @@ function update(){
    const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care==='acute'?'urgent':'routine');
    const projection=Array.from({length:care==='acute'?peakForecastWeeks:4},(_,i)=>{
     const weekStart=shift(nextWeek,i*7);
-    const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true);
+    const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
     return {...range,weekStart};
    });
    series.push({care,history,adjustedHistory,forecast:projection.slice(0,4),peakForecast:projection.filter(row=>!holidayWeeks.has(row.weekStart)),groups:groupNames[care],bookingMap:weekCounts});
@@ -637,15 +695,9 @@ function update(){
   const axis=sharedAxis(series);
   for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date,holidayWeeks,coveredCapacityWeeks},metrics);
   showAiInsights(home,date,metrics);
-  if(caveat){
-   const earliest=slots.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,'');
-   caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtLong(earliest)+' to ' +fmtLong(latestBooked)+'). ':'')+
-    'Both charts show one year of weekly bookings and the next four forecast weeks on a shared scale. Bank holiday weeks are omitted. Bookings are adjusted to the latest recorded practice list size and lightly smoothed. Error bars show indicative forecast variation.';
-  }
  }catch(error){
   showAiInsights(home,'',{});
   console.error('Home overview calculations could not be completed',error);
-  const note=home.querySelector('.iq-home-caveat');if(note)note.textContent='Could not calculate the home overview from the imported data. Detailed pages remain available.';
   for(const care of ['acute','routine']){setOutlook(care,'—','Unavailable');renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');}
  }finally{rendering=false}
 }

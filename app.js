@@ -3104,16 +3104,17 @@ function updateHomePracticeName(){const el=$('homePracticeName');if(el)el.textCo
 let practiceSettingsTab='users',practiceUsersLoading=false,practiceUserRemovalBusy=false;
 let practiceUsersSnapshot={base:'',permissions:[]};
 function selectPracticeSettingsTab(tab){
- practiceSettingsTab=tab==='list'?'list':'users';
+ practiceSettingsTab=['list','reports'].includes(tab)?tab:'users';
  writeChartPreference('practiceSettings:tab',practiceSettingsTab);
- for(const name of ['users','list']){
+ for(const name of ['users','list','reports']){
   const selected=practiceSettingsTab===name;
   $('practiceTab-'+name).setAttribute('aria-selected',String(selected));
   $('practiceTab-'+name).classList.toggle('active',selected);
-  $('practicePanel-'+name).hidden=!selected;
+  const panel=$('practicePanel-'+name);
+  if(panel)panel.hidden=!selected;
  }
  if(practiceSettingsTab==='users')void renderPracticeUsers();
- else renderPracticeSettings();
+ else if(practiceSettingsTab==='list')renderPracticeSettings();
 }
 function practicePermissionUsers(permissions){
  const ownerEmail=(activeAccount?.username||'').toLowerCase();
@@ -3241,6 +3242,7 @@ async function renderPracticeUsers(){
 }
 $('practiceTab-users').addEventListener('click',()=>selectPracticeSettingsTab('users'));
 $('practiceTab-list').addEventListener('click',()=>selectPracticeSettingsTab('list'));
+$('practiceTab-reports').addEventListener('click',()=>selectPracticeSettingsTab('reports'));
 $('practiceUsersRefresh').addEventListener('click',()=>void renderPracticeUsers());
 
 function renderPracticeSettings(){
@@ -5521,7 +5523,11 @@ async function saveCloudCategories(){
 async function openCSVCache(){return null;}
 async function graph(){throw Error('Microsoft storage is disabled in this prototype.');}
 async function token(){throw Error('Microsoft authentication is disabled in this prototype.');}
-function showFolderPicker(){iqUploadElement?.scrollIntoView({behavior:'smooth'});}
+function showFolderPicker(){
+ if(!iqUploadElement)return;
+ showPage('practiceSettings');
+ selectPracticeSettingsTab('reports');
+}
 async function logoutDashboard(){await iqBridge?.signOut();}
 function returnToMicrosoftSignIn(){void logoutDashboard();}
 async function renderPracticeUsers(){
@@ -5624,11 +5630,12 @@ function updateHomeReportDates(items){
 let iqUploadElement=null,iqUploadStatus=null;
 function iqCreateUploadPanel(){
  if(!isOwner)return;
- const panel=document.createElement('section');panel.className='iq-import-panel';iqUploadElement=panel;
+ const panel=document.createElement('section');panel.className='iq-import-panel';panel.id='practicePanel-reports';panel.hidden=true;iqUploadElement=panel;
+ panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby','practiceTab-reports');
  const heading=document.createElement('h3');heading.textContent='Upload practice reports';
  iqUploadStatus=document.createElement('p');iqUploadStatus.className='iq-import-status';iqUploadStatus.setAttribute('role','status');
  const list=document.createElement('ul');list.id='iqSources';list.className='iq-source-list';
- panel.append(heading,iqUploadStatus,list);$('homePage').append(panel);
+ panel.append(heading,iqUploadStatus,list);$('practicePanel-list').after(panel);
  iqRenderSources();
 }
 function iqRenderSources(){
@@ -5688,10 +5695,10 @@ async function replaceExistingCSV(file){
   const text=await file.text();
   if(/\.json$/i.test(file.name)){
    const settings=parseSettingsJSON(text);delete settings.folder;delete settings.peopleClinicianType;delete settings.peopleLocum;if(!confirm('Replace this practice’s shared settings with '+file.name+'? Personal display preferences are kept separately.'))return;
-   iqSettingsRevision=await iqBridge.saveSettings(settings,iqSettingsRevision);await loadCloudCategories({strict:true});await loadFolder(true);iqUploadStatus.textContent='Practice settings imported.';return;
+   iqSettingsRevision=await iqBridge.saveSettings(settings,iqSettingsRevision);await loadCloudCategories({strict:true});await loadFolder(true);iqUploadStatus.textContent='Practice settings imported.';csvDropStatus(iqUploadStatus.textContent);return;
   }
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
-  if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);await loadFolder(true);iqUploadStatus.textContent='Rapid Health import finished.';return;}
+  if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);await loadFolder(true);iqUploadStatus.textContent='Rapid Health import finished.';csvDropStatus(iqUploadStatus.textContent);return;}
   const kind=headers.includes('Code Term')&&headers.includes('Date')?'signposting':'slot';
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
@@ -5702,9 +5709,11 @@ async function replaceExistingCSV(file){
   const message=existing?'Replace '+existing.source_name+' with this refreshed export? Its previous counts will be replaced.':'Add '+file.name+' as a new report source? Use a new source only for a separate, non-overlapping reporting period; refreshed exports should replace an existing source.';
   if(!confirm(message))return;
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
+csvDropStatus(iqUploadStatus.textContent);
   await iqBridge.save({existing,kind,name:existing?.source_name||file.name,clinical_at:clinical.toISOString(),count,contribution});
   await loadFolder(true);
   iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.';
+  csvDropStatus(iqUploadStatus.textContent);
  }catch(error){if(iqUploadStatus)iqUploadStatus.textContent='Upload failed: '+error.message;csvDropStatus('Upload failed: '+error.message,true);}
  finally{iqUploading=false;csvDropBusy=false;}
 }
