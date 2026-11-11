@@ -1,5 +1,5 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=home-insight-bullets-v1';
+import {SupabaseBackend} from './backend.mjs?v=historic-ai-v1';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
@@ -103,6 +103,8 @@ function renderAnalytics(){
   list:()=>checked(()=>targetBackend.analyticsSources(selected)),
   read:key=>checked(async()=>unpackContribution(await targetBackend.analyticsPayload(selected,key))),
   readSettings:()=>checked(()=>targetBackend.analyticsSettings(selected)),
+  readHistoricInsights:targetBackend.demo?null:()=>checked(()=>targetBackend.historicInsights(selected)),
+  generateHistoricInsights:targetBackend.demo?null:views=>checked(()=>targetBackend.generateHistoricInsights(selected,views),true),
   readHomeInsights:targetBackend.demo?null:()=>checked(()=>targetBackend.homeInsights(selected)),
   regenerateHomeInsights:targetBackend.demo?null:(period,metrics,version)=>checked(()=>targetBackend.regenerateHomeInsights(selected,period,metrics,version),true),
   readChartPreferences:targetBackend.demo?null:()=>checked(()=>targetBackend.chartPreferences(selected,identity)),
@@ -116,7 +118,7 @@ function renderAnalytics(){
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=home-chart-week-dots-v1';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=historic-ai-v1';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');

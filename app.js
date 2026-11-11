@@ -2800,6 +2800,63 @@ function installDemandCardTooltip(target){
  });
  target.on('plotly_unhover',()=>{card.hidden=true});
 }
+
+function historicInsightPresets(firstAppointment,lastAppointment){
+ const all=groupUrgencyNames.filter(isDashboardToggleOption);
+ if(!all.length)return [];
+ const families=Map.groupBy(all,appointmentCategoryFor);
+ const urgent=[...families].find(([name])=>/urgent|acute/i.test(name))?.[1]||[];
+ const groups=[all,...[...families.values()].filter(group=>group.length!==all.length),...all.map(name=>[name])];
+ if(urgent.length===3)for(let i=0;i<urgent.length;i++)groups.push(urgent.filter((_,index)=>i!==index));
+ const profiles=[
+  {match:()=>true,groups},
+  ...['Locum','Not Locum'].map(name=>({match:row=>row.locum===name,groups:[all,...(urgent.length?[urgent]:[])]})),
+  ...clinicianGroupNames.filter(isDashboardToggleOption).slice(0,8).map(name=>({match:row=>row.group===name,groups:[all]}))
+ ];
+ const bucket=()=>({weeks:new Set(),totals:Object.fromEntries(all.map(name=>[name,new Map()]))});
+ for(const profile of profiles){profile.weekly=bucket();profile.holidays=bucket();profile.monthly=bucket();}
+ const lowerWeek=firstAppointment?mondayOf(firstAppointment):'',upperWeek=lastAppointment?mondayOf(lastAppointment):thisWeek;
+ const lowerMonth=firstAppointment.slice(0,7),upperMonth=lastAppointment.slice(0,7)||thisMonth;
+ const add=(bucket,period,category,count)=>{
+  bucket.weeks.add(period);
+  const values=bucket.totals[category];
+  if(values)values.set(period,(values.get(period)||0)+count);
+ };
+ for(const row of records){
+  if(row.status!=='Booked'||excludedSlotTypes.has(row.slot))continue;
+  const group=clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)];
+  if(!clinicianGroupNames.includes(group))continue;
+  const week=row.bookedWeek,month=row.bookedDay?.slice(0,7),category=capacityUrgencyCategory(row.slot);
+  const inWeek=week&&week>=lowerWeek&&week<=upperWeek&&week<thisWeek;
+  const inMonth=month&&month>=lowerMonth&&month<=upperMonth&&month<thisMonth;
+  if(!inWeek&&!inMonth)continue;
+  const profileRow={group,locum:locumCategory(row)};
+  for(const profile of profiles){
+   if(!profile.match(profileRow))continue;
+   if(inWeek){
+    add(profile.holidays,week,category,row.count);
+    if(!bankHolidayWeeks.has(week))add(profile.weekly,week,category,row.count);
+   }
+   if(inMonth)add(profile.monthly,month,category,row.count);
+  }
+ }
+ const views=[],adjusters=[createListSizeAdjuster(false),createListSizeAdjuster(true)];
+ for(const profile of profiles){
+  const modes=monthlyMode?['monthly','weekly']:excludeBankHolidays?['weekly','holidays','monthly']:['holidays','weekly','monthly'];
+  for(const [i,mode] of modes.entries()){
+   if(profile!==profiles[0]&&i>0)break;
+   const {weeks,totals}=profile[mode],periods=[...weeks].sort();
+   const selections=i===0?profile.groups:profile.groups.slice(0,Math.max(1,families.size+1));
+   for(const names of selections)for(const [index,adjust] of adjusters.entries()){
+    const options={monthly:mode==='monthly',adjusted:index===1,combined:false,adjust};
+    views.push(GPHistoricInsights.makeView(periods,names,totals,options));
+    if(names.length>1)views.push(GPHistoricInsights.makeView(periods,names,totals,{...options,combined:true}));
+   }
+  }
+ }
+ return views;
+}
+
 function drawCombinedDemandChart(){
  if(typeof restoreChartShadowControls==='function')restoreChartShadowControls();
  const adjustmentStatus=$('demandAdjustmentStatus');if(adjustmentStatus)adjustmentStatus.textContent=adjustDemandForListSize?'Adjusted for list size':'Not adjusted for list size';
@@ -2810,6 +2867,13 @@ function drawCombinedDemandChart(){
  const selected=groupUrgencyNames.filter(name=>isDashboardToggleOption(name)&&!disabledDemandUrgencyGroups.has(name));
  const additiveTitle=$('demandAdditiveTitle');if(additiveTitle){additiveTitle.textContent=additiveLines?'Combined: '+selected.join(' + '):'';additiveTitle.hidden=!additiveLines||!selected.length;}
  const visibleWeeks=selectedWeeks.filter(w=>(!demandMonthStart||w.slice(0,7)>=demandMonthStart)&&(!demandMonthEnd||w.slice(0,7)<=demandMonthEnd));
+ if(window.GPHistoricInsights){
+  const completePeriods=visibleWeeks.filter(period=>!periodIsCurrent(period));
+  const view=GPHistoricInsights.makeView(completePeriods,selected,demandCategoryTotals,{
+   monthly:monthlyMode,adjusted:adjustDemandForListSize,combined:additiveLines,adjust:adjustedCount
+  });
+  GPHistoricInsights.update(view,()=>historicInsightPresets(firstAppointmentDate,lastAppointmentDate));
+ }
  const years=[...new Set(visibleWeeks.map(w=>Number(w.slice(0,4))))].sort((a,b)=>a-b);
  const latestYear=years.length?years[years.length-1]:null;
  const traces=[];

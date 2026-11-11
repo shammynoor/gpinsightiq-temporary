@@ -12,6 +12,20 @@ export class SupabaseBackend{
  async analyticsPayload(practice,key){const {data,error}=await this.client.from('iq_analytics_sources').select('payload').eq('practice_id',practice).eq('source_key',key).single();if(error)throw error;return data.payload;}
  async analyticsSettings(practice){const {data,error}=await this.client.from('iq_analytics_settings').select('settings,revision').eq('practice_id',practice).maybeSingle();if(error)throw error;return data||{settings:null,revision:0};}
 
+ async historicInsights(practice){
+  const {data,error}=await this.client.from('iq_historic_insights').select('snapshot,scope,cards,generated_at').eq('practice_id',practice).order('generated_at',{ascending:false}).limit(600);
+  if(error)throw error;
+  return data;
+ }
+ async generateHistoricInsights(practice,views){
+  const {data,error}=await this.client.functions.invoke('iq-historic-insights',{body:{practice,views}});
+  if(error){
+   let details;
+   try{details=await error.context?.json();}catch{}
+   throw Error(details?.error||'Historic booking insights could not be generated.');
+  }
+  return data;
+ }
  async homeInsights(practice){
   const {data,error}=await this.client.from('iq_home_insights').select('snapshot,bullets,generated_at').eq('practice_id',practice).maybeSingle();
   if(error)throw error;
