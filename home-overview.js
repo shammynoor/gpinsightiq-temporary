@@ -4,7 +4,7 @@
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
 const historyWeeks=13;
-const insightVersion='home-insights-v2';
+const insightVersion='home-insights-v3';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
