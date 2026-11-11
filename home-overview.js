@@ -217,23 +217,26 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   averagePill.style.left=(chartBounds.left-plotBounds.left-root.clientLeft+left+10)+'px';
   averagePill.style.top=(chartBounds.top-plotBounds.top-root.clientTop+y)+'px';
  }
- const drawTrend=(points,projection=false)=>{
+ const drawTrend=(points,{projection=false,smooth=projection}={})=>{
   if(points.length<2)return;
-  const path=projection?smoothForecastPath(points):points.map(([x,y],i)=>{
+  const path=smooth?smoothForecastPath(points):points.map(([x,y],i)=>{
    if(i===0)return 'M'+x+' '+y;
    const [previousX,previousY]=points[i-1],gap=x-previousX;
    if(gap<=spacing*1.5)return 'L'+x+' '+y;
    // Ease across skipped weeks without adding markers or values at those dates.
    return 'C'+(previousX+gap/3)+' '+previousY+' '+(x-gap/3)+' '+y+' '+x+' '+y;
   }).join(' ');
-  const attrs={d:path,fill:'none',stroke:colour,'stroke-width':projection?2.6:3,'stroke-linecap':'round','stroke-linejoin':'round'};
-  if(projection)attrs['stroke-dasharray']='1 6';
+  const attrs={d:path,fill:'none',stroke:colour,'stroke-width':projection?1.7:3,'stroke-linecap':'round','stroke-linejoin':'round'};
+  if(projection)attrs['stroke-dasharray']='0.5 4';
   svg.append(svgElement('path',attrs));
  };
  const historyPoints=history.flatMap((value,i)=>Number.isFinite(value)?[[xpos(i),ypos(value)]]:[]);
  drawTrend(historyPoints);
- const forecastPoints=forecast.flatMap((row,i)=>Number.isFinite(row?.estimate)?[[xpos(firstForecast+i),ypos(row.estimate)]]:[]);
- if(forecastPoints.length)drawTrend(historyPoints.slice(-1).concat(forecastPoints),true);
+ const current=Number.isFinite(forecast[0]?.estimate)?[xpos(firstForecast),ypos(forecast[0].estimate)]:null;
+ const lastActual=historyPoints.slice(-1);
+ if(current)drawTrend(lastActual.concat([current]),{smooth:true});
+ const future=forecast.slice(1).flatMap((row,i)=>Number.isFinite(row?.estimate)?[[xpos(firstForecast+i+1),ypos(row.estimate)]]:[]);
+ if(future.length)drawTrend((current?[current]:lastActual).concat(future),{projection:true});
  const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
  const label=(x,y,text)=>svg.append(svgElement('text',{x,y,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},text));
  const years=new Map();
