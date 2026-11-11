@@ -161,7 +161,7 @@ const bulletInstructions = [
 
 const findingInstructions = [
   'Write the key insights for a GP practice dashboard in brief, conversational British English. Make each bullet specific and easy to read at a glance. Lead with the finding and use natural wording of your own.',
-  'Choose what is worth highlighting within each card. Use up to three bullets, fewer when there is little to add. Each bullet should add something: a comparison, an outlier, a gap, a point of concern, a trend, a seasonal change, a forecast or an indication of volatility. Related bullets are welcome when they add different information. Avoid filler and repeated comparisons.',
+  'Choose what is worth highlighting within each card. Use up to three bullets. Each bullet should add something: a comparison, an outlier, a gap, a point of concern, a trend, a seasonal change, a forecast or an indication of volatility. Related bullets are welcome when they add different information. Avoid filler and repeated comparisons.',
   'Ground each bullet in the figures provided for its card. Use named placeholders in braces for numerical facts and report labels. Omit null facts. The app inserts the displayed numbers and labels. For a figure with an accompanying report label, include both placeholders in the same bullet. The input lists the label keys next to their figures. You can combine facts in one bullet. Avoid guessing causes or inventing figures.',
   'For forecast and routineForecast, state the coming four-week window and compare with the recent weekly average for the same appointment type. Peak is the busiest forecast week; peakWeek gives its start date, and peakChange compares that week with the recent weekly average. Percentage changes are signed: positive becomes more, negative becomes fewer, zero becomes roughly unchanged.',
   'AcuteYear and routineYear compare actual bookings with the same weeks last year. RoutineTrend compares the latest four weeks with the preceding four. If a seasonal range is supplied, it is for this time of year. Variation shows how much higher the busiest week was than the quietest among reportable, list-size-adjusted weeks in the last eight calendar weeks, excluding bank holidays. It measures spread, not growth.',
@@ -171,6 +171,7 @@ const findingInstructions = [
 ].join(' ');
 
 const detailedFindingInstructions = findingInstructions + ' ' + [
+  'Write two or three bullets per card when there are at least two distinct facts. For example, give the number of slots in one bullet and the estimated days of cover in another. Use a single bullet if there is only one fact and leave the card empty if there are none.',
   'Write like a practice colleague briefing the team. Use phrases such as “we’re seeing”, “we’ve seen” and “we expect to see” where they fit. Vary the opening naturally.',
   'The peak forecast looks across the next nine weeks, about two months. When describing the peak, mention that horizon and use the date label for the week starting.',
   'When waiting times differ across categories, name the categories alongside their median waits. Give the longest and shortest, include the middle comparison if supplied, and mention the gap when it adds context. The labels already include any appointment mode in parentheses.',
@@ -186,8 +187,11 @@ function findingInput(metrics,cards=findingCards) {
 }
 
 function findingSchema(metrics,cards=findingCards) {
-  const properties = Object.fromEntries(Object.keys(cards).map(card =>
-    [card,{type:'array',maxItems:cards[card].some(key=>metrics[key]!==null)?3:0,items:{type:'string'}}]));
+  const properties = Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
+    const available = fields.filter(key=>metrics[key]!==null).length;
+    const items = {type:'array',maxItems:available?3:0,items:{type:'string'}};
+    return [card,cards===detailedFindingCards?{...items,minItems:Math.min(available,2)}:items];
+  }));
   return {type:'object',additionalProperties:false,required:Object.keys(cards),properties};
 }
 
@@ -234,7 +238,8 @@ function renderFindings(output,metrics,cards=findingCards) {
     }
     const required = card==='waitingTimes'?['longWait','shortWait','middleWait']:
       card==='forwardAvailability'?['riskCoverDays']:card==='forecastPeak'?['peak']:[];
-    const complete = cards!==detailedFindingCards || required.every(key=>!available.has(key)||seen.has(key));
+    const complete = cards!==detailedFindingCards || (accepted.length>=Math.min(available.size,2) &&
+      required.every(key=>!available.has(key)||seen.has(key)));
     bullets[card]=complete?accepted:[];
     if(!complete)generated-=accepted.length;
   }
