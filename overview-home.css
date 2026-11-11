@@ -84,9 +84,6 @@
 .iq-overview .iq-home-dot{display:inline-block;border-radius:50%;width:8px;height:8px;background:var(--care-accent)}
 .iq-overview .iq-home-legend-line{width:16px;border-top:2px dotted var(--care-accent)}
 .iq-overview .iq-home-legend-line.is-average{border-color:#496278}
-.iq-overview .iq-home-routine{--routine-nowcast:#7149a1}
-.iq-overview .iq-home-legend-so-far{display:inline-block;width:7px;height:7px;border:1.5px solid var(--routine-nowcast);border-radius:50%}
-.iq-overview .iq-home-legend-band.is-nowcast{background:color-mix(in srgb,var(--routine-nowcast) 23%,white)}
 .iq-overview .iq-home-legend-band{display:inline-block;width:16px;height:8px;border-radius:2px;background:color-mix(in srgb,var(--care-accent) 25%,white)}
 .iq-overview .iq-home-chart-svg{width:100%;height:var(--overview-chart-height,180px);display:block;margin-top:1px;overflow:visible}
 .iq-overview .iq-home-acute{--care-accent:#f03265;--care-pale:#ffe2ec}
