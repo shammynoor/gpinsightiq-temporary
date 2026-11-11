@@ -3,7 +3,7 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const insightVersion='home-insights-v4';
+const insightVersion='home-insights-v5';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
@@ -35,7 +35,10 @@ const median=pairs=>{
 const roundWeeks=value=>value.toFixed(1)+' weeks';
 const waitDays=value=>value.toLocaleString('en-GB',{maximumFractionDigits:1})+(value===1?' day':' days');
 const insightCopy=new WeakMap();
-const fact=(key,text)=>({key,text});
+const insightCards={
+ acute:['seasonalDemand','extraCapacity','unusedCapacity','forecastPeak'],
+ routine:['routineDemand','waitingTimes','forwardAvailability','routineUnused']
+};
 function appendEmphasis(node,text,terms){
  const lower=text.toLowerCase();
  let offset=0;
@@ -55,22 +58,23 @@ function appendEmphasis(node,text,terms){
   offset=start+match.length;
  }
 }
-function setInsight(section,index,title,bullets,emphasis=[]){
+function setInsight(section,index,title,bullets,emphasis=[],labels={}){
  const card=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-insights');
  const item=card?.querySelectorAll('.iq-home-insight')[index];
  if(!item)return;
  item.querySelector('strong').textContent=title;
- const details={bullets:bullets.filter(Boolean),emphasis:emphasis.filter(Boolean)};
+ const details={key:insightCards[section][index],bullets:bullets.filter(Boolean),emphasis:emphasis.filter(Boolean),labels};
  insightCopy.set(item,details);
  paintInsight(item,details);
 }
-function paintInsight(item,{bullets,emphasis},generated={}){
+function paintInsight(item,{bullets,emphasis,labels},generated){
  const list=document.createElement('span');
  list.setAttribute('role','list');
- for(const bullet of bullets){
+ for(const bullet of generated?.length?generated:bullets){
   const line=document.createElement('span');
   line.setAttribute('role','listitem');
-  appendEmphasis(line,typeof bullet==='string'?bullet:generated[bullet.key]||bullet.text,emphasis);
+  const text=generated?.length?bullet.replace(/\{([A-Za-z]+)\}/g,(_,key)=>labels[key]||''):bullet;
+  appendEmphasis(line,text,emphasis);
   list.append(line);
  }
  item.querySelector('small').replaceChildren(list);
@@ -203,13 +207,14 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  });
  root.append(svg);
 }
-const insightFacts=['forecast','acuteYear','extra','unused','peak','peakChange','routineTrend','routineYear','wait','priorWait','riskSlots','routineUnused'];
 let aiState=null;
 function renderSavedInsights(state,row=state.saved){
- if(!row||row.snapshot!==state.snapshot||!insightFacts.every(key=>row.bullets?.[key]===null||typeof row.bullets?.[key]==='string'))return false;
+ const cards=Object.values(insightCards).flat();
+ if(!row||row.snapshot!==state.snapshot||!cards.every(key=>Array.isArray(row.bullets?.[key])&&
+  row.bullets[key].length<=3&&row.bullets[key].every(line=>typeof line==='string')))return false;
  for(const item of document.querySelectorAll('#homePage .iq-home-insight')){
   const details=insightCopy.get(item);
-  if(details)paintInsight(item,details,row.bullets);
+  if(details)paintInsight(item,details,row.bullets[details.key]);
  }
  return true;
 }
@@ -221,7 +226,7 @@ function showAiInsights(home,period,metrics){
   return;
  }
  button.hidden=!bridge.manage;
- const signature=JSON.stringify([period,metrics,insightVersion]);
+ const signature=JSON.stringify([period,Object.entries(metrics).sort(([a],[b])=>a<b?-1:a>b?1:0),insightVersion]);
  if(aiState?.bridge===bridge&&aiState.signature===signature){
   renderSavedInsights(aiState);
   return;
@@ -307,10 +312,11 @@ function renderCare(section,options,metrics){
  const seasonalTotals=[364,728,1092].map(days=>currentWeeks.map(w=>shift(w,-days)))
   .filter(weeks=>weeks.every(w=>bookingMap.has(w))&&sumWeeks(weeks)>=30).map(sumWeeks);
  const fourComplete=currentWeeks.every(w=>bookingMap.has(w));
- let seasonPosition='';
+ let seasonPosition='',seasonIndex=null;
  if(fourComplete&&recentTotal>=30&&seasonalTotals.length>=2){
   const position=recentTotal<Math.min(...seasonalTotals)?'Below':recentTotal>Math.max(...seasonalTotals)?'Above':'Within';
   seasonPosition=position.toLowerCase()+' the usual range';
+  seasonIndex={Below:-1,Within:0,Above:1}[position];
  }
  const seasonDetail=seasonPosition?'Recent bookings were '+seasonPosition+' for this time of year.':'';
  const start=currentWeeks[0],end=shift(latestCompleteWeek,6);
@@ -335,20 +341,24 @@ function renderCare(section,options,metrics){
  const [topMissed,topCount]=largestGroup(missed);
  // Showing the overall and group counts together can disclose a small remainder.
  const hotspot=unused!==null&&showGroup(topMissed,topCount,unusedTotal);
- const unusedKey=section==='acute'?'unused':'routineUnused';
  const unusedContext=hotspot?topMissed+' had the most ('+integer(topCount)+').':'';
  const unusedEmphasis=[unused===null?'':integer(unused)+' slots',hotspot?topMissed:'',hotspot?'('+integer(topCount)+')':''];
  const unusedBullets=unused===null?[clock?'No unused slots to report for the last four weeks.':'A dated Slot Report is needed.']:[
-  fact(unusedKey,integer(unused)+' slots went unused over the last four weeks.'),
+  integer(unused)+' slots went unused over the last four weeks.',
   unusedContext||'That’s about '+integer(unused/4)+' a week.'
  ];
  const yearChange=reportableChange(yoy,recentTotal,sumWeeks(lastYearWeeks));
  const yearDetail=yearChange===null?null:yearChange===0?'Bookings were similar to the same weeks last year.':
-  fact(section==='acute'?'acuteYear':'routineYear',describeChange(yearChange)+' bookings than the same weeks last year.');
+  describeChange(yearChange)+' bookings than the same weeks last year.';
  const seasonalComparison=yearDetail||seasonDetail;
+ const recentWeeks=adjustedHistory.slice(-8).filter(Number.isFinite);
+ const low=Math.min(...recentWeeks),high=Math.max(...recentWeeks);
+ const variation=recentWeeks.length>=4&&low>=30?Math.round((high/low-1)*100):null;
  if(section==='acute'){
   metrics.forecast=reportableChange(change,recentMean,meanForecast);
   metrics.acuteYear=yearChange;
+  metrics.acuteSeason=yearChange===null?seasonIndex:null;
+  metrics.acuteVariation=variation;
   const forecastDetail=metrics.forecast===null?'There’s too little data for a four-week comparison.':
    metrics.forecast===0?'Expect urgent bookings over the next four weeks to stay close to the recent average.':
    'Expect '+describeChange(metrics.forecast)+' urgent bookings over the next four weeks than the recent average.';
@@ -358,29 +368,34 @@ function renderCare(section,options,metrics){
   const [topExtra,extraCount]=largestGroup(extras);
   metrics.extra=reportableCount(extra);
   const extraGroup=showGroup(topExtra,extraCount,extra);
+  metrics.extraGroupCount=extraGroup?Math.round(extraCount):null;
   const extraBullets=metrics.extra===null?[groups.some(isExtraAppointmentType)?'No Extra bookings to report for the last four weeks.':'Map Extra slots under Urgent Care in Slot Settings.']:[
-   fact('extra',integer(extra)+' urgent Extra slots were booked in the last four weeks.'),
+   integer(extra)+' urgent Extra slots were booked in the last four weeks.',
    extraGroup?topExtra+' booked the most ('+integer(extraCount)+').':'That’s about '+integer(extra/4)+' a week.'
   ];
-  setInsight('acute',1,'Extra capacity',extraBullets,[metrics.extra===null?'':integer(extra)+' urgent Extra slots',extraGroup?topExtra:'']);
+  setInsight('acute',1,'Extra capacity',extraBullets,[metrics.extra===null?'':integer(extra)+' urgent Extra slots',extraGroup?topExtra:''],{extraGroup:extraGroup?topExtra:''});
   metrics.unused=unused;
-  setInsight('acute',2,'Unused capacity',unusedBullets,unusedEmphasis);
+  metrics.unusedGroupCount=hotspot?Math.round(topCount):null;
+  setInsight('acute',2,'Unused capacity',unusedBullets,unusedEmphasis,{unusedGroup:hotspot?topMissed:''});
   const peak=completeForecast?predicted.reduce((highest,row)=>row.estimate>highest.estimate?row:highest):null;
   metrics.peak=peak?reportableCount(peak.estimate):null;
   metrics.peakChange=metrics.peak===null?null:reportableChange(signedTrend(peak.estimate,recentMean),peak.estimate,recentMean);
   const peakDate=peak?fmtDate(peak.weekStart):'';
   setInsight('acute',3,'Peak demand',metrics.peak===null?['There’s too little data to pick the busiest week.']:[
    'The busiest week is expected to start '+peakDate+'.',
-   fact('peak','Expect about '+integer(metrics.peak)+' urgent bookings that week.'),
-   metrics.peakChange?fact('peakChange','That’s '+describeChange(metrics.peakChange)+' than a recent week on average.'):
+   'Expect about '+integer(metrics.peak)+' urgent bookings that week.',
+   metrics.peakChange?'That’s '+describeChange(metrics.peakChange)+' than a recent week on average.':
     metrics.peakChange===0?'That’s close to the recent weekly average.':''
-  ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent bookings',metrics.peakChange?describeChange(metrics.peakChange):'']);
+  ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent bookings',metrics.peakChange?describeChange(metrics.peakChange):''],{peakWeek:peakDate});
  }else{
   metrics.routineTrend=reportableChange(previous,recentTotal,sumWeeks(previousWeeks));
   metrics.routineYear=yearChange;
+  metrics.routineForecast=reportableChange(change,recentMean,meanForecast);
+  metrics.routineSeason=yearChange===null?seasonIndex:null;
+  metrics.routineVariation=variation;
   const recent=metrics.routineTrend===null?'There’s too little data to compare with the previous four weeks.':
    metrics.routineTrend===0?'Routine bookings held steady over the last four weeks.':
-   fact('routineTrend',describeChange(metrics.routineTrend)+' routine bookings than in the previous four weeks.');
+   describeChange(metrics.routineTrend)+' routine bookings than in the previous four weeks.';
   setInsight('routine',0,'Demand trend',[recent,seasonalComparison],
    [seasonPosition,metrics.routineTrend?describeChange(metrics.routineTrend):'',yearChange?describeChange(yearChange):'']);
   const recentStart=shift(today,-28),previousStart=shift(today,-56);
@@ -429,11 +444,16 @@ function renderCare(section,options,metrics){
     waitEmphasis.push(waitDays(shortest.days));
    }
   }else if(metrics.wait!==null){
-   waitBullets.unshift(fact('wait','The median wait was '+roundWeeks(metrics.wait)+' for appointments booked at least a day ahead.'));
+   waitBullets.unshift('The median wait was '+roundWeeks(metrics.wait)+' for appointments booked at least a day ahead.');
    waitEmphasis.push(roundWeeks(metrics.wait));
-   if(metrics.priorWait!==null)waitBullets.push(fact('priorWait','It was '+roundWeeks(metrics.priorWait)+' in the previous 28 days.'));
+   if(metrics.priorWait!==null)waitBullets.push('It was '+roundWeeks(metrics.priorWait)+' in the previous 28 days.');
   }
-  setInsight('routine',1,'Waiting times',waitBullets,waitEmphasis);
+  const hasWaitRange=reportable.length>=2&&longest.days>shortest.days;
+  metrics.longWait=hasWaitRange?longest.days:null;
+  metrics.shortWait=hasWaitRange?shortest.days:null;
+  metrics.waitGap=hasWaitRange?Math.round((longest.days-shortest.days)*10)/10:null;
+  setInsight('routine',1,'Waiting times',waitBullets,waitEmphasis,
+   {longestGroup:hasWaitRange?longest.label:'',shortestGroup:hasWaitRange?shortest.label:''});
   for(const row of records){
    if(!allowed(row)||careFor(row.slot)!=='routine'||!row.bookedDay||row.bookedDay<start||row.bookedDay>end)continue;
    const segment=routineSegment(row);
@@ -452,14 +472,16 @@ function renderCare(section,options,metrics){
   const [group,mode]=risk?JSON.parse(risk.segment):[];
   const coverLabel=risk?(risk.cover<1?'less than a week':roundWeeks(Math.round(risk.cover*10)/10)):'';
   const segmentLabel=risk?group+' · '+mode:'';
+  metrics.riskCover=risk?risk.cover<1?.9:Math.round(risk.cover*10)/10:null;
   setInsight('routine',2,'Forward availability',risk?[
    segmentLabel+' has the least cover.',
-   fact('riskSlots',integer(risk.slots)+' slots are open in the diary.'),
+   integer(risk.slots)+' slots are open in the diary.',
    'That’s '+coverLabel+' at the recent booking pace if no more slots are released.'
   ]:['There’s too little data to see which slots may run out first.'],
-   risk?[segmentLabel,coverLabel,integer(risk.slots)+' slots']:[]);
+   risk?[segmentLabel,coverLabel,integer(risk.slots)+' slots']:[],{riskGroup:segmentLabel});
   metrics.routineUnused=unused;
-  setInsight('routine',3,'Unused capacity',unusedBullets,unusedEmphasis);
+  metrics.routineUnusedGroupCount=hotspot?Math.round(topCount):null;
+  setInsight('routine',3,'Unused capacity',unusedBullets,unusedEmphasis,{routineUnusedGroup:hotspot?topMissed:''});
  }
 }
 let rendering=false;

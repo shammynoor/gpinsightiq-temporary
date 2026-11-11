@@ -17,8 +17,26 @@ const expandedCards = {
   routineUnused: ['routineUnused']
 };
 const bulletFields = Object.fromEntries(Object.values(expandedCards).flat().map(key => [key,[key]]));
-const counts = new Set(['extra', 'unused', 'available', 'peak', 'riskSlots', 'routineUnused']);
-const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear', 'peakChange']);
+const findingCards = {
+  seasonalDemand: ['forecast','acuteYear','acuteSeason','acuteVariation'],
+  extraCapacity: ['extra','extraGroupCount'],
+  unusedCapacity: ['unused','unusedGroupCount'],
+  forecastPeak: ['peak','peakChange'],
+  routineDemand: ['routineTrend','routineYear','routineSeason','routineVariation','routineForecast'],
+  waitingTimes: ['wait','priorWait','longWait','shortWait','waitGap'],
+  forwardAvailability: ['riskSlots','riskCover'],
+  routineUnused: ['routineUnused','routineUnusedGroupCount']
+};
+const findingLabels = {
+  extraGroupCount:'extraGroup', unusedGroupCount:'unusedGroup', peak:'peakWeek',
+  longWait:'longestGroup', shortWait:'shortestGroup', riskSlots:'riskGroup',
+  riskCover:'riskGroup', routineUnusedGroupCount:'routineUnusedGroup'
+};
+const seasonalFacts = new Set(['acuteSeason','routineSeason']);
+const variationFacts = new Set(['acuteVariation','routineVariation']);
+const dayFacts = new Set(['longWait','shortWait','waitGap']);
+const counts = new Set(['extra', 'unused', 'available', 'peak', 'riskSlots', 'routineUnused', 'extraGroupCount', 'unusedGroupCount', 'routineUnusedGroupCount']);
+const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear', 'peakChange', 'routineForecast']);
 function outputSchema(metrics, cards) {
   const prose = "[A-Za-z .,;:!?()'’‘“”–—-]*";
   const properties = Object.fromEntries(Object.entries(cards).map(([card, allowed]) => {
@@ -44,10 +62,12 @@ function sanitise(input, cards) {
   return Object.fromEntries(Object.values(cards).flat().map(key => {
     const n = input[key];
     if (n === null) return [key, null];
+    if (seasonalFacts.has(key) && [-1,0,1].includes(n)) return [key,n];
     if (!Number.isFinite(n) || Math.abs(n) > 1000000 ||
+        (seasonalFacts.has(key)) ||
         (counts.has(key) && (!Number.isInteger(n) || n < 10)) ||
         (!changes.has(key) && n < 0) ||
-        (changes.has(key) && !Number.isInteger(n)) ||
+        ((changes.has(key) || variationFacts.has(key)) && !Number.isInteger(n)) ||
         (!changes.has(key) && !counts.has(key) && Math.round(n * 10) / 10 !== n)) throw Error('Invalid aggregate.');
     return [key, n];
   }));
@@ -134,6 +154,76 @@ const bulletInstructions = [
   'Avoid technical or meta language such as “compares”, “represents”, “according to the latest snapshot” or references to a headline. Never invent a date, clinician group, cause or action.'
 ].join(' ');
 
+const findingInstructions = [
+  'Write the key insights for a GP practice dashboard in brief, conversational British English. Make each bullet specific and easy to read at a glance. Lead with the finding and use natural wording of your own.',
+  'Choose what is worth highlighting within each card. Use up to three bullets, fewer when there is little to add. Each bullet should add something: a comparison, an outlier, a gap, a point of concern, a trend, a seasonal change, a forecast or an indication of volatility. Related bullets are welcome when they add different information. Avoid filler and repeated comparisons.',
+  'Ground each bullet in the figures provided for its card. Use named placeholders in braces for numerical facts and report labels. Omit null facts. The app inserts the displayed numbers and labels. For a figure with an accompanying report label, include both placeholders in the same bullet. The input lists the label keys next to their figures. You can combine facts in one bullet. Avoid guessing causes or inventing figures.',
+  'For forecast and routineForecast, state the coming four-week window and compare with the recent weekly average for the same appointment type. Peak is the busiest forecast week; peakWeek gives its start date, and peakChange compares that week with the recent weekly average. Percentage changes are signed: positive becomes more, negative becomes fewer, zero becomes roughly unchanged.',
+  'AcuteYear and routineYear compare actual bookings with the same weeks last year. RoutineTrend compares the latest four weeks with the preceding four. If a seasonal range is supplied, it is for this time of year. Variation shows how much higher the busiest week was than the quietest among reportable, list-size-adjusted weeks in the last eight calendar weeks, excluding bank holidays. It measures spread, not growth.',
+  'Extra and unused counts cover the last four complete weeks. Group counts identify where the most occurred. The labelled waits are the longest and shortest median waits among reportable groups over the last twenty-eight days. WaitGap is the difference. Wait and priorWait are overall medians for appointments booked at least a day ahead, for the latest and preceding periods.',
+  'RiskSlots is the number of open diary slots for the group with the shortest reportable cover. RiskCover is estimated from the recent booking pace, assuming no more slots are released. Include that condition when describing cover.',
+  'Return the requested JSON. Use ordinary bullets as plain sentences inside the arrays, without adding bullet characters.'
+].join(' ');
+
+function findingInput(metrics) {
+  return Object.fromEntries(Object.entries(findingCards).map(([card,fields])=>{
+    const figures = Object.fromEntries(fields.filter(key=>metrics[key]!==null).map(key=>[key,metrics[key]]));
+    const reportLabels = Object.fromEntries(Object.keys(figures).filter(key=>findingLabels[key]).map(key=>[key,findingLabels[key]]));
+    return [card,{figures,reportLabels}];
+  }));
+}
+
+function findingSchema(metrics) {
+  const properties = Object.fromEntries(Object.keys(findingCards).map(card =>
+    [card,{type:'array',maxItems:findingCards[card].some(key=>metrics[key]!==null)?3:0,items:{type:'string'}}]));
+  return {type:'object',additionalProperties:false,required:Object.keys(findingCards),properties};
+}
+
+function formatFinding(key,value) {
+  if (seasonalFacts.has(key)) return ['below','within','above'][value+1]+' the usual range';
+  if (variationFacts.has(key)) return value===0?'about the same':value+'% higher';
+  if (dayFacts.has(key)) return value+(value===1?' day':' days');
+  if (key==='riskCover' && value<1) return 'less than a week';
+  return formatFact(key,value,true);
+}
+
+function renderFindings(output,metrics) {
+  const bullets = {};
+  const rejected = [];
+  let generated = 0;
+  let bytesRemaining = 3600;
+  const encoder = new TextEncoder();
+  for (const [card,fields] of Object.entries(findingCards)) {
+    const available = new Set(fields.filter(key=>metrics[key]!==null));
+    const labels = new Set([...available].map(key=>findingLabels[key]).filter(Boolean));
+    const accepted = [];
+    const seen = new Set();
+    for (const line of Array.isArray(output?.[card])?output[card].slice(0,3):[]) {
+      const text = typeof line==='string'?line.trim():'';
+      const refs = [...text.matchAll(/\{([A-Za-z]+)\}/g)].map(match=>match[1]);
+      const facts = refs.filter(key=>available.has(key));
+      const validProse = /^[A-Za-z .,;:!?()'’‘“”–—-]+$/.test(text.replace(/\{[A-Za-z]+\}/g,''));
+      const forecastClear = !facts.some(key=>key==='forecast'||key==='routineForecast')||(/\b(?:weeks?|month)\b/i.test(text)&&/\b(?:next|coming|ahead)\b/i.test(text)&&/\b(?:average|recent)\b/i.test(text));
+      const coverClear = !facts.includes('riskCover')||(/\b(?:pace|rate)\b/i.test(text)&&/\b(?:if|unless|without|assuming)\b/i.test(text));
+      if (!validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
+          !forecastClear || !coverClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
+          facts.some(key=>findingLabels[key]&&!refs.includes(findingLabels[key]))) {
+        rejected.push(card);
+        continue;
+      }
+      const display = text.replace(/\{([A-Za-z]+)\}/g,(match,key)=>available.has(key)?formatFinding(key,metrics[key]):match);
+      const size = encoder.encode(display).length;
+      if (size>155 || size>bytesRemaining) continue;
+      bytesRemaining-=size;
+      accepted.push(display);
+      facts.forEach(key=>seen.add(key));
+      generated++;
+    }
+    bullets[card]=accepted;
+  }
+  return {bullets,generated,rejected:[...new Set(rejected)]};
+}
+
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response(null, {headers:cors});
   if (request.method !== 'POST') return json(405, {error:'Method not allowed.'});
@@ -153,8 +243,8 @@ Deno.serve(async request => {
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      cards = body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
-      version = cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
+      cards = body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      version = cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
       metrics = sanitise(body.metrics, cards);
     } catch { return json(400, {error:'The insights request is invalid.'}); }
     if (Object.values(metrics).every(value => value === null)) return json(422, {error:'There are no reportable figures for AI insights yet.'});
@@ -176,9 +266,9 @@ Deno.serve(async request => {
       headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
-        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:cards === legacyCards ? 900 : 1100,
-        instructions:cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(metrics),
-        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:outputSchema(metrics, cards)}}
+        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:cards === findingCards ? 2000 : cards === legacyCards ? 900 : 1100,
+        instructions:cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(cards === findingCards ? findingInput(metrics) : metrics),
+        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:cards === findingCards ? findingSchema(metrics) : outputSchema(metrics, cards)}}
       })
     });
     if (!response.ok) {
@@ -205,10 +295,12 @@ Deno.serve(async request => {
     const output = answer.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text');
     if (!output?.text) { stage = 'openai_missing_text'; throw Error('No text response.'); }
     stage = 'openai_invalid_json';
-    const {bullets, generated, rejected} = renderBullets(JSON.parse(output.text), metrics, cards);
+    const parsed = JSON.parse(output.text);
+    const {bullets, generated, rejected} = cards === findingCards ? renderFindings(parsed,metrics) : renderBullets(parsed,metrics,cards);
     if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
     if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics, version])));
+    const evidence = cards === findingCards ? Object.entries(metrics).sort(([a],[b])=>a<b?-1:a>b?1:0) : metrics;
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, evidence, version])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
     stage = 'save';
     const saved = await fetch(url + '/rest/v1/iq_home_insights?practice_id=eq.'+body.practice+'&attempt_id=eq.'+attempt, {
