@@ -32,6 +32,18 @@ const detailedFindingCards = {
   waitingTimes: [...findingCards.waitingTimes,'middleWait'],
   forwardAvailability: [...findingCards.forwardAvailability,'riskCoverDays']
 };
+const contextualFindingCards = {
+  ...detailedFindingCards,
+  seasonalDemand: [...detailedFindingCards.seasonalDemand,'acuteTrend'],
+  extraCapacity: [...detailedFindingCards.extraCapacity,'extraYear','extraAverage','extraPrevious','extraShare'],
+  unusedCapacity: [...detailedFindingCards.unusedCapacity,'unusedYear','unusedAverage','unusedPrevious','unusedShare'],
+  routineUnused: [...detailedFindingCards.routineUnused,'routineUnusedYear','routineUnusedAverage','routineUnusedPrevious','routineUnusedShare']
+};
+const capacityChanges = new Set([
+  'extraYear','extraAverage','extraPrevious','unusedYear','unusedAverage','unusedPrevious',
+  'routineUnusedYear','routineUnusedAverage','routineUnusedPrevious'
+]);
+const shareFacts = new Set(['extraShare','unusedShare','routineUnusedShare']);
 const findingLabels = {
   extraGroupCount:'extraGroup', unusedGroupCount:'unusedGroup', peak:'peakWeek',
   longWait:'longestGroup', shortWait:'shortestGroup', riskSlots:'riskGroup',
@@ -41,7 +53,7 @@ const seasonalFacts = new Set(['acuteSeason','routineSeason']);
 const variationFacts = new Set(['acuteVariation','routineVariation']);
 const dayFacts = new Set(['longWait','shortWait','waitGap','middleWait','riskCoverDays']);
 const counts = new Set(['extra', 'unused', 'available', 'peak', 'riskSlots', 'routineUnused', 'extraGroupCount', 'unusedGroupCount', 'routineUnusedGroupCount']);
-const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear', 'peakChange', 'routineForecast']);
+const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear', 'peakChange', 'routineForecast', 'acuteTrend', ...capacityChanges]);
 function outputSchema(metrics, cards) {
   const prose = "[A-Za-z .,;:!?()'’‘“”–—-]*";
   const properties = Object.fromEntries(Object.entries(cards).map(([card, allowed]) => {
@@ -69,7 +81,7 @@ function sanitise(input, cards) {
     if (n === null) return [key, null];
     if (seasonalFacts.has(key) && [-1,0,1].includes(n)) return [key,n];
     if (!Number.isFinite(n) || Math.abs(n) > 1000000 ||
-        (seasonalFacts.has(key)) ||
+        seasonalFacts.has(key) || (shareFacts.has(key) && n>100) ||
         (counts.has(key) && (!Number.isInteger(n) || n < 10)) ||
         (!changes.has(key) && n < 0) ||
         ((changes.has(key) || variationFacts.has(key)) && !Number.isInteger(n)) ||
@@ -178,6 +190,12 @@ const detailedFindingInstructions = findingInstructions + ' ' + [
   'When riskCoverDays is supplied, state the estimate in days and keep it approximate. Include the named group, the recent booking pace, and the assumption that no further slots are released.'
 ].join(' ');
 
+const contextualFindingInstructions = detailedFindingInstructions + ' ' + [
+  'Pick a second bullet that best helps the team understand the first. Across all cards, choose among meaningful changes, benchmarks, the mix of appointments, or differences between groups. Vary your choices with the figures. Usually use one historical comparison per card.',
+  'AcuteTrend compares booked urgent appointments with the preceding four weeks, in the same way as RoutineTrend. The capacity fields ending in Year compare the recent four weeks with the same weeks last year. Average compares with the typical four-week period in the preceding year. Previous compares with the immediately preceding four weeks. Mention the comparison period explicitly.',
+  'ExtraShare is the percentage of booked urgent slots that were Extra slots. UnusedShare and RoutineUnusedShare are the percentage of slots with a booked or unused outcome that went unused in each care category. These shares use the last four complete weeks. Explain what the share is of.'
+].join(' ');
+
 function findingInput(metrics,cards=findingCards) {
   return Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
     const figures = Object.fromEntries(fields.filter(key=>metrics[key]!==null).map(key=>[key,metrics[key]]));
@@ -190,12 +208,13 @@ function findingSchema(metrics,cards=findingCards) {
   const properties = Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
     const available = fields.filter(key=>metrics[key]!==null).length;
     const items = {type:'array',maxItems:available?3:0,items:{type:'string'}};
-    return [card,cards===detailedFindingCards?{...items,minItems:Math.min(available,2)}:items];
+    return [card,cards!==findingCards?{...items,minItems:Math.min(available,2)}:items];
   }));
   return {type:'object',additionalProperties:false,required:Object.keys(cards),properties};
 }
 
 function formatFinding(key,value) {
+  if (shareFacts.has(key)) return value+'%';
   if (seasonalFacts.has(key)) return ['below','within','above'][value+1]+' the usual range';
   if (variationFacts.has(key)) return value===0?'about the same':value+'% higher';
   if (dayFacts.has(key)) return value+(value===1?' day':' days');
@@ -221,7 +240,7 @@ function renderFindings(output,metrics,cards=findingCards) {
       const validProse = /^[A-Za-z .,;:!?()'’‘“”–—-]+$/.test(text.replace(/\{[A-Za-z]+\}/g,''));
       const forecastClear = !facts.some(key=>key==='forecast'||key==='routineForecast')||(/\b(?:weeks?|month)\b/i.test(text)&&/\b(?:next|coming|ahead)\b/i.test(text)&&/\b(?:average|recent)\b/i.test(text));
       const coverClear = !facts.some(key=>key==='riskCover'||key==='riskCoverDays')||(/\b(?:pace|rate)\b/i.test(text)&&/\b(?:if|unless|without|assuming)\b/i.test(text));
-      const peakClear = cards!==detailedFindingCards || !facts.includes('peak') || /\b(?:nine weeks|two months|couple of months)\b/i.test(text);
+      const peakClear = cards===findingCards || !facts.includes('peak') || /\b(?:nine weeks|two months|couple of months)\b/i.test(text);
       if (!validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
           !forecastClear || !coverClear || !peakClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
           facts.some(key=>findingLabels[key]&&!refs.includes(findingLabels[key]))) {
@@ -238,7 +257,7 @@ function renderFindings(output,metrics,cards=findingCards) {
     }
     const required = card==='waitingTimes'?['longWait','shortWait','middleWait']:
       card==='forwardAvailability'?['riskCoverDays']:card==='forecastPeak'?['peak']:[];
-    const complete = cards!==detailedFindingCards || (accepted.length>=Math.min(available.size,2) &&
+    const complete = cards===findingCards || (accepted.length>=Math.min(available.size,2) &&
       required.every(key=>!available.has(key)||seen.has(key)));
     bullets[card]=complete?accepted:[];
     if(!complete)generated-=accepted.length;
@@ -265,9 +284,9 @@ Deno.serve(async request => {
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      cards = body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
-      isFindings = cards === findingCards || cards === detailedFindingCards;
-      version = cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
+      cards = body.version === 'home-insights-v7' ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      isFindings = cards === findingCards || cards === detailedFindingCards || cards === contextualFindingCards;
+      version = cards === contextualFindingCards ? 'home-insights-v7' : cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
       metrics = sanitise(body.metrics, cards);
     } catch { return json(400, {error:'The insights request is invalid.'}); }
     if (Object.values(metrics).every(value => value === null)) return json(422, {error:'There are no reportable figures for AI insights yet.'});
@@ -290,7 +309,7 @@ Deno.serve(async request => {
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
         model:'gpt-6-luna', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
-        instructions:cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
+        instructions:cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
         text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards) : outputSchema(metrics, cards)}}
       })
     });
