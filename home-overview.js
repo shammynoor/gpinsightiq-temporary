@@ -3,7 +3,8 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const historyWeeks=26;
+const historyPreference='homeOverview:historyYears';
+const validHistoryYears=value=>[1,2,3].includes(Number(value))?Number(value):1;
 const insightVersion='home-insights-v3';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
@@ -95,16 +96,18 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
  root.replaceChildren();
  if(!history.some(Number.isFinite)&&!forecast.some(item=>Number.isFinite(item?.estimate))){
   const empty=document.createElement('p');empty.className='iq-home-chart-empty';
-  empty.textContent='No recent booked appointment data for this category.';
+  empty.textContent='No booked appointment data for this chart range.';
   root.append(empty);return;
  }
  const legend=document.createElement('div');legend.className='iq-home-legend';
  legend.textContent='● Booked appointments   ··· Forecast with indicative range';
  root.append(legend);
- const svg=svgElement('svg',{viewBox:'0 0 728 180',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+historyWeeks+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'});
+ const svg=svgElement('svg',{viewBox:'0 0 728 191',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'});
  const left=58,right=706,bottom=136,top=14;
- const firstForecast=history.length+1; // Leave space for the current, incomplete week.
- const xpos=i=>left+i*(right-left)/(firstForecast+forecast.length-1);
+ // Use calendar spacing even when the latest uploaded booking week is older.
+ const firstForecast=Math.round((isoDay(forecast[0].weekStart)-isoDay(historyStart))/604800000);
+ const spacing=(right-left)/(firstForecast+forecast.length-1);
+ const xpos=i=>left+i*spacing;
  const ypos=v=>bottom-Math.min(1,Math.max(0,v/axis.top))*(bottom-top);
  const axisNumber=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  for(let tick=0;tick<=4;tick++){
@@ -112,7 +115,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   svg.append(svgElement('line',{x1:left,y1:y,x2:right,y2:y,stroke:'#d9e5ef','stroke-width':tick===0?1.5:1}));
   svg.append(svgElement('text',{x:left-8,y:y+4,'text-anchor':'end',fill:'#2f526e','font-size':12,'font-family':'Arial, sans-serif'},axisNumber.format(value)));
  }
- const divider=xpos(history.length);
+ const divider=xpos(firstForecast-.5);
  svg.append(svgElement('line',{x1:divider,y1:top,x2:divider,y2:bottom,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
  let current=[];
  const addPath=()=>{
@@ -127,22 +130,43 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   forecastLine=[];
  };
  forecast.forEach((item,i)=>{if(Number.isFinite(item?.estimate))forecastLine.push([xpos(firstForecast+i),ypos(item.estimate)]);else addForecastPath();});addForecastPath();
- const dateLabel=(x,date)=>svg.append(svgElement('text',{x,y:163,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},fmtDate(date)));
- history.forEach((value,i)=>{
-  const date=shift(historyStart,i*7),x=xpos(i);
-  if(i%4===0)dateLabel(x,date);
-  if(value===null)return;
-  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:3.3,fill:colour,stroke:'#fff','stroke-width':1.4});
-  dot.append(svgElement('title',{},fmtDate(date)+': '+integer(value)+' booked appointments'));svg.append(dot);
- });
+ const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
+ const label=(x,y,text)=>svg.append(svgElement('text',{x,y,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},text));
+ const monthStride=history.length>104?6:history.length>52?3:2;
+ const years=new Map();
+ let lastMonth='',lastLabelX=-Infinity;
+ for(let i=0;i<firstForecast+forecast.length;i++){
+  const date=shift(historyStart,i*7),x=xpos(i),month=date.slice(0,7),year=date.slice(0,4);
+  if(!years.has(year))years.set(year,[x,x]);
+  years.get(year)[1]=x;
+  if(month!==lastMonth){
+   const monthIndex=Number(date.slice(5,7))-1;
+   if((i===0||monthIndex%monthStride===0)&&x-lastLabelX>=36){
+    label(x,157,monthLabel.format(isoDay(date)));
+    lastLabelX=x;
+   }
+   lastMonth=month;
+  }
+  const value=history[i];
+  if(!Number.isFinite(value))continue;
+  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:history.length>52?1.7:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
+  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+' booked appointments'));
+  svg.append(dot);
+ }
+ for(const [year,[from,to]] of years){
+  const a=Math.max(left,from-spacing/2),b=Math.min(right,to+spacing/2);
+  if(b-a<27)continue;
+  svg.append(svgElement('line',{x1:a+2,y1:166,x2:b-2,y2:166,stroke:'#bacbd9','stroke-width':1}));
+  label((a+b)/2,182,year);
+ }
  forecast.forEach((row,i)=>{
   if(!row)return;
   const x=xpos(firstForecast+i);
-  if(i===0||i===forecast.length-1)dateLabel(x,row.weekStart);
   if(!Number.isFinite(row.estimate))return;
   if(Number.isFinite(row.low)&&Number.isFinite(row.high)){
-   const bar=svgElement('path',{d:'M'+x+' '+ypos(row.low)+'V'+ypos(row.high)+' M'+(x-5)+' '+ypos(row.low)+'H'+(x+5)+' M'+(x-5)+' '+ypos(row.high)+'H'+(x+5),stroke:colour,'stroke-width':2,fill:'none'});
-   bar.append(svgElement('title',{},fmtDate(row.weekStart)+': '+integer(row.estimate)+' predicted (indicative range '+integer(row.low)+'–'+integer(row.high)+')'));
+   const cap=Math.min(5,spacing*.39);
+   const bar=svgElement('path',{d:'M'+x+' '+ypos(row.low)+'V'+ypos(row.high)+' M'+(x-cap)+' '+ypos(row.low)+'H'+(x+cap)+' M'+(x-cap)+' '+ypos(row.high)+'H'+(x+cap),stroke:colour,'stroke-width':Math.min(2,spacing*.4),fill:'none'});
+   bar.append(svgElement('title',{},fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted (indicative range '+integer(row.low)+'–'+integer(row.high)+')'));
    svg.append(bar);
   }
  });
@@ -159,8 +183,7 @@ const insightCards={
  routineUnused:['routine',3,'Unused capacity']
 };
 let aiState=null;
-function renderSavedInsights(state){
- const row=state.saved;
+function renderSavedInsights(state,row=state.saved){
  if(!row||row.snapshot!==state.snapshot||!Object.keys(insightCards).every(key=>row.bullets?.[key]===null||typeof row.bullets?.[key]==='string'))return false;
  for(const [key,args] of Object.entries(insightCards)){
   if(key!=='waitingTimes'&&row.bullets[key]!==null)setInsight(...args,row.bullets[key]);
@@ -184,29 +207,37 @@ function showAiInsights(home,period,metrics){
  aiState=state;
  button.disabled=true;
  status.textContent='';
- const apply=()=>{
-  if(aiState!==state||home.classList.contains('hidden'))return;
-  if(!renderSavedInsights(state)){status.textContent='';return;}
-  status.textContent='AI-generated and standard insights';
+ const timeLabel=row=>{
+  const time=new Date(row?.generated_at);
+  return row?.generated_at&&Number.isFinite(time.valueOf())
+   ? ' · '+new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'medium',timeZone:'Europe/London'}).format(time)
+   : '';
  };
+ const visibleCopy=()=>Array.from(home.querySelectorAll('.iq-home-insight-copy small'),node=>node.textContent).join('\n');
  void (async()=>{
   try{
    const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature));
    state.snapshot=[...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('');
    state.saved=await bridge.readHomeInsights();
-   apply();
+   if(aiState===state&&renderSavedInsights(state)){
+    status.textContent='AI insights last generated'+timeLabel(state.saved);
+   }
   }catch{
    if(aiState===state&&bridge.manage)status.textContent='Saved AI insights could not be loaded.';
   }finally{
-   if(aiState===state)button.disabled=false;
+   if(aiState===state)button.disabled=!state.snapshot;
   }
  })();
  button.onclick=async()=>{
   if(aiState!==state||state.busy||!state.snapshot)return;
   state.busy=true;button.disabled=true;status.textContent='Generating insights…';
   try{
-   state.saved=await bridge.regenerateHomeInsights(period,metrics);
-   apply();
+   const row=await bridge.regenerateHomeInsights(period,metrics);
+   if(aiState!==state)return;
+   const before=visibleCopy();
+   if(!renderSavedInsights(state,row))throw Error('The response did not match the current dashboard figures. Try regenerating again.');
+   state.saved=row;
+   status.textContent=(visibleCopy()===before?'AI insights regenerated. The wording is unchanged.':'AI insights updated.')+timeLabel(row);
   }catch(error){
    if(aiState===state)status.textContent=error.message||'AI insights could not be generated.';
   }finally{
@@ -414,7 +445,17 @@ function update(){
   let latestCompleteWeek=shift(presentMonday,-7);
   const fullWeeks=new Set(all.filter(r=>r.bookedDay<date&&r.bookedWeek<presentMonday).map(r=>r.bookedWeek));
   while(latestCompleteWeek>earliestBooked&&!fullWeeks.has(latestCompleteWeek))latestCompleteWeek=shift(latestCompleteWeek,-7);
-  const historyStart=shift(latestCompleteWeek,(1-historyWeeks)*7);
+  const selector=$('iqHomeHistoryYears');
+  const saved=typeof readChartPreferences==='function'?readChartPreferences()[historyPreference]:selector?.value;
+  const years=validHistoryYears(saved);
+  if(selector)selector.value=String(years);
+  // Include only complete weeks inside the selected calendar-year window.
+  const boundary=isoDay(shift(latestCompleteWeek,7));
+  boundary.setUTCFullYear(boundary.getUTCFullYear()-years);
+  const boundaryDay=boundary.toISOString().slice(0,10);
+  const firstMonday=monday(boundaryDay);
+  const historyStart=firstMonday===boundaryDay?firstMonday:shift(firstMonday,7);
+  const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
   const nextWeek=shift(presentMonday,7);
   const slots=all.filter(allowed);
   const groupNames={acute:[],routine:[]};
@@ -443,11 +484,10 @@ function update(){
   for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date},metrics);
   showAiInsights(home,date,metrics);
   if(caveat){
-   const totalRecords=slots.length;
    const earliest=slots.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,'');
    const current=slots.reduce((max,r)=>r.bookedDay&&r.bookedDay<date&&r.bookedDay>max?r.bookedDay:max,'');
    caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtLong(earliest)+' to '+fmtLong(current)+'). ':'')+
-    'Charts share a scale and show the latest 26 complete weeks and next four forecast weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
+    'Charts share a scale and show '+(years===1?'one year':years+' years')+' of weekly history and the next four forecast weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
   }
  }catch(error){
   showAiInsights(home,'',{});
@@ -456,5 +496,9 @@ function update(){
   for(const care of ['acute','routine']){setOutlook(care,'—','Unavailable');renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');}
  }finally{rendering=false}
 }
+$('iqHomeHistoryYears')?.addEventListener('change',event=>{
+ if(typeof writeChartPreference==='function')writeChartPreference(historyPreference,validHistoryYears(event.target.value));
+ update();
+});
 window.updateHomeOverview=update;
 })();

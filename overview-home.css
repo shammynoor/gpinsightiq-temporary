@@ -23,7 +23,6 @@
 #dashboardShell .dashboard-nav .nav-module-tile .module-name{font-size:14px!important;font-weight:750!important;line-height:21px!important;min-height:21px!important}
 #dashboardShell .dashboard-nav .nav-module-tile .module-iq{font-size:9px!important;top:-5px!important;color:#08a8c9!important}
 #dashboardShell .dashboard-nav .nav-module-chevron{width:12px!important;height:12px!important;flex-basis:12px!important}
-#dashboardShell .dashboard-nav .nav-compass-placeholder{opacity:.4!important}
 #dashboardShell .dashboard-nav .nav-settings-spacer{flex:1 0 0!important;min-width:6px!important}
 #dashboardShell .dashboard-header .iq-header-practice{color:#183654!important;background:#f5f9fd;border:1px solid #e2edf5;border-radius:10px;padding:7px 10px!important;min-width:135px;max-width:150px}
 #dashboardShell .dashboard-header .iq-header-practice-caption{font-size:10px;color:#668197!important}
@@ -31,14 +30,28 @@
 #dashboardShell .dashboard-header #refreshData,#dashboardShell .dashboard-header .header-account-menu summary{color:#335978!important}
 #dashboardShell .dashboard-nav .nav-settings-cog{color:#1d3d5e;background:#eaf4fd;border:1px solid #d7e7f6!important}
 #dashboardShell .dashboard-nav .nav-settings-cog:hover,#dashboardShell .dashboard-nav .nav-settings-menu.open>.nav-settings-cog{color:#134c84;background:#dbeeff}
-@media(min-width:1550px){
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center}
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.topbar{display:contents!important}
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .gp-compass-brand{grid-column:1;grid-row:1;margin:0 10px 0 14px}
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.dashboard-nav{grid-column:2;grid-row:1;min-width:0;justify-content:center!important;padding:10px 4px!important}
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .iq-header-practice{grid-column:3;grid-row:1}
- #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header .top-actions{grid-column:4;grid-row:1;margin:0 14px 0 0}
+@media(min-width:1101px){
+ #dashboardShell .dashboard-header{display:grid!important;grid-template-columns:auto minmax(min-content,1fr) auto minmax(0,max-content);align-items:center;column-gap:8px;padding:7px 10px}
+ #dashboardShell .dashboard-header>.topbar{display:contents!important}
+ #dashboardShell .dashboard-header .gp-compass-brand{grid-column:1;grid-row:1;margin:0}
+ #dashboardShell .dashboard-header .gp-compass-name{font-size:21px!important;white-space:nowrap}
+ #dashboardShell .dashboard-header>.dashboard-nav{grid-column:2;grid-row:1;justify-content:center!important;flex-wrap:nowrap!important;gap:3px!important;padding:0!important;min-width:0;border:0}
+ #dashboardShell .dashboard-header .dashboard-nav>div{flex:0 0 auto}
+ #dashboardShell .dashboard-header .dashboard-nav .nav-module-tile{padding:5px 7px!important;gap:5px!important}
+ #dashboardShell .dashboard-header .dashboard-nav .nav-settings-spacer{display:none}
+ #dashboardShell .dashboard-header .iq-header-practice{grid-column:3;grid-row:1;min-width:0;width:112px;padding:5px 7px!important}
+ #dashboardShell .dashboard-header .top-actions{grid-column:4;grid-row:1;margin:0;gap:5px}
+ #dashboardShell .dashboard-header .header-download-status{max-width:105px}
+ #dashboardShell .dashboard-header .header-report-time{white-space:normal}
+ #dashboardShell .dashboard-header .header-user{max-width:155px}
  #dashboardShell:has(#homePage:not(.hidden)) .header-download-status{display:none}
+}
+@media(min-width:1101px) and (max-width:1260px){
+ #dashboardShell .dashboard-header{column-gap:5px}
+ #dashboardShell .dashboard-header .dashboard-nav .nav-module-tile{padding-inline:4px!important}
+ #dashboardShell .dashboard-header .dashboard-nav .nav-module-tile .module-name{font-size:12px!important}
+ #dashboardShell .dashboard-header .header-user{max-width:110px}
+ #dashboardShell .dashboard-header .iq-header-practice{width:92px}
 }
 .iq-overview .iq-home-hero{display:grid;grid-template-columns:185px minmax(0,1fr) auto;align-items:center;gap:20px;margin:2px 0 14px}
 .iq-overview .iq-home-illustration{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}
@@ -52,6 +65,9 @@
 .iq-overview .iq-home-updated details{font-size:11px;color:#688096;margin-top:6px}
 .iq-overview .iq-home-updated summary{cursor:pointer}
 .iq-overview .iq-home-updated details p{font-size:11px;line-height:1.45;margin:5px 0;color:#687d91}
+.iq-overview .iq-home-history{display:flex;align-items:center;justify-content:flex-end;gap:9px;margin:0 0 9px;color:#335675;font-size:13px;font-weight:650}
+.iq-overview .iq-home-history select{width:auto;min-width:92px;padding:6px 9px;border:1px solid #cfdfed;border-radius:9px;background:#fff;color:#193d5f;font:inherit}
+.iq-overview .iq-home-history select:focus-visible{outline:2px solid #2077ac;outline-offset:2px}
 .iq-overview .iq-home-panes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
 .iq-overview .iq-home-lane{display:flex;flex-direction:column;gap:15px;min-width:0}
 .iq-overview .iq-home-card{border-radius:22px;border:1px solid #e6eaf0;box-shadow:0 6px 19px #31587c10;overflow:hidden}
