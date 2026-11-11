@@ -4139,16 +4139,27 @@ $('dayView2Today')?.addEventListener('click',()=>{chooseDayView2Date(dayView2Wor
 $('dayView2Previous')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),-1));});
 $('dayView2Next')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),1));});
 
-function showPage(which){
+const workspacePages=[['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
+function showPage(which,{historyMode='push'}={}){
  if(which==='dayView2')which='dayView';
- if(!isOwner&&['categories','people','practiceSettings'].includes(which))return;
+ const forecastMode=which==='dailyForecast'?'daily':which==='weeklyForecast'?'weekly':null;
+ const known=forecastMode||workspacePages.some(([, , name])=>name===which);
+ if(!known||(!isOwner&&['categories','people','practiceSettings'].includes(which))){
+  if(historyMode!=='push')showPage('home',{historyMode});
+  return;
+ }
+ if(historyMode!=='restore')iqBridge?.recordWorkspacePage(which,historyMode==='replace');
  writeChartPreference('workspacePage',which);
+ if(forecastMode){
+  window.openWorkspaceForecast?.(forecastMode);
+  return;
+ }
  updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
  closeDayView2Calendar();
  closeDashboardMenus();hideDayView2Tooltip();
  for(const id of ['dailyForecastPage','weeklyForecastPage'])$(id)?.classList.add('hidden');
  for(const id of ['navDailyForecast','navWeeklyForecast'])$(id)?.classList.remove('active');
- for(const [page,nav,name] of [['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']]){
+ for(const [page,nav,name] of workspacePages){
   $(page).classList.toggle('hidden',which!==name);$(nav).classList.toggle('active',which===name);
  }
  if(which==='workforceNeed')window.renderWeeklyPlanning?.();
@@ -5476,8 +5487,9 @@ async function iqStart(){
   applyAccessMode();setButtons();iqCreateUploadPanel();
   await loadCloudCategories({strict:true});await loadFolder(true);
   restoreChartCheckboxes();
-  // Open the overview first after sign-in; retain per-page chart preferences.
-  showPage('home');
+  // Seed the current browser entry without adding a stop before the overview.
+  window.restoreDashboardPage=page=>showPage(page,{historyMode:'restore'});
+  showPage(iqBridge.workspacePage()||'home',{historyMode:'replace'});
   startDashboardIdleSession();
   $('signIn').onclick=()=>{};$('chooseFolder').onclick=()=>{};$('sourceSetup').onclick=()=>{};
   $('refreshData').onclick=()=>void refreshDashboardData(true);

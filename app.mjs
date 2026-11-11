@@ -5,6 +5,11 @@ import {packContribution,unpackContribution,sourceKey} from './analytics-codec.m
 const $=id=>document.getElementById(id);
 let backend=null,user=null,context=null,practice=null,report=null,members=[],view='analytics',loadVersion=0,busy=false,recovery=false;
 let analyticsFrame=null,analyticsFrameKey=null;
+window.addEventListener('popstate',event=>{
+ if(!analyticsFrame||view!=='analytics'||!user||recovery||!currentApproved())return;
+ const entry=event.state?.gpInsightWorkspace;
+ analyticsFrame.contentWindow?.restoreDashboardPage?.(entry?.key===analyticsFrameKey?entry.page:'home');
+});
 const approvalEmailRetries=new Set();
 let invitation=new URL(location.href).searchParams.get('invite');
 const ownerSetup=new URL(location.href).searchParams.get('setup')==='1';
@@ -74,11 +79,25 @@ function render(){
 function renderAnalytics(){
  if(analyticsFrame)return;
  const selected=practice.id,identity=user.id,role=practice.role,targetBackend=backend;
+ const workspaceKey=identity+':'+selected+':'+role;
  const check=()=>{if(backend!==targetBackend||user?.id!==identity||practice?.id!==selected||practice.role!==role||!currentApproved())throw Error('Practice access changed. Reopen the dashboard.');};
  const ensure=async()=>{check();const next=await targetBackend.context();check();const allowed=next.practices.find(p=>p.id===selected&&p.active&&p.status==='approved');if(!allowed||allowed.role!==role){context=next;practice=allowed||null;render();throw Error('Practice access changed.');}};
  const checked=async(action,manage=false)=>{await ensure();if(manage&&!canManage(practice))throw Error('Practice administrator required.');const value=await action();check();return value;};
  window.DarwinAnalytics={practice:{...practice},user:{id:user.id,email:user.email,name:user.user_metadata?.full_name||user.user_metadata?.name||''},manage:canManage(practice),platformAdmin:!!context?.platform_admin,ensure,
   viewerWorkspace:!context?.platform_admin,
+  workspacePage:()=>{
+   check();
+   const entry=history.state?.gpInsightWorkspace;
+   return entry?.key===workspaceKey?entry.page:null;
+  },
+  recordWorkspacePage:(page,replace=false)=>{
+   check();
+   const entry=history.state?.gpInsightWorkspace;
+   if(entry?.key===workspaceKey&&entry.page===page)return;
+   const state={...history.state,gpInsightWorkspace:{key:workspaceKey,page}};
+   if(replace)history.replaceState(state,'');
+   else history.pushState(state,'');
+  },
   practices:(context?.practices||[]).filter(p=>p.active&&p.status==='approved').map(p=>({id:p.id,name:p.name})),
   selectPractice:id=>{check();if(!(context?.practices||[]).some(p=>p.id===id&&p.active&&p.status==='approved'))throw Error('Practice access required.');return run(()=>reload(id));},
   list:()=>checked(()=>targetBackend.analyticsSources(selected)),
@@ -97,7 +116,7 @@ function renderAnalytics(){
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=identity+':'+selected+':'+role;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=home-forecast-polish-v1';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=dashboard-browser-history-v1';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');
