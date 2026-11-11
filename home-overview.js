@@ -217,9 +217,9 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   averagePill.style.left=(chartBounds.left-plotBounds.left-root.clientLeft+left+10)+'px';
   averagePill.style.top=(chartBounds.top-plotBounds.top-root.clientTop+y)+'px';
  }
- const drawTrend=(points,{projection=false,smooth=projection}={})=>{
+ const drawTrend=(points,{projection=false}={})=>{
   if(points.length<2)return;
-  const path=smooth?smoothForecastPath(points):points.map(([x,y],i)=>{
+  const path=projection?smoothForecastPath(points):points.map(([x,y],i)=>{
    if(i===0)return 'M'+x+' '+y;
    const [previousX,previousY]=points[i-1],gap=x-previousX;
    if(gap<=spacing*1.5)return 'L'+x+' '+y;
@@ -231,10 +231,9 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   svg.append(svgElement('path',attrs));
  };
  const historyPoints=history.flatMap((value,i)=>Number.isFinite(value)?[[xpos(i),ypos(value)]]:[]);
- drawTrend(historyPoints);
  const current=Number.isFinite(forecast[0]?.estimate)?[xpos(firstForecast),ypos(forecast[0].estimate)]:null;
  const lastActual=historyPoints.slice(-1);
- if(current)drawTrend(lastActual.concat([current]),{smooth:true});
+ drawTrend(current?historyPoints.concat([current]):historyPoints);
  const future=forecast.slice(1).flatMap((row,i)=>Number.isFinite(row?.estimate)?[[xpos(firstForecast+i+1),ypos(row.estimate)]]:[]);
  if(future.length)drawTrend((current?[current]:lastActual).concat(future),{projection:true});
  const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
@@ -253,10 +252,12 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
    }
    lastMonth=month;
   }
-  const value=history[i];
+  const isCurrent=i===firstForecast;
+  const value=isCurrent?forecast[0]?.estimate:history[i];
   if(!Number.isFinite(value))continue;
-  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:i===anchorIndex?3.5:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
-  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+ (i===anchorIndex?' list-size-adjusted actual bookings':' adjusted and smoothed bookings')));
+  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
+  const description=isCurrent?' predicted bookings':i===anchorIndex?' list-size-adjusted actual bookings':' adjusted and smoothed bookings';
+  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+description));
   svg.append(dot);
  }
  for(const [year,[from,to]] of years){
