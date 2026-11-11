@@ -78,13 +78,8 @@
 .iq-overview .iq-home-outlook strong{font-size:20px;font-weight:800;line-height:1.1;display:block;color:#e22e58}
 .iq-overview .iq-home-routine .iq-home-outlook strong{color:#05956c}
 .iq-overview .iq-home-outlook small{display:block;font-size:10px;line-height:1.25;color:#234563;font-weight:650}
-.iq-overview .iq-home-plot{margin:0 7px 7px;padding:5px 5px 4px;background:#fff;border:1px solid #f5eef1;border-radius:17px}
-.iq-overview .iq-home-legend{text-align:center;color:#405b75;font-size:12px;display:flex;flex-wrap:wrap;gap:2px 13px;justify-content:center;align-items:center}
-.iq-overview .iq-home-legend span{display:flex;align-items:center;gap:6px}
-.iq-overview .iq-home-dot{display:inline-block;border-radius:50%;width:8px;height:8px;background:var(--care-accent)}
-.iq-overview .iq-home-legend-line{width:16px;border-top:2px dotted var(--care-accent)}
-.iq-overview .iq-home-legend-line.is-average{border-color:#496278}
-.iq-overview .iq-home-legend-band{display:inline-block;width:16px;height:8px;border-radius:2px;background:color-mix(in srgb,var(--care-accent) 25%,white)}
+.iq-overview .iq-home-plot{position:relative;margin:0 7px 7px;padding:5px 5px 4px;background:#fff;border:1px solid #f5eef1;border-radius:17px}
+.iq-overview .iq-home-plot .demand-average-pill{transform:translateY(-50%);pointer-events:none;z-index:1}
 .iq-overview .iq-home-chart-svg{width:100%;height:var(--overview-chart-height,180px);display:block;margin-top:1px;overflow:visible}
 .iq-overview .iq-home-acute{--care-accent:#f03265;--care-pale:#ffe2ec}
 .iq-overview .iq-home-routine{--care-accent:#0b9c7f;--care-pale:#dcf8ed}
@@ -119,7 +114,6 @@
 
 /* Real-data loading and diagnostic states for the homepage plots. */
 #homePage .iq-home-chart-empty{display:flex;align-items:center;justify-content:center;box-sizing:border-box;height:var(--overview-chart-height,180px);font-size:13px;color:#58718a;text-align:center;padding:16px;margin:0;line-height:1.5}
-#homePage .iq-home-legend{font-size:11px;letter-spacing:.1px;white-space:normal;color:#4a657c}
 #homePage .iq-home-insight-copy small{font-weight:400}
 
 @media(max-width:470px){.iq-overview .iq-home-insights{grid-template-columns:minmax(0,1fr)}}
