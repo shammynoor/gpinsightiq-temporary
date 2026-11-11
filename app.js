@@ -2806,17 +2806,7 @@ function drawCombinedDemandChart(){
  renderDemandClassificationToggles('demandCapacityToggles',capacityCategoryNames,capacityAssignments,disabledDemandCapacities,capacityColours);
  setupDemandMonthSlider();
  hideEmptyHistoricBookingFilters();
- // Compute the population normalisation once per redraw, not for every chart point.
- const populationMonths=adjustDemandForListSize?practiceMonths():[];
- const populationValues=populationMonths.length?practiceListValues(populationMonths):[];
- const populationByMonth=new Map(populationMonths.map((month,i)=>[month,populationValues[i]]));
- const referencePopulation=populationValues.length?populationValues[populationValues.length-1]:10000;
- const adjustedCount=(date,count)=>{
-  if(!adjustDemandForListSize||!populationMonths.length)return count;
-  const month=date.slice(0,7);
-  const historical=populationByMonth.get(month)??(month<populationMonths[0]?populationValues[0]:populationValues[populationValues.length-1]);
-  return historical>0?count*referencePopulation/historical:count;
- };
+ const adjustedCount=createListSizeAdjuster(adjustDemandForListSize);
  const selected=groupUrgencyNames.filter(name=>isDashboardToggleOption(name)&&!disabledDemandUrgencyGroups.has(name));
  const additiveTitle=$('demandAdditiveTitle');if(additiveTitle){additiveTitle.textContent=additiveLines?'Combined: '+selected.join(' + '):'';additiveTitle.hidden=!additiveLines||!selected.length;}
  const visibleWeeks=selectedWeeks.filter(w=>(!demandMonthStart||w.slice(0,7)>=demandMonthStart)&&(!demandMonthEnd||w.slice(0,7)<=demandMonthEnd));
@@ -3077,6 +3067,19 @@ function practiceListValues(months){
   const t=(i-a.i)/(b.i-a.i),smooth=t*t*(3-2*t);
   return Math.round(a.value+(b.value-a.value)*smooth);
  });
+}
+
+function createListSizeAdjuster(enabled){
+ const months=enabled?practiceMonths():[];
+ if(!months.length)return (_date,count)=>count;
+ const values=practiceListValues(months);
+ const byMonth=new Map(months.map((month,i)=>[month,values[i]]));
+ const reference=values.at(-1);
+ return (date,count)=>{
+  const month=date.slice(0,7);
+  const historical=byMonth.get(month)??(month<months[0]?values[0]:reference);
+  return historical>0?count*reference/historical:count;
+ };
 }
 
 let adjustDemandForListSize=false;

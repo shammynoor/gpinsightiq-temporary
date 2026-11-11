@@ -3,8 +3,6 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const historyPreference='homeOverview:historyYears';
-const validHistoryYears=value=>[1,2,3].includes(Number(value))?Number(value):1;
 const insightVersion='home-insights-v3';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
@@ -100,7 +98,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   root.append(empty);return;
  }
  const legend=document.createElement('div');legend.className='iq-home-legend';
- legend.textContent='● Booked appointments   ··· Forecast with indicative range';
+ legend.textContent='● Bookings (list size adjusted, low smoothing)   ··· Forecast with indicative range';
  root.append(legend);
  const svg=svgElement('svg',{viewBox:'0 0 728 191',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'});
  const left=58,right=706,bottom=136,top=14;
@@ -132,7 +130,6 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
  forecast.forEach((item,i)=>{if(Number.isFinite(item?.estimate))forecastLine.push([xpos(firstForecast+i),ypos(item.estimate)]);else addForecastPath();});addForecastPath();
  const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
  const label=(x,y,text)=>svg.append(svgElement('text',{x,y,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},text));
- const monthStride=history.length>104?6:history.length>52?3:2;
  const years=new Map();
  let lastMonth='',lastLabelX=-Infinity;
  for(let i=0;i<firstForecast+forecast.length;i++){
@@ -141,7 +138,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   years.get(year)[1]=x;
   if(month!==lastMonth){
    const monthIndex=Number(date.slice(5,7))-1;
-   if((i===0||monthIndex%monthStride===0)&&x-lastLabelX>=36){
+   if((i===0||monthIndex%2===0)&&x-lastLabelX>=36){
     label(x,157,monthLabel.format(isoDay(date)));
     lastLabelX=x;
    }
@@ -149,8 +146,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   }
   const value=history[i];
   if(!Number.isFinite(value))continue;
-  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:history.length>52?1.7:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
-  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+' booked appointments'));
+  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
+  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+ ' adjusted and smoothed bookings'));
   svg.append(dot);
  }
  for(const [year,[from,to]] of years){
@@ -263,14 +260,15 @@ function routineSegment(row){
  return hasGroup(group)&&mode?JSON.stringify([group,mode]):'';
 }
 function renderCare(section,options,metrics){
- const {history,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart}=options;
- const currentFour=history.slice(-4);
- const completeCurrent=currentFour.filter(v=>v!==null);
- const recentMean=completeCurrent.length===4?completeCurrent.reduce((a,b)=>a+b,0)/4:null;
- const predicted=forecast.filter(x=>x&&Number.isFinite(x.estimate));
- const meanForecast=predicted.length===4?predicted.reduce((a,b)=>a+b.estimate,0)/4:null;
+ const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks}=options;
+ const currentFour=adjustedHistory.slice(-4).filter((_,i)=>!holidayWeeks.has(shift(latestCompleteWeek,(i-3)*7)));
+ const recentMean=currentFour.length>=2&&currentFour.every(Number.isFinite)?currentFour.reduce((a,b)=>a+b,0)/currentFour.length:null;
+ const regularForecast=forecast.filter(row=>!holidayWeeks.has(row.weekStart));
+ const predicted=regularForecast.filter(row=>Number.isFinite(row.estimate));
+ const completeForecast=predicted.length>0&&predicted.length===regularForecast.length;
+ const meanForecast=completeForecast?predicted.reduce((a,b)=>a+b.estimate,0)/predicted.length:null;
  const change=recentMean!==null&&meanForecast!==null?signedTrend(meanForecast,recentMean):null;
- setOutlook(section,change!==null?percent(change):'—',change===null?'Comparison unavailable':'Next 4 weeks vs last 4 complete weeks');
+ setOutlook(section,change!==null?percent(change):'—',change===null?'Comparison unavailable':'Next 4 weeks vs last 4 complete weeks, excluding bank holidays');
  renderChart(section,history,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,historyStart);
  const sumWeeks=weeks=>weeks.reduce((sum,w)=>sum+(bookingMap.get(w)||0),0);
  const currentWeeks=Array.from({length:4},(_,i)=>shift(latestCompleteWeek,-(3-i)*7));
@@ -323,7 +321,7 @@ function renderCare(section,options,metrics){
   metrics.forecast=reportableChange(change,recentMean,meanForecast);
   metrics.acuteYear=yearChange;
   const forecastDetail=metrics.forecast===null?'The four-week forecast comparison is unavailable.':
-   'Next four weeks forecast '+describeChange(metrics.forecast)+' compared with the last four complete weeks.';
+   'Next four weeks forecast '+describeChange(metrics.forecast)+' compared with the last four complete weeks, excluding bank holidays.';
   setInsight('acute',0,'Seasonal demand',forecastDetail+yearDetail,[seasonPosition,metrics.forecast===null?'':describeChange(metrics.forecast)],seasonDetail);
   const extra=[...extras.values()].reduce((total,n)=>total+n,0);
   const [topExtra,extraCount]=largestGroup(extras);
@@ -335,7 +333,7 @@ function renderCare(section,options,metrics){
    extraGroup?topExtra+' booked the most Extra slots ('+integer(extraCount)+').':'');
   metrics.unused=unused;
   setInsight('acute',2,'Unused capacity',unusedDetail,unusedEmphasis,unusedContext);
-  const peak=predicted.length===4?predicted.reduce((highest,row)=>row.estimate>highest.estimate?row:highest):null;
+  const peak=completeForecast?predicted.reduce((highest,row)=>row.estimate>highest.estimate?row:highest):null;
   metrics.peak=peak?reportableCount(peak.estimate):null;
   metrics.peakChange=metrics.peak===null?null:reportableChange(signedTrend(peak.estimate,recentMean),peak.estimate,recentMean);
   setInsight('acute',3,'Peak demand',metrics.peak===null?'More booking history is needed to identify the busiest forecast week.':
@@ -445,18 +443,21 @@ function update(){
   let latestCompleteWeek=shift(presentMonday,-7);
   const fullWeeks=new Set(all.filter(r=>r.bookedDay<date&&r.bookedWeek<presentMonday).map(r=>r.bookedWeek));
   while(latestCompleteWeek>earliestBooked&&!fullWeeks.has(latestCompleteWeek))latestCompleteWeek=shift(latestCompleteWeek,-7);
-  const selector=$('iqHomeHistoryYears');
-  const saved=typeof readChartPreferences==='function'?readChartPreferences()[historyPreference]:selector?.value;
-  const years=validHistoryYears(saved);
-  if(selector)selector.value=String(years);
-  // Include only complete weeks inside the selected calendar-year window.
+  // Include only complete weeks inside the one-year window.
   const boundary=isoDay(shift(latestCompleteWeek,7));
-  boundary.setUTCFullYear(boundary.getUTCFullYear()-years);
+  boundary.setUTCFullYear(boundary.getUTCFullYear()-1);
   const boundaryDay=boundary.toISOString().slice(0,10);
   const firstMonday=monday(boundaryDay);
   const historyStart=firstMonday===boundaryDay?firstMonday:shift(firstMonday,7);
   const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
   const nextWeek=shift(presentMonday,7);
+  const holidayWeeks=new Set();
+  const lastForecastWeek=shift(nextWeek,21);
+  for(let year=Number(historyStart.slice(0,4));year<=Number(shift(lastForecastWeek,6).slice(0,4));year++){
+   for(const holiday of englandWalesBankHolidays(year))holidayWeeks.add(monday(holiday));
+  }
+  const adjustCount=createListSizeAdjuster(true);
+  const weekDates=Array.from({length:historyWeeks},(_,i)=>shift(historyStart,i*7));
   const slots=all.filter(allowed);
   const groupNames={acute:[],routine:[]};
   for(const name of groupUrgencyNames.filter(isDashboardToggleOption)){
@@ -465,29 +466,34 @@ function update(){
   }
   const metrics={},series=[];
   for(const care of ['acute','routine']){
-   const weekCounts=new Map();
+   const weekCounts=new Map(),adjustedCounts=new Map();
    for(const row of slots){
     if(careFor(row.slot)!==care||!row.bookedDay||row.bookedDay>=date)continue;
     const mondayKey=row.bookedWeek||monday(row.bookedDay);
-    weekCounts.set(mondayKey,(weekCounts.get(mondayKey)||0)+weight(row));
+    const count=weight(row);
+    addCount(weekCounts,mondayKey,count);
+    if(mondayKey>=historyStart&&mondayKey<=latestCompleteWeek&&!holidayWeeks.has(mondayKey)){
+     addCount(adjustedCounts,mondayKey,adjustCount(row.bookedDay,count));
+    }
    }
-   const history=Array.from({length:historyWeeks},(_,i)=>weekCounts.get(shift(historyStart,i*7))??null);
+   const adjustedHistory=weekDates.map(week=>adjustedCounts.get(week)??null);
+   const history=GPCorrectness.smoothDemandSeries(weekDates.map((date,i)=>({date,count:adjustedHistory[i]})),{level:1})
+    .map((point,i)=>adjustedHistory[i]===null?null:point.smoothed);
    const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care==='acute'?'urgent':'routine');
    const projection=Array.from({length:4},(_,i)=>{
     const weekStart=shift(nextWeek,i*7);
-    const range=predictor?.range?.(weekStart,true);
+    const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true);
     return {...range,weekStart};
    });
-   series.push({care,history,forecast:projection,groups:groupNames[care],bookingMap:weekCounts});
+   series.push({care,history,adjustedHistory,forecast:projection,groups:groupNames[care],bookingMap:weekCounts});
   }
   const axis=sharedAxis(series);
-  for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date},metrics);
+  for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date,holidayWeeks},metrics);
   showAiInsights(home,date,metrics);
   if(caveat){
    const earliest=slots.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,'');
-   const current=slots.reduce((max,r)=>r.bookedDay&&r.bookedDay<date&&r.bookedDay>max?r.bookedDay:max,'');
-   caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtLong(earliest)+' to '+fmtLong(current)+'). ':'')+
-    'Charts share a scale and show '+(years===1?'one year':years+' years')+' of weekly history and the next four forecast weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
+   caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtLong(earliest)+' to ' +fmtLong(latestBooked)+'). ':'')+
+    'Both charts show one year of weekly bookings and the next four forecast weeks on a shared scale. Bank holiday weeks are omitted. Bookings are adjusted to the latest recorded practice list size and lightly smoothed. Error bars show indicative forecast variation.';
   }
  }catch(error){
   showAiInsights(home,'',{});
@@ -496,9 +502,5 @@ function update(){
   for(const care of ['acute','routine']){setOutlook(care,'—','Unavailable');renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');}
  }finally{rendering=false}
 }
-$('iqHomeHistoryYears')?.addEventListener('change',event=>{
- if(typeof writeChartPreference==='function')writeChartPreference(historyPreference,validHistoryYears(event.target.value));
- update();
-});
 window.updateHomeOverview=update;
 })();

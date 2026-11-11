@@ -289,7 +289,8 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
  const groups=capacityGroups||forecastUrgencyNames().filter(forecastUrgencyEnabled);
  if(panel==='predictions')weeklyPlanningGroups=new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly'));
  const adjust=$('dailyForecastAdjustListSize')?.checked===true;const populationMonths=adjust?practiceMonths():[];const referencePopulation=populationMonths.length?listSizeAtMonth(populationMonths[populationMonths.length-1]):null;
- const populationCache=new Map();const normalise=(day,count)=>{if(!adjust||!referencePopulation)return count;const month=day.slice(0,7);if(!populationCache.has(month))populationCache.set(month,listSizeAtMonth(month));return count*referencePopulation/Math.max(1,populationCache.get(month))};
+ const populationCache=new Map();const forecastAdjust=(day,count)=>{if(!adjust||!referencePopulation)return count;const month=day.slice(0,7);if(!populationCache.has(month))populationCache.set(month,listSizeAtMonth(month));return count*referencePopulation/Math.max(1,populationCache.get(month))};
+ const normalise=capacitySourcePage==='homePage'?createListSizeAdjuster(true):forecastAdjust;
  const totals=new Map(),parts=new Map(),allWeekdayTotals=new Map();
  const selectedGroups=new Set(groups),weekdayByDate=new Map();
  for(const r of records){
