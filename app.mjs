@@ -1,5 +1,5 @@
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
-import {SupabaseBackend} from './backend.mjs?v=historic-ai-v2';
+import {SupabaseBackend} from './backend.mjs?v=historic-ai-v3';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
 import {packContribution,unpackContribution,sourceKey} from './analytics-codec.mjs';
 const $=id=>document.getElementById(id);
@@ -118,7 +118,7 @@ function renderAnalytics(){
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=historic-ai-v2';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=historic-ai-v3';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');

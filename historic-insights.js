@@ -122,10 +122,10 @@ async function prepare(current,allViews,known){
   const facts=candidates(view);
   if(!facts.length||view.names.length>24)continue;
   const key=await snapshot(view);
-  if(seen.has(key)||known.has(key))continue;
+  if(seen.has(key))continue;
   seen.add(key);
-  out.push({snapshot:key,scope:scopeOf(view),candidates:facts});
-  if(out.length>=144)break;
+  if(!known.has(key))out.push({snapshot:key,scope:scopeOf(view),candidates:facts});
+  if(seen.size>=144)break;
  }
  return out;
 }

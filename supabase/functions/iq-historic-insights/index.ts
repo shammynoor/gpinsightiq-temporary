@@ -95,12 +95,14 @@ Deno.serve(async request => {
       .find((item: {type: string}) => item.type === 'output_text');
     if (answer.status !== 'completed' || !output?.text) throw Error('Incomplete generation.');
     const result = JSON.parse(output.text).views;
+    if (!Array.isArray(result)) throw Error('Invalid selection.');
     const rows = missing.map((view,index)=>{
       const picks = result.filter((row: {index: number})=>row.index===index);
-      const ids = picks[0]?.cards;
-      if (picks.length!==1 || !Array.isArray(ids) || ids.length!==Math.min(3,view.candidates.length) ||
-        new Set(ids).size!==ids.length || ids.some(id=>!Number.isInteger(id)||!view.candidates[id])) throw Error('Invalid selection.');
-      return {practice_id:practice,snapshot:view.snapshot,scope:view.scope,cards:ids.map(id=>view.candidates[id])};
+      const ids = picks.flatMap((pick: {cards?: number[]})=>Array.isArray(pick.cards)?pick.cards:[]);
+      const valid = [...new Set<number>(ids.filter((id: number)=>Number.isInteger(id)&&!!view.candidates[id]))];
+      if (!valid.length) throw Error('Invalid selection.');
+      const ordered = [...new Set([...valid,...view.candidates.keys()])].slice(0,3);
+      return {practice_id:practice,snapshot:view.snapshot,scope:view.scope,cards:ordered.map(id=>view.candidates[id])};
     });
     const insert = await fetch(query+'?on_conflict=practice_id,snapshot', {
       method:'POST', headers:{...headers,Prefer:'resolution=merge-duplicates,return=representation'}, body:JSON.stringify(rows)
@@ -108,7 +110,8 @@ Deno.serve(async request => {
     if (!insert.ok) throw Error('Could not save the insights.');
     return json(200, {rows:[...saved,...await insert.json()]});
   } catch (error) {
-    console.warn('Historic insights batch failed:',error instanceof Error ? error.name : 'Error');
+    const known=['Could not reserve generation.','Could not check saved insights.','Incomplete generation.','Invalid selection.','Could not save the insights.'];
+    console.warn('Historic insights batch failed:',error instanceof Error && known.includes(error.message) ? error.message : 'Unexpected error');
     return json(502, {error:'This batch could not be saved. Previously saved insights are still available.'});
   }
 });
