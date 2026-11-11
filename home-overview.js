@@ -3,6 +3,8 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
+const historyWeeks=13;
+const insightVersion='home-insights-v2';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
@@ -11,13 +13,14 @@ const fmtLong=date=>isoDay(date).toLocaleDateString('en-GB',{day:'numeric',month
 const integer=value=>Math.round(value).toLocaleString('en-GB');
 const percent=value=>(value>=0?'+':'')+Math.round(value)+'%';
 const weight=row=>Number.isFinite(Number(row.count))?Math.max(0,Number(row.count)):0;
-const careFor=slot=>{
- const name=capacityUrgencyCategory(slot);
- if(!name||!isDashboardToggleOption(name))return '';
- const type=appointmentCalculationRole(name);
- return type==='urgent'?'acute':type==='routine'?'routine':'';
+const appointmentCare=type=>{
+ if(!type||!isDashboardToggleOption(type))return '';
+ if(appointmentCategoryFor(type).trim().toLowerCase()==='urgent care')return 'acute';
+ return appointmentCalculationRole(type)==='routine'?'routine':'';
 };
+const careFor=slot=>appointmentCare(capacityUrgencyCategory(slot));
 const allowed=row=>row&&!excludedSlotTypes.has(row.slot)&&careFor(row.slot);
+const isExtraAppointmentType=type=>['extra','urgentextra'].includes(String(type).toLowerCase().replace(/[^a-z0-9]/g,''));
 const clinicianGroup=row=>{
  const type=effectiveClinicianType(row.clinician)||'';
  return clinicianGroupAssignments[type]||type||'Unassigned';
@@ -54,10 +57,23 @@ function svgElement(tag,attrs={},text){
  if(text!==undefined)node.textContent=text;
  return node;
 }
-function renderChart(section,history,forecast,colour){
+function sharedAxis(series){
+ let peak=0;
+ for(const {history,forecast} of series){
+  for(const value of history)if(Number.isFinite(value))peak=Math.max(peak,value);
+  for(const row of forecast){
+   for(const value of [row?.estimate,row?.low,row?.high])if(Number.isFinite(value))peak=Math.max(peak,value);
+  }
+ }
+ const target=Math.max(1,peak*1.05/4);
+ const magnitude=10**Math.floor(Math.log10(target));
+ const step=[1,2,2.5,5,10].map(n=>n*magnitude).find(n=>n>=target);
+ return {step,top:step*4};
+}
+function renderChart(section,history,forecast,colour,axis,historyStart){
  const root=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-plot');if(!root)return;
  root.replaceChildren();
- if(!history.some(v=>v!==null)){
+ if(!history.some(Number.isFinite)&&!forecast.some(item=>Number.isFinite(item?.estimate))){
   const empty=document.createElement('p');empty.className='iq-home-chart-empty';
   empty.textContent='No recent booked appointment data for this category.';
   root.append(empty);return;
@@ -65,37 +81,54 @@ function renderChart(section,history,forecast,colour){
  const legend=document.createElement('div');legend.className='iq-home-legend';
  legend.textContent='● Booked appointments   ·   ○ Forecast (indicative range)';
  root.append(legend);
- const values=[...history.filter(Number.isFinite),...forecast.filter(Boolean).flatMap(x=>[x.estimate,x.high,x.low].filter(Number.isFinite))];
- const ymax=Math.max(1,...values)*1.12;
- const svg=svgElement('svg',{viewBox:'0 0 728 155',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' appointments over recent complete weeks and next four weeks with predicted uncertainty'});
- const xpos=i=>30+i*83;
- const ypos=v=>110-Math.min(1,Math.max(0,v/ymax))*91;
- svg.append(svgElement('line',{x1:17,y1:110,x2:710,y2:110,stroke:'#d9e5ef','stroke-width':1.5}));
- svg.append(svgElement('line',{x1:361,y1:12,x2:361,y2:114,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
- // Each series is a separate line: missing or sparse weeks never become zero.
- let current=[];
- const addPath=()=>{if(current.length>1)svg.append(svgElement('path',{d:current.map((p,i)=>(i?'L':'M')+p[0]+' '+p[1]).join(' '),fill:'none',stroke:colour,'stroke-width':3.5,'stroke-linecap':'round','stroke-linejoin':'round'}));current=[]};
- for(let i=0;i<history.length;i++){const value=history[i];if(value===null){addPath();continue}current.push([xpos(i),ypos(value)])}addPath();
- const last=history[history.length-1];
- const projected=forecast.map((item,i)=>item&&Number.isFinite(item.estimate)?{x:xpos(5+i),...item}:null);
- const allProjected=projected.filter(Boolean);
- const begin=last!==null?[[xpos(4),ypos(last)]]:[];
- const dotted=[...begin,...allProjected.map(x=>[x.x,ypos(x.estimate)])];
- if(dotted.length>1)svg.append(svgElement('path',{d:dotted.map((p,i)=>(i?'L':'M')+p[0]+' '+p[1]).join(' '),fill:'none',stroke:colour,'stroke-width':2.6,'stroke-dasharray':'7 6'}));
- for(let i=0;i<history.length;i++)if(history[i]!==null){svg.append(svgElement('circle',{cx:xpos(i),cy:ypos(history[i]),r:5.3,fill:colour,stroke:'#fff','stroke-width':1.8}));}
- for(const row of allProjected){
-  if(Number.isFinite(row.low)&&Number.isFinite(row.high)){
-   svg.append(svgElement('path',{d:'M'+row.x+' '+ypos(row.low)+'V'+ypos(row.high)+' M'+(row.x-6)+' '+ypos(row.low)+'H'+(row.x+6)+' M'+(row.x-6)+' '+ypos(row.high)+'H'+(row.x+6),stroke:colour,'stroke-width':2,fill:'none'}));
-  }
-  const dot=svgElement('circle',{cx:row.x,cy:ypos(row.estimate),r:5.6,stroke:colour,fill:'#fff','stroke-width':2.3});
-  dot.append(svgElement('title',{},'Predicted '+integer(row.estimate)+(Number.isFinite(row.low)?' (indicative range '+integer(row.low)+'–'+integer(row.high)+')':'')));
-  svg.append(dot);
+ const svg=svgElement('svg',{viewBox:'0 0 728 155',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+historyWeeks+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'});
+ const left=58,right=706,bottom=111,top=14;
+ const firstForecast=history.length+1; // Leave space for the current, incomplete week.
+ const xpos=i=>left+i*(right-left)/(firstForecast+forecast.length-1);
+ const ypos=v=>bottom-Math.min(1,Math.max(0,v/axis.top))*(bottom-top);
+ const axisNumber=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
+ for(let tick=0;tick<=4;tick++){
+  const value=tick*axis.step,y=ypos(value);
+  svg.append(svgElement('line',{x1:left,y1:y,x2:right,y2:y,stroke:'#d9e5ef','stroke-width':tick===0?1.5:1}));
+  svg.append(svgElement('text',{x:left-8,y:y+4,'text-anchor':'end',fill:'#2f526e','font-size':12,'font-family':'Arial, sans-serif'},axisNumber.format(value)));
  }
- const stamps=[...history.map((_,i)=>shift(window.iqHomeOverviewHistoryWeekStart,i*7)),...forecast.map(x=>x?.weekStart||'')];
- for(let i=0;i<stamps.length;i++)if(stamps[i])svg.append(svgElement('text',{x:xpos(i),y:139,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},fmtDate(stamps[i])));
+ const divider=xpos(history.length);
+ svg.append(svgElement('line',{x1:divider,y1:top,x2:divider,y2:bottom,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
+ let current=[];
+ const addPath=()=>{
+  if(current.length>1)svg.append(svgElement('path',{d:current.map((point,i)=>(i?'L':'M')+point.join(' ')).join(' '),fill:'none',stroke:colour,'stroke-width':3,'stroke-linecap':'round'}));
+  current=[];
+ };
+ history.forEach((value,i)=>{if(value===null)addPath();else current.push([xpos(i),ypos(value)]);});addPath();
+ const last=history.at(-1);
+ let forecastLine=Number.isFinite(last)?[[xpos(history.length-1),ypos(last)]]:[];
+ const addForecastPath=()=>{
+  if(forecastLine.length>1)svg.append(svgElement('path',{d:forecastLine.map((point,i)=>(i?'L':'M')+point.join(' ')).join(' '),fill:'none',stroke:colour,'stroke-width':2.6,'stroke-dasharray':'7 6'}));
+  forecastLine=[];
+ };
+ forecast.forEach((item,i)=>{if(Number.isFinite(item?.estimate))forecastLine.push([xpos(firstForecast+i),ypos(item.estimate)]);else addForecastPath();});addForecastPath();
+ const dateLabel=(x,date)=>svg.append(svgElement('text',{x,y:139,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},fmtDate(date)));
+ history.forEach((value,i)=>{
+  const date=shift(historyStart,i*7),x=xpos(i);
+  if(i%2===0)dateLabel(x,date);
+  if(value===null)return;
+  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:4.2,fill:colour,stroke:'#fff','stroke-width':1.4});
+  dot.append(svgElement('title',{},fmtDate(date)+': '+integer(value)+' booked appointments'));svg.append(dot);
+ });
+ forecast.forEach((row,i)=>{
+  if(!row)return;
+  const x=xpos(firstForecast+i);
+  if(i===0||i===forecast.length-1)dateLabel(x,row.weekStart);
+  if(!Number.isFinite(row.estimate))return;
+  if(Number.isFinite(row.low)&&Number.isFinite(row.high)){
+   svg.append(svgElement('path',{d:'M'+x+' '+ypos(row.low)+'V'+ypos(row.high)+' M'+(x-5)+' '+ypos(row.low)+'H'+(x+5)+' M'+(x-5)+' '+ypos(row.high)+'H'+(x+5),stroke:colour,'stroke-width':2,fill:'none'}));
+  }
+  const dot=svgElement('circle',{cx:x,cy:ypos(row.estimate),r:4.7,stroke:colour,fill:'#fff','stroke-width':2});
+  dot.append(svgElement('title',{},fmtDate(row.weekStart)+': '+integer(row.estimate)+' predicted'+(Number.isFinite(row.low)?' (indicative range '+integer(row.low)+'–'+integer(row.high)+')':'')));
+  svg.append(dot);
+ });
  root.append(svg);
 }
-
 const insightCards={
  seasonalDemand:['acute',0,'Seasonal demand'],
  extraCapacity:['acute',1,'Extra capacity'],
@@ -121,7 +154,7 @@ function showAiInsights(home,period,metrics){
   return;
  }
  button.hidden=!bridge.manage;
- const signature=JSON.stringify([period,metrics]);
+ const signature=JSON.stringify([period,metrics,insightVersion]);
  if(aiState?.bridge===bridge&&aiState.signature===signature){
   renderSavedInsights(aiState);
   return;
@@ -165,17 +198,15 @@ function showAiInsights(home,period,metrics){
 const reportableCount=n=>n>=10?Math.round(n):null;
 const reportableChange=(change,first,second)=>Number.isFinite(change)&&first>=30&&second>=30?Math.round(change):null;
 function renderCare(section,options,metrics){
- const {history,forecast,groups,bookingMap,latestCompleteWeek,earliestBooked,today}=options;
- const care=section==='acute'?'acute':'routine',groupSet=new Set(groups);
- const values=history.map(x=>x===null?0:x);
- const currentFour=history.slice(1);
+ const {history,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart}=options;
+ const currentFour=history.slice(-4);
  const completeCurrent=currentFour.filter(v=>v!==null);
  const recentMean=completeCurrent.length>=3?completeCurrent.reduce((a,b)=>a+b,0)/completeCurrent.length:null;
  const predicted=forecast.filter(x=>x&&Number.isFinite(x.estimate));
  const meanForecast=predicted.length===4?predicted.reduce((a,b)=>a+b.estimate,0)/4:null;
  const change=recentMean!==null&&meanForecast!==null?signedTrend(meanForecast,recentMean):null;
  setOutlook(section,change!==null?percent(change):'—',change===null?'Forecast unavailable':'next 4 weeks');
- renderChart(section,history,forecast,section==='acute'?'#f03265':'#0b9c7f');
+ renderChart(section,history,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,historyStart);
  const sumWeeks=weeks=>weeks.reduce((sum,w)=>sum+(bookingMap.get(w)||0),0);
  const currentWeeks=Array.from({length:4},(_,i)=>shift(latestCompleteWeek,-(3-i)*7));
  const previousWeeks=currentWeeks.map(w=>shift(w,-28));
@@ -197,7 +228,7 @@ function renderCare(section,options,metrics){
   for(const row of availabilityRecords){
    if(!allowed(row)||careFor(row.slot)!=='acute'||row.date<start||row.date>end)continue;
    const n=weight(row),group=clinicianGroup(row);
-   if(String(capacityAssignments[row.slot]||'').toLowerCase()==='extra'&&String(row.availability).toLowerCase()==='booked'){
+   if(isExtraAppointmentType(capacityUrgencyCategory(row.slot))&&String(row.availability).toLowerCase()==='booked'){
     extra+=n;counts.set(group,(counts.get(group)||0)+n);
    }
    if(String(row.availability).toLowerCase()==='available'&&isMissedAvailableSlot(row,clock)){
@@ -208,10 +239,11 @@ function renderCare(section,options,metrics){
   const topExtra=first(counts),topMissed=first(missed);
   metrics.extra=reportableCount(extra);
   metrics.unused=clock===null?null:reportableCount(unfilled);
-  const configuredExtra=Object.values(capacityAssignments).some(x=>String(x).trim().toLowerCase()==='extra');
-  setInsight('acute',1,'Extra capacity',extra>0?
+  const configuredExtra=groups.some(isExtraAppointmentType);
+  setInsight('acute',1,'Extra capacity',extra>0&&metrics.extra===null?
+   'Booked urgent Extra slots were below the reporting threshold over the last four complete weeks.':extra>0?
    integer(extra)+' urgent Extra slots were booked over the last four complete weeks'+(topExtra&&topExtra[0]!=='Unassigned'?', most often by '+topExtra[0]:'')+'.':
-   configuredExtra?'No booked Extra urgent slots were identified in the last four complete weeks.':'Extra slot types have not been configured; map them in Slot Settings.');
+   configuredExtra?'No booked urgent Extra slots were identified in the last four complete weeks.':'Map the Extra appointment type under Urgent Care in Slot Settings.');
   setInsight('acute',2,'Unused capacity',clock===null?'A dated Slot Report is needed to identify previously unfilled appointments.':
    unfilled>0?integer(unfilled)+' urgent slots remained unfilled in the latest report snapshot'+(topMissed&&topMissed[0]!=='Unassigned'?', most often in '+topMissed[0]:'')+'.':
    'No previously unfilled urgent slots were identified in the latest imported snapshot.');
@@ -260,7 +292,7 @@ function update(){
    showAiInsights(home,date,{});
    for(const care of ['acute','routine']){
     setOutlook(care,'—','No appointment data');
-    renderChart(care,[null,null,null,null,null],[],care==='acute'?'#f03265':'#0b9c7f');
+    renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');
     for(let i=0;i<3;i++)setInsight(care,i,['Activity','Capacity','Outlook'][i],'Upload appointment reports to enable this insight.');
    }
    if(caveat)caveat.textContent='No appointment records are available. Upload Slot Reports and check slot mappings.';
@@ -273,16 +305,15 @@ function update(){
   let latestCompleteWeek=shift(presentMonday,-7);
   const fullWeeks=new Set(all.filter(r=>r.bookedDay<date&&r.bookedWeek<presentMonday).map(r=>r.bookedWeek));
   while(latestCompleteWeek>earliestBooked&&!fullWeeks.has(latestCompleteWeek))latestCompleteWeek=shift(latestCompleteWeek,-7);
-  window.iqHomeOverviewHistoryWeekStart=shift(latestCompleteWeek,-28);
+  const historyStart=shift(latestCompleteWeek,(1-historyWeeks)*7);
   const nextWeek=shift(presentMonday,7);
   const slots=all.filter(allowed);
   const groupNames={acute:[],routine:[]};
   for(const name of groupUrgencyNames.filter(isDashboardToggleOption)){
-   const kind=appointmentCalculationRole(name);
-   if(kind==='urgent')groupNames.acute.push(name);
-   if(kind==='routine')groupNames.routine.push(name);
+   const care=appointmentCare(name);
+   if(care)groupNames[care].push(name);
   }
-  const metrics={};
+  const metrics={},series=[];
   for(const care of ['acute','routine']){
    const weekCounts=new Map();
    for(const row of slots){
@@ -290,28 +321,30 @@ function update(){
     const mondayKey=row.bookedWeek||monday(row.bookedDay);
     weekCounts.set(mondayKey,(weekCounts.get(mondayKey)||0)+weight(row));
    }
-   const history=Array.from({length:5},(_,i)=>{const w=shift(latestCompleteWeek,(i-4)*7);return weekCounts.has(w)?weekCounts.get(w):null});
+   const history=Array.from({length:historyWeeks},(_,i)=>weekCounts.get(shift(historyStart,i*7))??null);
    const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care==='acute'?'urgent':'routine');
    const projection=Array.from({length:4},(_,i)=>{
     const weekStart=shift(nextWeek,i*7);
     const range=predictor?.range?.(weekStart,true);
-    return range?{...range,weekStart}:null;
+    return {...range,weekStart};
    });
-   renderCare(care,{history,forecast:projection,groups:groupNames[care],bookingMap:weekCounts,latestCompleteWeek,earliestBooked,today:date},metrics);
+   series.push({care,history,forecast:projection,groups:groupNames[care],bookingMap:weekCounts});
   }
+  const axis=sharedAxis(series);
+  for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date},metrics);
   showAiInsights(home,date,metrics);
   if(caveat){
    const totalRecords=slots.length;
    const earliest=slots.reduce((min,r)=>r.bookedDay&&(!min||r.bookedDay<min)?r.bookedDay:min,'');
    const current=slots.reduce((max,r)=>r.bookedDay&&r.bookedDay<date&&r.bookedDay>max?r.bookedDay:max,'');
    caveat.textContent=(earliest?'Forecast models fitted using all uploaded booking history ('+fmtLong(earliest)+' to '+fmtLong(current)+'). ':'')+
-    'Charts show the latest five complete weeks and next four weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
+    'Charts share a scale and show the latest thirteen complete weeks and next four forecast weeks. Error bars reflect indicative historical forecasting variation, not formal confidence intervals. Booking activity is a proxy for demand; capacity status comes from the latest imported slot reports.';
   }
  }catch(error){
   showAiInsights(home,'',{});
   console.error('Home overview calculations could not be completed',error);
   const note=home.querySelector('.iq-home-caveat');if(note)note.textContent='Could not calculate the home overview from the imported data. Detailed pages remain available.';
-  for(const care of ['acute','routine']){setOutlook(care,'—','Unavailable');renderChart(care,[null,null,null,null,null],[],care==='acute'?'#f03265':'#0b9c7f');}
+  for(const care of ['acute','routine']){setOutlook(care,'—','Unavailable');renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');}
  }finally{rendering=false}
 }
 window.updateHomeOverview=update;

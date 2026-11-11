@@ -6,11 +6,12 @@ const cards = {
   waitingTimes: ['wait', 'priorWait'],
   forwardAvailability: ['available', 'horizon']
 };
+const insightVersion = 'home-insights-v2';
 const counts = new Set(['extra', 'unused', 'available']);
 const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear']);
 const metricNames = Object.values(cards).flat();
 function outputSchema(metrics) {
-  const prose = '[^0-9%{}<>\\r\\n]*';
+  const prose = "[A-Za-z .,;:!?()'’‘“”–—-]*";
   const properties = Object.fromEntries(Object.entries(cards).map(([card, allowed]) => {
     const supported = allowed.filter(key => metrics[key] !== null);
     if (!supported.length) return [card, {type:'string', enum:['']}];
@@ -58,14 +59,15 @@ function renderBullets(output, metrics) {
   const rejected = [];
   for (const [card, allowed] of Object.entries(cards)) {
     const supported = allowed.filter(key => metrics[key] !== null);
-    const text = typeof output?.[card] === 'string' ? output[card].trim() : '';
+    const text = typeof output?.[card] === 'string'
+      ? output[card].trim().replace(/(\{(?:wait|priorWait|horizon)\})\s+weeks?\b/gi, '$1') : '';
     if (!supported.length) {
-      result[card] = 'There is not enough reportable data for this insight.';
+      result[card] = card === 'extraCapacity' ? null : 'There is not enough reportable data for this insight.';
       continue;
     }
     const refs = [...text.matchAll(/\{([a-zA-Z]+)\}/g)].map(m => m[1]);
     if (text.length > 260 || !refs.length || refs.some(key => !supported.includes(key)) ||
-        /[\d%{}<>\r\n]/.test(text.replace(/\{[a-zA-Z]+\}/g, ''))) {
+        !/^[A-Za-z .,;:!?()'’‘“”\u2013\u2014-]*$/.test(text.replace(/\{[a-zA-Z]+\}/g, ''))) {
       rejected.push(card);
       result[card] = null;
       continue;
@@ -83,6 +85,7 @@ const instructions = [
   'Example: Urgent bookings are forecast to be {forecast} compared with the recent average.',
   'Example: The latest diary shows {available} routine slots available up to {horizon} ahead.',
   'Placeholders for changes expand to a complete phrase such as “8% higher” or “roughly unchanged”.',
+  'Use English letters and punctuation. The wait, priorWait and horizon placeholders already include the unit week or weeks. Never add a unit after them.',
   'Seasonal demand: {forecast} compares the next four forecast weeks of urgent bookings to the recent average; {acuteYear} compares recent bookings with the same weeks last year.',
   'Extra capacity: {extra} is booked urgent Extra slots over the last four complete weeks.',
   'Unused capacity: {unused} is previously unfilled urgent slots in the latest imported snapshot, looking at the last four complete weeks.',
@@ -164,7 +167,7 @@ Deno.serve(async request => {
     const {bullets, generated, rejected} = renderBullets(JSON.parse(output.text), metrics);
     if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
     if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics])));
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics, insightVersion])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
     stage = 'save';
     const saved = await fetch(url + '/rest/v1/iq_home_insights?practice_id=eq.'+body.practice+'&attempt_id=eq.'+attempt, {
