@@ -3,7 +3,7 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const insightVersion='home-insights-v8';
+const insightVersion='home-insights-v9';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
@@ -323,7 +323,7 @@ function capacityComparisonLine(comparison){
  if(!match)return '';
  const [value,label]=match;
  return value===0?'The recent weekly average was in line with '+label+'.':
-  'Over the last four weeks, we averaged '+describeChange(value)+' slots per week than '+label+'.';
+  'We averaged '+describeChange(value)+' slots per week than '+label+'.';
 }
 function renderCare(section,options,metrics){
  const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks}=options;
@@ -406,7 +406,7 @@ function renderCare(section,options,metrics){
  ];
  const yearChange=reportableChange(yoy,recentTotal,sumWeeks(lastYearWeeks));
  const yearDetail=yearChange===null?null:yearChange===0?'Our recent weekly average was similar to the average for the same period last year.':
-  'Over the last four weeks, we averaged '+describeChange(yearChange)+' '+(section==='acute'?'urgent':'routine')+' bookings per week than the average for the same period last year.';
+  'Weekly bookings averaged '+describeChange(yearChange)+' than in the same period last year.';
  const seasonalComparison=yearDetail||seasonDetail;
  const recentWeeks=adjustedHistory.slice(-8).filter(Number.isFinite);
  const low=Math.min(...recentWeeks),high=Math.max(...recentWeeks);
@@ -464,7 +464,7 @@ function renderCare(section,options,metrics){
   metrics.routineVariation=variation;
   const recent=metrics.routineTrend===null?'There’s too little data to compare with the previous four weeks.':
    metrics.routineTrend===0?'Average weekly routine bookings held steady across the two four-week periods.':
-   'Over the last four weeks, we averaged '+describeChange(metrics.routineTrend)+' routine bookings per week than in the preceding four weeks.';
+   'We averaged '+describeChange(metrics.routineTrend)+' bookings per week in the last four weeks than in the four before.';
   setInsight('routine',0,'Demand trend',[recent,seasonalComparison],
    [seasonPosition,metrics.routineTrend?describeChange(metrics.routineTrend):'',yearChange?describeChange(yearChange):'']);
   const recentStart=shift(today,-28),previousStart=shift(today,-56);
@@ -504,9 +504,9 @@ function renderCare(section,options,metrics){
    const gap=Math.round((longest.days-shortest.days)*10)/10;
    if(gap>0){
     waitBullets=[
-     'Over the last 28 days, we’ve seen the longest median wait for '+longest.label+' at '+waitDays(longest.days)+'.',
-     shortest.label+' had the shortest median wait at '+waitDays(shortest.days)+', a gap of '+waitDays(gap)+'.',
-     middle?middle.label+' sat between them at '+waitDays(middle.days)+'.':''
+     'In the last 28 days, '+longest.label+' had the longest median wait at '+waitDays(longest.days)+'.',
+     shortest.label+' had the shortest median wait at '+waitDays(shortest.days)+'.',
+     middle?middle.label+' sat between them at '+waitDays(middle.days)+'.':'The gap between those median waits was '+waitDays(gap)+'.'
     ];
     waitEmphasis.push(waitDays(longest.days),waitDays(shortest.days),waitDays(gap),middle?waitDays(middle.days):'');
    }else{
@@ -547,8 +547,7 @@ function renderCare(section,options,metrics){
   const coverLabel=metrics.riskCoverDays!==null?waitDays(metrics.riskCoverDays):metrics.riskCover!==null?roundWeeks(metrics.riskCover):'';
   const segmentLabel=risk?group+' ('+mode+')':'';
   setInsight('routine',2,'Forward availability',risk?[
-   segmentLabel+' has the least cover.',
-   integer(risk.slots)+' slots are open in the diary.',
+   segmentLabel+' has the least cover, with '+integer(risk.slots)+' slots open.',
    'That’s about '+coverLabel+' at the recent booking pace if no more slots are released.'
   ]:['There’s too little data to see which slots may run out first.'],
    risk?[segmentLabel,coverLabel,integer(risk.slots)+' slots']:[],{riskGroup:segmentLabel});

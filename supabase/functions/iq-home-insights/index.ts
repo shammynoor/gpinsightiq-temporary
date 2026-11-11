@@ -202,6 +202,12 @@ const comparisonFindingInstructions = contextualFindingInstructions + ' ' + [
   'Wait and cover placeholders already include their units. Write “about {riskCoverDays} of cover” without adding a second days or weeks.'
 ].join(' ');
 
+const compactFindingInstructions = comparisonFindingInstructions + ' ' + [
+  'Aim for ten to twenty words per bullet. Keep each bullet to one finding and make it understandable in the context of its card. Use two or three short bullets when the data supports them. Keep the comparison period, direction and any important condition.',
+  'Use the card title for context. Omit phrases such as “for the same appointment type” or “for routine appointments” when the category is already clear. Say “recent weekly average”. For forecasts use natural phrasing like “We expect {routineForecast} bookings over the next four weeks than the recent weekly average.”',
+  'For waiting times, give each named group its own bullet. Use the third bullet for another group or the gap. State the last twenty-eight days once. Avoid packing several comparisons into a single sentence.'
+].join(' ');
+
 function findingInput(metrics,cards=findingCards) {
   return Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
     const figures = Object.fromEntries(fields.filter(key=>metrics[key]!==null).map(key=>[key,metrics[key]]));
@@ -240,7 +246,12 @@ function renderFindings(output,metrics,cards=findingCards,version) {
     const accepted = [];
     const seen = new Set();
     for (const line of Array.isArray(output?.[card])?output[card].slice(0,3):[]) {
-      const text = typeof line==='string'?line.trim():'';
+      let text = typeof line==='string'?line.trim():'';
+      if (version==='home-insights-v9' && (card==='forecastPeak'||card==='seasonalDemand'||card==='routineDemand')) {
+        text = text.replace(/\bmost recent weekly average\b/gi,'recent weekly average')
+          .replace(/\s+for the same appointment type(?=[.,!?]|$)/gi,'');
+        if(card==='routineDemand')text=text.replace(/\s+for routine appointments(?=[.,!?]|$)/gi,'');
+      }
       const refs = [...text.matchAll(/\{([A-Za-z]+)\}/g)].map(match=>match[1]);
       const facts = refs.filter(key=>available.has(key));
       const validProse = /^[A-Za-z .,;:!?()'’‘“”–—-]+$/.test(text.replace(/\{[A-Za-z]+\}/g,''));
@@ -249,18 +260,20 @@ function renderFindings(output,metrics,cards=findingCards,version) {
       const peakClear = cards===findingCards || !facts.includes('peak') || /\b(?:nine weeks|two months|couple of months)\b/i.test(text);
       const historicalComparison = facts.some(key=>capacityChanges.has(key)||
         ['acuteTrend','routineTrend','acuteYear','routineYear'].includes(key));
-      const averageClear = version!=='home-insights-v8' || !historicalComparison ||
+      const averageClear = !['home-insights-v8','home-insights-v9'].includes(version) || !historicalComparison ||
         (/\baverag(?:e|es|ed|ing)\b/i.test(text) && /\b(?:weekly|per week|each week|a week)\b/i.test(text) && !text.startsWith('{'));
-      if (!validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
+      const groupsPerBullet = refs.filter(key=>['longestGroup','shortestGroup','middleGroup'].includes(key)).length;
+      if ((version==='home-insights-v9' && groupsPerBullet>1) || !validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
           !forecastClear || !coverClear || !peakClear || !averageClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
           facts.some(key=>findingLabels[key]&&!refs.includes(findingLabels[key]))) {
         rejected.push(card);
         continue;
       }
-      const display = text.replace(/\{([A-Za-z]+)\}/g,(match,key)=>available.has(key)?formatFinding(key,metrics[key]):match)
+      let display = text.replace(/\{([A-Za-z]+)\}/g,(match,key)=>available.has(key)?formatFinding(key,metrics[key]):match)
         .replace(/\b(day|week)(s?)\s+\1s?\b/gi,'$1$2');
+      if(version==='home-insights-v9')display=display.replace(/\b(more|fewer|higher|lower)\s+(?:compared (?:with|to)|versus)\b/gi,'$1 than');
       const size = encoder.encode(display).length;
-      if (size>155 || size>bytesRemaining) continue;
+      if (size>155 || size>bytesRemaining || (version==='home-insights-v9' && display.trim().split(/\s+/).length>22)) continue;
       bytesRemaining-=size;
       accepted.push(display);
       facts.forEach(key=>seen.add(key));
@@ -295,7 +308,7 @@ Deno.serve(async request => {
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      cards = ['home-insights-v7','home-insights-v8'].includes(body.version) ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      cards = ['home-insights-v7','home-insights-v8','home-insights-v9'].includes(body.version) ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
       isFindings = cards === findingCards || cards === detailedFindingCards || cards === contextualFindingCards;
       version = cards === contextualFindingCards ? body.version : cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
       metrics = sanitise(body.metrics, cards);
@@ -320,7 +333,7 @@ Deno.serve(async request => {
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
         model:'gpt-6-luna', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
-        instructions:version === 'home-insights-v8' ? comparisonFindingInstructions : cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
+        instructions:version === 'home-insights-v9' ? compactFindingInstructions : version === 'home-insights-v8' ? comparisonFindingInstructions : cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
         text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards) : outputSchema(metrics, cards)}}
       })
     });
