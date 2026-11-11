@@ -126,7 +126,7 @@ Deno.serve(async request => {
       const reported = failure?.error?.code;
       const code = typeof reported === 'string' && /^[a-z0-9_]{1,50}$/.test(reported) ? reported : 'unknown';
       console.warn(JSON.stringify({event:'home_insights_provider_error', status:response.status, code}));
-      if (code === 'insufficient_quota' || code === 'billing_hard_limit_reached') {
+      if (['credit_balance_exhausted','insufficient_quota','billing_hard_limit_reached'].includes(code)) {
         return json(503, {error:'OpenAI billing or credits are required for AI insights.'});
       }
       if (response.status === 401) return json(503, {error:'OpenAI rejected the API key. Check the key saved in Supabase.'});

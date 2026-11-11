@@ -29,6 +29,8 @@
 #dashboardShell .dashboard-header .iq-header-practice-caption{font-size:10px;color:#668197!important}
 #dashboardShell .dashboard-header .iq-header-practice-name{color:#193d5f!important;font-weight:700!important;font-size:12px!important}
 #dashboardShell .dashboard-header #refreshData,#dashboardShell .dashboard-header .header-account-menu summary{color:#335978!important}
+#dashboardShell .dashboard-nav .nav-settings-cog{color:#1d3d5e;background:#eaf4fd;border:1px solid #d7e7f6!important}
+#dashboardShell .dashboard-nav .nav-settings-cog:hover,#dashboardShell .dashboard-nav .nav-settings-menu.open>.nav-settings-cog{color:#134c84;background:#dbeeff}
 @media(min-width:1550px){
  #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center}
  #dashboardShell:has(#homePage:not(.hidden)) .dashboard-header>.topbar{display:contents!important}
