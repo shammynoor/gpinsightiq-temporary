@@ -1,4 +1,4 @@
-const cards = {
+const legacyCards = {
   seasonalDemand: ['forecast', 'acuteYear'],
   extraCapacity: ['extra'],
   unusedCapacity: ['unused'],
@@ -6,11 +6,19 @@ const cards = {
   waitingTimes: ['wait', 'priorWait'],
   forwardAvailability: ['available', 'horizon']
 };
-const insightVersion = 'home-insights-v2';
-const counts = new Set(['extra', 'unused', 'available']);
-const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear']);
-const metricNames = Object.values(cards).flat();
-function outputSchema(metrics) {
+const expandedCards = {
+  seasonalDemand: legacyCards.seasonalDemand,
+  extraCapacity: legacyCards.extraCapacity,
+  unusedCapacity: legacyCards.unusedCapacity,
+  forecastPeak: ['peak', 'peakChange'],
+  routineDemand: legacyCards.routineDemand,
+  waitingTimes: legacyCards.waitingTimes,
+  forwardAvailability: ['riskSlots'],
+  routineUnused: ['routineUnused']
+};
+const counts = new Set(['extra', 'unused', 'available', 'peak', 'riskSlots', 'routineUnused']);
+const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear', 'peakChange']);
+function outputSchema(metrics, cards) {
   const prose = "[A-Za-z .,;:!?()'’‘“”–—-]*";
   const properties = Object.fromEntries(Object.entries(cards).map(([card, allowed]) => {
     const supported = allowed.filter(key => metrics[key] !== null);
@@ -30,9 +38,9 @@ const json = (status, value) => new Response(JSON.stringify(value), {
   status, headers: {...cors, 'Content-Type':'application/json', 'Cache-Control':'no-store'}
 });
 
-function sanitise(input) {
+function sanitise(input, cards) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw Error('Metrics required.');
-  return Object.fromEntries(metricNames.map(key => {
+  return Object.fromEntries(Object.values(cards).flat().map(key => {
     const n = input[key];
     if (n === null) return [key, null];
     if (!Number.isFinite(n) || Math.abs(n) > 1000000 ||
@@ -53,7 +61,7 @@ function formatFact(key, value) {
   return number.format(value) + (counts.has(key) ? '' : value === 1 ? ' week' : ' weeks');
 }
 
-function renderBullets(output, metrics) {
+function renderBullets(output, metrics, cards) {
   const result = {};
   let generated = 0;
   const rejected = [];
@@ -62,7 +70,7 @@ function renderBullets(output, metrics) {
     const text = typeof output?.[card] === 'string'
       ? output[card].trim().replace(/(\{(?:wait|priorWait|horizon)\})\s+weeks?\b/gi, '$1') : '';
     if (!supported.length) {
-      result[card] = card === 'extraCapacity' ? null : 'There is not enough reportable data for this insight.';
+      result[card] = cards === expandedCards || card === 'extraCapacity' ? null : 'There is not enough reportable data for this insight.';
       continue;
     }
     const refs = [...text.matchAll(/\{([a-zA-Z]+)\}/g)].map(m => m[1]);
@@ -78,7 +86,7 @@ function renderBullets(output, metrics) {
   return {bullets:result, generated, rejected};
 }
 
-const instructions = [
+const legacyInstructions = [
   'Write six short British English homepage insights for a GP practice operations dashboard, one sentence each.',
   'Only describe the supplied metrics. Treat a null as unavailable and leave the corresponding field empty when it has no usable metric.',
   'For every non-empty insight insert at least one supported metric as an exact placeholder, such as {forecast}. Never write literal numbers or percent signs.',
@@ -93,6 +101,21 @@ const instructions = [
   'Waiting times: {wait} and {priorWait} are median booking-to-appointment waits in weeks for the latest and preceding 28-day periods.',
   'Forward availability: {available} is the number of routine slots marked available; {horizon} is how many weeks ahead the furthest available slot is, never a forecast or run-out date.',
   'Keep forecast and actual activity distinct. Do not infer reasons, clinician or patient identities, causes, or detail not present. Do not give clinical advice.'
+].join(' ');
+
+const expandedInstructions = [
+  'Write the short British English evidence sentences that sit under eight verified headlines on a GP practice dashboard.',
+  'Use only the supplied aggregates. Each sentence must use at least one supported metric as an exact placeholder, like {forecast}. Use all non-null metrics for that card where possible. Return an empty string for cards with only null metrics.',
+  'Never use literal numbers or percent signs. Change placeholders include direction, for example “8% higher” or “roughly unchanged”. Wait placeholders include weeks. Use English letters and punctuation.',
+  'Seasonal demand: {forecast} compares the next four forecast weeks of urgent bookings with the recent average. {acuteYear} compares recent bookings with the same four weeks last year. The headline already assesses seasonality separately.',
+  'Extra capacity: {extra} urgent Extra slots were booked in the last four complete weeks.',
+  'Unused capacity: {unused} urgent slots remained unfilled in the last four complete weeks according to the latest snapshot.',
+  'Peak demand: {peak} is the number of urgent bookings forecast in the busiest of the next four forecast weeks. {peakChange} compares that week with the recent weekly average.',
+  'Routine demand: {routineTrend} compares routine bookings with the preceding four weeks. {routineYear} compares with the same four weeks last year. The headline already assesses seasonality separately.',
+  'Waiting times: {wait} and {priorWait} are median routine booking-to-appointment waits for the latest and preceding periods.',
+  'Forward availability: {riskSlots} routine slots in the uploaded diary are available for the clinician group and consultation mode named in the headline. Do not invent the group, mode, dates, or a time to run out.',
+  'Routine unused capacity: {routineUnused} routine slots remained unfilled in the last four complete weeks according to the latest snapshot.',
+  'Keep forecasts and observed activity distinct. Never infer the cause, identify clinicians or patients, or give clinical advice.'
 ].join(' ');
 
 Deno.serve(async request => {
@@ -110,11 +133,12 @@ Deno.serve(async request => {
     const user = await identity.json();
     const raw = await request.text();
     if (raw.length > 2500) return json(400, {error:'The insights request is too large.'});
-    let body, metrics;
+    let body, metrics, cards;
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      metrics = sanitise(body.metrics);
+      cards = body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      metrics = sanitise(body.metrics, cards);
     } catch { return json(400, {error:'The insights request is invalid.'}); }
     if (Object.values(metrics).every(value => value === null)) return json(422, {error:'There are no reportable figures for AI insights yet.'});
     const key = Deno.env.get('HOME_INSIGHTS_OPENAI_API_KEY');
@@ -135,9 +159,9 @@ Deno.serve(async request => {
       headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
-        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:900,
-        instructions, input:JSON.stringify(metrics),
-        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:outputSchema(metrics)}}
+        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:cards === expandedCards ? 1100 : 900,
+        instructions:cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(metrics),
+        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:outputSchema(metrics, cards)}}
       })
     });
     if (!response.ok) {
@@ -164,10 +188,10 @@ Deno.serve(async request => {
     const output = answer.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text');
     if (!output?.text) { stage = 'openai_missing_text'; throw Error('No text response.'); }
     stage = 'openai_invalid_json';
-    const {bullets, generated, rejected} = renderBullets(JSON.parse(output.text), metrics);
+    const {bullets, generated, rejected} = renderBullets(JSON.parse(output.text), metrics, cards);
     if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
     if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics, insightVersion])));
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics, cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2'])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
     stage = 'save';
     const saved = await fetch(url + '/rest/v1/iq_home_insights?practice_id=eq.'+body.practice+'&attempt_id=eq.'+attempt, {

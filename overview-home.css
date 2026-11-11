@@ -77,13 +77,13 @@
 .iq-overview .iq-home-chart-svg{width:100%;height:auto;display:block;margin-top:4px;overflow:visible}
 .iq-overview .iq-home-acute{--care-accent:#f03265;--care-pale:#ffe2ec}
 .iq-overview .iq-home-routine{--care-accent:#0b9c7f;--care-pale:#dcf8ed}
-.iq-overview .iq-home-insights{background:linear-gradient(180deg,var(--care-pale) 0,#fff 95px);border:1px solid #dce7f0;padding:0 18px 7px}
-.iq-overview .iq-home-insights h3{padding:14px 13px 12px;color:#14284e;font-size:23px;line-height:1.1;font-weight:800;letter-spacing:-.3px}
-.iq-overview .iq-home-insight{width:100%!important;border:0!important;border-bottom:1px solid #dde6f0!important;border-radius:0!important;background:#fff!important;min-height:90px!important;padding:12px 8px!important;display:flex;gap:17px;align-items:center;text-align:left;color:#203b55!important;box-shadow:none!important;cursor:pointer}
-.iq-overview .iq-home-insight:last-child{border-bottom:0!important}
+.iq-overview .iq-home-insights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;background:linear-gradient(180deg,var(--care-pale) 0,#fff 76px);border:1px solid #dce7f0;padding:8px 12px 12px}
+.iq-overview .iq-home-insights h3{grid-column:1/-1;margin:0;padding:4px 5px;color:#14284e;font-size:17px;line-height:1.2;font-weight:800}
+.iq-overview .iq-home-insight{min-width:0;width:100%!important;border:1px solid #dde6f0!important;border-radius:12px!important;background:#fff!important;padding:10px!important;display:flex;gap:8px;align-items:flex-start;text-align:left;color:#203b55!important;box-shadow:none!important;cursor:pointer;overflow-wrap:anywhere}
+.iq-overview .iq-home-insight-copy b{display:block;margin-bottom:3px;font-weight:750;color:#14284e}
 .iq-overview .iq-home-insight:hover,.iq-overview .iq-home-insight:focus-visible{background:#f3f9ff!important}
-.iq-overview .iq-home-insight .iq-home-insight-icon{flex:0 0 52px;display:grid;place-items:center}
-.iq-overview .iq-home-insight .iq-home-insight-icon svg{width:35px;height:35px;stroke:currentColor;stroke-width:2.3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.iq-overview .iq-home-insight .iq-home-insight-icon{flex:0 0 24px;display:grid;place-items:center}
+.iq-overview .iq-home-insight .iq-home-insight-icon svg{width:22px;height:22px;stroke:currentColor;stroke-width:2.3;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .iq-overview .iq-home-insight[data-icon-theme=purple] .iq-home-insight-icon{color:#853af4}
 .iq-overview .iq-home-insight[data-icon-theme=blue] .iq-home-insight-icon{color:#2585e5}
 .iq-overview .iq-home-insight[data-icon-theme=orange] .iq-home-insight-icon{color:#e9910d}
@@ -96,7 +96,7 @@
 .iq-overview .iq-home-ai-controls button{width:auto;padding:6px 12px}
 .iq-overview .iq-home-caveat{font-size:11px;line-height:1.45;color:#61798c;margin:12px 5px 0}
 @media(max-width:1050px){.iq-overview .iq-home-hero{grid-template-columns:190px 1fr;gap:16px}.iq-overview .iq-home-updated{grid-column:1/-1;justify-self:end;max-width:none}.iq-overview .iq-home-panes{grid-template-columns:1fr}.iq-overview .iq-home-illustration img{max-width:190px}}
-@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:110px 1fr;gap:10px}.iq-overview .iq-home-welcome h2{font-size:24px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{justify-self:stretch;width:100%}.iq-overview .iq-home-card-heading{padding:14px;gap:10px}.iq-overview .iq-home-symbol{width:47px;height:47px;flex-basis:47px}.iq-overview .iq-home-symbol svg{width:25px;height:25px}.iq-overview .iq-home-heading-text h3{font-size:19px}.iq-overview .iq-home-heading-text p{font-size:12px}.iq-overview .iq-home-outlook{min-width:92px;padding:9px}.iq-overview .iq-home-outlook strong{font-size:23px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:20px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{flex-basis:36px}.iq-overview .iq-home-insight .iq-home-insight-icon svg{width:29px;height:29px}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
+@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:110px 1fr;gap:10px}.iq-overview .iq-home-welcome h2{font-size:24px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{justify-self:stretch;width:100%}.iq-overview .iq-home-card-heading{padding:14px;gap:10px}.iq-overview .iq-home-symbol{width:47px;height:47px;flex-basis:47px}.iq-overview .iq-home-symbol svg{width:25px;height:25px}.iq-overview .iq-home-heading-text h3{font-size:19px}.iq-overview .iq-home-heading-text p{font-size:12px}.iq-overview .iq-home-outlook{min-width:92px;padding:9px}.iq-overview .iq-home-outlook strong{font-size:23px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:16px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{display:none}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
 
 /* Keep the mobile menu visible on the refreshed white navigation bar. */
 #dashboardShell .header-menu-toggle{background:#eaf4fd!important;color:#1e476d!important;border:1px solid #d7e7f6!important;border-radius:10px!important}
