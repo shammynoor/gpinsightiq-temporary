@@ -129,28 +129,32 @@ function fitOverviewCharts(){
  const value=height+'px';
  if(home.style.getPropertyValue('--overview-chart-height')!==value)home.style.setProperty('--overview-chart-height',value);
 }
-function drawForecastBand(svg,forecast,hasBand,xpos,ypos,colour,spacing,left,right,anchor,coverage=85){
- const draw=(rows,start)=>{
+function drawForecastBand(svg,forecast,hasBand,xpos,ypos,colour,spacing,left,right,anchor,startRange=null){
+ const draw=(rows,start,range)=>{
   if(!rows.length)return;
   const upper=rows.map(row=>[row.x,ypos(row.high)]);
   const lower=rows.map(row=>[row.x,ypos(row.low)]);
-  if(rows.length===1&&!start){
+  if(rows.length===1&&!start&&!range){
    for(const edge of [upper,lower]){
     const [x,y]=edge[0];
     edge.splice(0,1,[Math.max(left,x-spacing/2),y],[Math.min(right,x+spacing/2),y]);
    }
   }
+  if(range){
+   upper.unshift([range.x,ypos(range.high)]);
+   lower.unshift([range.x,ypos(range.low)]);
+  }
   const points=(start?[start]:[]).concat(upper,lower.reverse()).map(point=>point.join(',')).join(' ');
   const area=svgElement('polygon',{class:'iq-home-forecast-band',points,fill:colour,'fill-opacity':.23});
-  area.append(svgElement('title',{},'Estimated '+coverage+'% prediction interval'));
+  area.append(svgElement('title',{},'Estimated 85% prediction interval'));
   svg.append(area);
  };
- let segment=[],start=anchor;
+ let segment=[],start=anchor,range=startRange;
  forecast.forEach((row,i)=>{
   if(hasBand(row))segment.push({...row,x:xpos(i)});
-  else{draw(segment,start);segment=[];start=null;}
+  else{draw(segment,start,range);segment=[];start=null;range=null;}
  });
- draw(segment,start);
+ draw(segment,start,range);
 }
 function renderChart(section,history,forecast,colour,axis,historyStart,adjustedHistory=history){
  const root=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-plot');if(!root)return;
@@ -167,8 +171,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  const legend=document.createElement('div');legend.className='iq-home-legend';
  const nowcast=forecast[0]?.nowcast;
  const nowcastColour='var(--routine-nowcast)';
- const legendItems=[['Bookings','iq-home-dot'],['Forecast','iq-home-legend-line']];
- if(nowcast)legendItems.push(['Booked so far','iq-home-legend-so-far'],['This week · 70% range','iq-home-legend-band is-nowcast']);
+ const legendItems=[['Bookings','iq-home-dot'],[section==='routine'?'Seasonal forecast':'Forecast','iq-home-legend-line']];
+ if(nowcast)legendItems.push(['Booked so far','iq-home-legend-so-far'],['This week · 85% range','iq-home-legend-band is-nowcast']);
  const seasonalForecast=nowcast?forecast.slice(1):forecast;
  const hasBand=row=>Number.isFinite(row?.estimate)&&Number.isFinite(row.low)&&Number.isFinite(row.high);
  if(seasonalForecast.some(hasBand))legendItems.push([nowcast?'Seasonal · 85% range':'85% prediction interval','iq-home-legend-band']);
@@ -180,7 +184,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  }
  root.append(legend);
  const averageLabel=average===null?'':' Historical weekly average: '+integer(average)+' list-size-adjusted bookings.';
- const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks, this week and four weeks ahead. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+(nowcast?' This week uses bookings so far and an indicative 70% range.':'')+(seasonalForecast.some(hasBand)?' Seasonal shading shows the estimated 85% prediction interval.':'')});
+ const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks, this week and four weeks ahead. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+(nowcast?' This week uses bookings so far and an indicative 85% range.':'')+(seasonalForecast.some(hasBand)?' Seasonal shading shows the estimated 85% prediction interval.':'')});
  let lastWidth=0,lastHeight=0;
  const draw=(width,height)=>{
  width=Math.round(width);height=Math.round(height);
@@ -203,9 +207,10 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  const anchorIndex=history.findLastIndex(Number.isFinite);
  const anchor=anchorIndex<0?null:[xpos(anchorIndex),ypos(history[anchorIndex])];
  if(nowcast){
-  drawForecastBand(svg,forecast.slice(0,1),hasBand,()=>xpos(firstForecast),ypos,nowcastColour,spacing,left,right,anchor,70);
+  drawForecastBand(svg,forecast.slice(0,1),hasBand,()=>xpos(firstForecast),ypos,nowcastColour,spacing,left,right,anchor);
  }
- drawForecastBand(svg,seasonalForecast,hasBand,i=>xpos(firstForecast+i+(nowcast?1:0)),ypos,colour,spacing,left,right,nowcast?null:anchor);
+ const currentRange=nowcast&&hasBand(forecast[0])?{x:xpos(firstForecast),low:forecast[0].low,high:forecast[0].high}:null;
+ drawForecastBand(svg,seasonalForecast,hasBand,i=>xpos(firstForecast+i+(nowcast?1:0)),ypos,colour,spacing,left,right,nowcast?null:anchor,currentRange);
  const divider=anchor?.[0]??xpos(firstForecast-.5);
  svg.append(svgElement('line',{x1:divider,y1:top,x2:divider,y2:bottom,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
  if(average!==null){
@@ -230,7 +235,10 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  const historyPoints=history.flatMap((value,i)=>Number.isFinite(value)?[[xpos(i),ypos(value)]]:[]);
  drawTrend(historyPoints);
  const forecastPoints=seasonalForecast.flatMap((row,i)=>Number.isFinite(row?.estimate)?[[xpos(firstForecast+i+(nowcast?1:0)),ypos(row.estimate)]]:[]);
- if(forecastPoints.length)drawTrend((nowcast?[]:historyPoints.slice(-1)).concat(forecastPoints),true);
+ const forecastStart=nowcast
+  ?Number.isFinite(seasonalForecast[0]?.estimate)?[[xpos(firstForecast),ypos(forecast[0].estimate)]]:[]
+  :historyPoints.slice(-1);
+ if(forecastPoints.length)drawTrend(forecastStart.concat(forecastPoints),true);
  if(nowcast){
   const x=xpos(firstForecast),estimateY=ypos(forecast[0].estimate);
   if(anchor)drawTrend([anchor,[x,estimateY]],true,nowcastColour);
@@ -271,10 +279,9 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   if(!Number.isFinite(row.estimate))return;
   const x=xpos(firstForecast+i);
   const hit=svgElement('rect',{x:x-spacing/2,y:top,width:spacing,height:bottom-top,fill:'transparent'});
-  const level=row.nowcast?'70%':'85%';
-  const interval=hasBand(row)?' ('+level+' prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
+  const interval=hasBand(row)?' (85% prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
   const soFar=row.nowcast?' · '+integer(row.nowcast.rawObserved)+' bookings so far · Report: '+row.nowcast.asOfLabel:
-   i===0&&section==='routine'?' · Seasonal estimate; bookings-so-far projection unavailable':'';
+   section==='routine'?(i===0?' · Bookings-so-far projection unavailable; ':' · ')+'Seasonal model with a 6-week half-life':'';
   hit.append(svgElement('title',{},(i===0?'This week, ':'')+fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted'+interval+soFar));
   svg.append(hit);
  });
@@ -658,7 +665,7 @@ function routineCurrentWeek(date,weekStart,slots,adjustCount,holidayWeeks,covera
   for(const holiday of englandWalesBankHolidays(year))excludedPeriods.add(monday(holiday));
  }
  const projection=GPCorrectness.currentPeriodNowcast({
-  mode:'week',currentDate:date,clock,daily:[...daily.values()],timed,coverage,excludedPeriods:[...excludedPeriods]
+  mode:'week',currentDate:date,clock,daily:[...daily.values()],timed,coverage,excludedPeriods:[...excludedPeriods],predictionCoverage:.85
  });
  if(projection.error)return null;
  const asOfLabel=snapshot.toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});

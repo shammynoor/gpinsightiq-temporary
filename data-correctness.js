@@ -84,7 +84,7 @@ function quantile(values,p){
  const sorted=values.filter(Number.isFinite).slice().sort((a,b)=>a-b);if(!sorted.length)return NaN;
  const at=(sorted.length-1)*p,lo=Math.floor(at);return sorted[lo]+(sorted[Math.ceil(at)]-sorted[lo])*(at-lo);
 }
-function currentPeriodNowcast({mode='week',currentDate,clock,daily=[],timed=[],coverage=[],excludedPeriods=[]}={}){
+function currentPeriodNowcast({mode='week',currentDate,clock,daily=[],timed=[],coverage=[],excludedPeriods=[],predictionCoverage=.70}={}){
  if(!validDate(currentDate)||!clock||!validDate(clock.date)||!Number.isFinite(clock.minute))return {error:'A dated report snapshot is needed.'};
  const key=mode==='month'?currentDate.slice(0,7):monday(currentDate),bounds=periodBounds(key,mode);
  if(clock.date<bounds.start)return {error:'The latest report predates the current '+mode+'.'};
@@ -135,11 +135,14 @@ function currentPeriodNowcast({mode='week',currentDate,clock,daily=[],timed=[],c
  const remaining=Math.max(0,estimate-observed),samplePenalty=Math.max(1,Math.sqrt(12/samples.length));
  // Empirical analogue spread plus a conservative uncertainty floor. This is an
  // indicative finishing range, not a calibrated statistical confidence guarantee.
- const z70=1.036433389,floorScale=z70/1.644853627;
- const spread=Math.max(z70*Math.sqrt(remaining),estimate*(intradayProfile?0.25:0.35)*floorScale*Math.sqrt(1-fraction))*samplePenalty;
- const low=Math.max(observed,Math.min(quantile(candidates,0.15),estimate-spread));
- const high=Math.max(low,quantile(candidates,0.85),estimate+spread);
- return {key,mode,estimate,predictionCoverage:0.7,low:Math.max(observed,Math.floor(low)),high:Math.ceil(high),observed,rawObserved,fraction,samples:samples.length,intradayProfile,timedCoverage,asOf:{date:clock.date,minute},periodStart:bounds.start,periodEnd:bounds.end};
+ const widerInterval=predictionCoverage===.85;
+ const tail=widerInterval?.075:.15;
+ const z=widerInterval?1.439531471:1.036433389;
+ const floorScale=z/1.644853627;
+ const spread=Math.max(z*Math.sqrt(remaining),estimate*(intradayProfile?0.25:0.35)*floorScale*Math.sqrt(1-fraction))*samplePenalty;
+ const low=Math.max(observed,Math.min(quantile(candidates,tail),estimate-spread));
+ const high=Math.max(low,quantile(candidates,1-tail),estimate+spread);
+ return {key,mode,estimate,predictionCoverage:widerInterval?.85:.70,low:Math.max(observed,Math.floor(low)),high:Math.ceil(high),observed,rawObserved,fraction,samples:samples.length,intradayProfile,timedCoverage,asOf:{date:clock.date,minute},periodStart:bounds.start,periodEnd:bounds.end};
 }
 
 // Prefer labels on their average lines, spreading close averages horizontally.
