@@ -284,7 +284,7 @@ Deno.serve(async request => {
       headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
-        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
+        model:'gpt-6-luna', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
         instructions:cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
         text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards) : outputSchema(metrics, cards)}}
       })
