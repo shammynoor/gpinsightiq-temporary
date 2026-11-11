@@ -411,7 +411,8 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
     const observed=capacityGroups.reduce((sum,name)=>sum+normalise(d,parts.get(d).get(name)||0),0);
     dailyResiduals.get(dow).push(observed-estimates.reduce((sum,v)=>sum+v,0));
    }
-   for(let w=monday(start);shift(w,4)<=end;w=shift(w,7)){
+   const forecastWeek=monday(today);
+   for(let w=monday(start);w<forecastWeek&&shift(w,4)<=end;w=shift(w,7)){
     if(excludeHolidayWeeks&&holidayWeeks.has(w))continue;
     let observed=0,expected=0,observedDays=0,valid=true;
     for(let dow=1;dow<=5;dow++){
@@ -422,8 +423,19 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
      observed+=capacityGroups.reduce((sum,name)=>sum+normalise(day,parts.get(day).get(name)||0),0);
      expected+=estimates.reduce((sum,v)=>sum+v,0);observedDays++;
     }
-    if(valid&&observedDays>=4)weeklyResiduals.push(observed-expected);
+    if(valid&&observedDays>=4)weeklyResiduals.push({week:w,error:observed-expected});
    }
+   // Adjust the seasonal level using complete weeks. Weight halves every 13 calendar weeks.
+   const recencyHalfLife=13;
+   let weightedError=0,weightSum=0;
+   for(const {week,error} of weeklyResiduals){
+    const age=(Date.parse(forecastWeek)-Date.parse(week))/604800000-1;
+    const weight=2**(-age/recencyHalfLife);
+    weightedError+=weight*error;
+    weightSum+=weight;
+   }
+   const weeklyLevelAdjustment=capacitySourcePage==='homePage'&&weightSum?weightedError/weightSum:0;
+   const weeklyErrors=weeklyResiduals.map(({error})=>error);
    const residualBounds=(values,coverage)=>{
     if(values.length<8)return null;
     const sorted=[...values].sort((a,b)=>a-b);
@@ -432,10 +444,11 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
     return [at(tail),at(1-tail)];
    };
    capacityPrediction.range=(bucket,weekly,coverage=.70,horizon=1)=>{
-    const estimate=capacityPrediction(bucket,weekly);
-    if(!Number.isFinite(estimate))return null;
+    const seasonalEstimate=capacityPrediction(bucket,weekly);
+    if(!Number.isFinite(seasonalEstimate))return null;
+    const estimate=Math.max(0,Math.ceil(seasonalEstimate+(weekly?weeklyLevelAdjustment:0)));
     const dow=new Date(bucket+'T12:00:00Z').getUTCDay();
-    const values=weekly?weeklyResiduals:dailyResiduals.get(dow)||[];
+    const values=weekly?weeklyErrors:dailyResiduals.get(dow)||[];
     const errors=residualBounds(values,coverage);
     const spread=Math.sqrt(1+(horizon-1)/13);
     return {estimate,low:errors?Math.max(0,Math.floor(estimate+Math.min(0,errors[0])*spread)):null,high:errors?Math.ceil(estimate+Math.max(0,errors[1])*spread):null,samples:values.length};

@@ -129,28 +129,28 @@ function fitOverviewCharts(){
  const value=height+'px';
  if(home.style.getPropertyValue('--overview-chart-height')!==value)home.style.setProperty('--overview-chart-height',value);
 }
-function drawForecastBand(svg,forecast,hasBand,xpos,ypos,colour,spacing,left,right){
- const draw=rows=>{
+function drawForecastBand(svg,forecast,hasBand,xpos,ypos,colour,spacing,left,right,anchor){
+ const draw=(rows,start)=>{
   if(!rows.length)return;
   const upper=rows.map(row=>[row.x,ypos(row.high)]);
   const lower=rows.map(row=>[row.x,ypos(row.low)]);
-  if(rows.length===1){
+  if(rows.length===1&&!start){
    for(const edge of [upper,lower]){
     const [x,y]=edge[0];
     edge.splice(0,1,[Math.max(left,x-spacing/2),y],[Math.min(right,x+spacing/2),y]);
    }
   }
-  const points=upper.concat(lower.reverse()).map(point=>point.join(',')).join(' ');
+  const points=(start?[start]:[]).concat(upper,lower.reverse()).map(point=>point.join(',')).join(' ');
   const area=svgElement('polygon',{class:'iq-home-forecast-band',points,fill:colour,'fill-opacity':.23});
   area.append(svgElement('title',{},'Estimated 85% prediction interval'));
   svg.append(area);
  };
- let segment=[];
+ let segment=[],start=anchor;
  forecast.forEach((row,i)=>{
   if(hasBand(row))segment.push({...row,x:xpos(i)});
-  else{draw(segment);segment=[];}
+  else{draw(segment,start);segment=[];start=null;}
  });
- draw(segment);
+ draw(segment,start);
 }
 function renderChart(section,history,forecast,colour,axis,historyStart,adjustedHistory=history){
  const root=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-plot');if(!root)return;
@@ -176,7 +176,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  }
  root.append(legend);
  const averageLabel=average===null?'':' Historical weekly average: '+integer(average)+' list-size-adjusted bookings.';
- const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+(forecast.some(hasBand)?' Shading shows the estimated 85% prediction interval.':'')});
+ const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks, this week and four weeks ahead. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+(forecast.some(hasBand)?' Shading shows the estimated 85% prediction interval.':'')});
  let lastWidth=0,lastHeight=0;
  const draw=(width,height)=>{
  width=Math.round(width);height=Math.round(height);
@@ -196,8 +196,10 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   svg.append(svgElement('line',{x1:left,y1:y,x2:right,y2:y,stroke:'#d9e5ef','stroke-width':tick===0?1.5:1}));
   svg.append(svgElement('text',{x:left-8,y:y+4,'text-anchor':'end',fill:'#2f526e','font-size':12,'font-family':'Arial, sans-serif'},axisNumber.format(value)));
  }
- drawForecastBand(svg,forecast,hasBand,i=>xpos(firstForecast+i),ypos,colour,spacing,left,right);
- const divider=xpos(firstForecast-.5);
+ const anchorIndex=history.findLastIndex(Number.isFinite);
+ const anchor=anchorIndex<0?null:[xpos(anchorIndex),ypos(history[anchorIndex])];
+ drawForecastBand(svg,forecast,hasBand,i=>xpos(firstForecast+i),ypos,colour,spacing,left,right,anchor);
+ const divider=anchor?.[0]??xpos(firstForecast-.5);
  svg.append(svgElement('line',{x1:divider,y1:top,x2:divider,y2:bottom,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
  if(average!==null){
   const y=ypos(average);
@@ -240,8 +242,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   }
   const value=history[i];
   if(!Number.isFinite(value))continue;
-  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
-  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+ ' adjusted and smoothed bookings'));
+  const dot=svgElement('circle',{cx:x,cy:ypos(value),r:i===anchorIndex?3.5:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
+  dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+ (i===anchorIndex?' list-size-adjusted actual bookings':' adjusted and smoothed bookings')));
   svg.append(dot);
  }
  for(const [year,[from,to]] of years){
@@ -255,7 +257,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   const x=xpos(firstForecast+i);
   const hit=svgElement('rect',{x:x-spacing/2,y:top,width:spacing,height:bottom-top,fill:'transparent'});
   const interval=hasBand(row)?' (85% prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
-  hit.append(svgElement('title',{},fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted'+interval));
+  hit.append(svgElement('title',{},(i===0?'This week, ':'')+fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted'+interval));
   svg.append(hit);
  });
  };
@@ -384,7 +386,7 @@ function renderCare(section,options,metrics){
  const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks}=options;
  const currentFour=adjustedHistory.slice(-4).filter((_,i)=>!holidayWeeks.has(shift(latestCompleteWeek,(i-3)*7)));
  const recentMean=currentFour.length>=2&&currentFour.every(Number.isFinite)?currentFour.reduce((a,b)=>a+b,0)/currentFour.length:null;
- const regularForecast=forecast.filter(row=>!holidayWeeks.has(row.weekStart));
+ const regularForecast=forecast.slice(1).filter(row=>!holidayWeeks.has(row.weekStart));
  const predicted=regularForecast.filter(row=>Number.isFinite(row.estimate));
  const completeForecast=predicted.length>0&&predicted.length===regularForecast.length;
  const meanForecast=completeForecast?predicted.reduce((a,b)=>a+b.estimate,0)/predicted.length:null;
@@ -650,9 +652,8 @@ function update(){
   const firstMonday=monday(boundaryDay);
   const historyStart=firstMonday===boundaryDay?firstMonday:shift(firstMonday,7);
   const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
-  const nextWeek=shift(presentMonday,7);
   const holidayWeeks=new Set();
-  const lastForecastWeek=shift(nextWeek,(peakForecastWeeks-1)*7);
+  const lastForecastWeek=shift(presentMonday,peakForecastWeeks*7);
   for(let year=Number(historyStart.slice(0,4));year<=Number(shift(lastForecastWeek,6).slice(0,4));year++){
    for(const holiday of englandWalesBankHolidays(year))holidayWeeks.add(monday(holiday));
   }
@@ -679,13 +680,16 @@ function update(){
    const adjustedHistory=weekDates.map(week=>adjustedCounts.get(week)??null);
    const history=GPCorrectness.smoothDemandSeries(weekDates.map((date,i)=>({date,count:adjustedHistory[i]})),{level:1})
     .map((point,i)=>adjustedHistory[i]===null?null:point.smoothed);
+   // End the historical line at the observed value, without smoothing the fan anchor.
+   const lastObserved=adjustedHistory.findLastIndex(Number.isFinite);
+   if(lastObserved>=0)history[lastObserved]=adjustedHistory[lastObserved];
    const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care==='acute'?'urgent':'routine');
-   const projection=Array.from({length:care==='acute'?peakForecastWeeks:4},(_,i)=>{
-    const weekStart=shift(nextWeek,i*7);
+   const projection=Array.from({length:care==='acute'?peakForecastWeeks+1:5},(_,i)=>{
+    const weekStart=shift(presentMonday,i*7);
     const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
     return {...range,weekStart};
    });
-   series.push({care,history,adjustedHistory,forecast:projection.slice(0,4),peakForecast:projection.filter(row=>!holidayWeeks.has(row.weekStart)),groups:groupNames[care],bookingMap:weekCounts});
+   series.push({care,history,adjustedHistory,forecast:projection.slice(0,5),peakForecast:projection.slice(1).filter(row=>!holidayWeeks.has(row.weekStart)),groups:groupNames[care],bookingMap:weekCounts});
   }
   const coverage=typeof slotReportCoverage==='undefined'?[]:slotReportCoverage;
   const datedCoverage=coverage.filter(range=>GPCorrectness.validDate(range.asOf));
