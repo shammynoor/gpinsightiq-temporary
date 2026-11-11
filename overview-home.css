@@ -98,6 +98,9 @@
 .iq-overview .iq-home-insight[data-icon-theme=blue] .iq-home-insight-icon{color:#2585e5}
 .iq-overview .iq-home-insight[data-icon-theme=orange] .iq-home-insight-icon{color:#e9910d}
 .iq-overview .iq-home-insight-copy{flex:1;min-width:0}
+.iq-overview .iq-home-insight-copy [role=list]{display:grid;gap:4px}
+.iq-overview .iq-home-insight-copy [role=listitem]{display:block;position:relative;padding-left:12px}
+.iq-overview .iq-home-insight-copy [role=listitem]::before{content:"•";position:absolute;left:0;color:#47647e}
 .iq-overview .iq-home-insight-copy strong{display:block;color:#14284e;font-size:16px;font-weight:800;margin-bottom:3px}
 .iq-overview .iq-home-insight-copy small{display:block;color:#243951;font-size:13px;line-height:1.48;font-weight:450}
 .iq-overview .iq-home-go{font-size:28px;line-height:1;color:#17395b}

@@ -17,8 +17,8 @@ export class SupabaseBackend{
   if(error)throw error;
   return data;
  }
- async regenerateHomeInsights(practice,period,metrics){
-  const {data,error}=await this.client.functions.invoke('iq-home-insights',{body:{practice,period,metrics}});
+ async regenerateHomeInsights(practice,period,metrics,version){
+  const {data,error}=await this.client.functions.invoke('iq-home-insights',{body:{practice,period,metrics,version}});
   if(error){
    let details;
    try{details=await error.context?.json();}catch{}
