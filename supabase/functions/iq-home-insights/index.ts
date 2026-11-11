@@ -196,6 +196,12 @@ const contextualFindingInstructions = detailedFindingInstructions + ' ' + [
   'ExtraShare is the percentage of booked urgent slots that were Extra slots. UnusedShare and RoutineUnusedShare are the percentage of slots with a booked or unused outcome that went unused in each care category. These shares use the last four complete weeks. Explain what the share is of.'
 ].join(' ');
 
+const comparisonFindingInstructions = contextualFindingInstructions + ' ' + [
+  'Use full, conversational sentences. Give the subject and the time period before or alongside the change. For routineTrend, a good pattern is “Over the last four weeks, we averaged {routineTrend} routine bookings per week than in the preceding four weeks.”',
+  'Express historical count comparisons as differences in weekly averages. For year-over-year comparisons, compare with the weekly average for the same period last year. For capacity comparisons use the weekly average for the relevant reference period. A separate bullet can still give the total for the last four weeks.',
+  'Wait and cover placeholders already include their units. Write “about {riskCoverDays} of cover” without adding a second days or weeks.'
+].join(' ');
+
 function findingInput(metrics,cards=findingCards) {
   return Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
     const figures = Object.fromEntries(fields.filter(key=>metrics[key]!==null).map(key=>[key,metrics[key]]));
@@ -222,7 +228,7 @@ function formatFinding(key,value) {
   return formatFact(key,value,true);
 }
 
-function renderFindings(output,metrics,cards=findingCards) {
+function renderFindings(output,metrics,cards=findingCards,version) {
   const bullets = {};
   const rejected = [];
   let generated = 0;
@@ -241,13 +247,18 @@ function renderFindings(output,metrics,cards=findingCards) {
       const forecastClear = !facts.some(key=>key==='forecast'||key==='routineForecast')||(/\b(?:weeks?|month)\b/i.test(text)&&/\b(?:next|coming|ahead)\b/i.test(text)&&/\b(?:average|recent)\b/i.test(text));
       const coverClear = !facts.some(key=>key==='riskCover'||key==='riskCoverDays')||(/\b(?:pace|rate)\b/i.test(text)&&/\b(?:if|unless|without|assuming)\b/i.test(text));
       const peakClear = cards===findingCards || !facts.includes('peak') || /\b(?:nine weeks|two months|couple of months)\b/i.test(text);
+      const historicalComparison = facts.some(key=>capacityChanges.has(key)||
+        ['acuteTrend','routineTrend','acuteYear','routineYear'].includes(key));
+      const averageClear = version!=='home-insights-v8' || !historicalComparison ||
+        (/\baverag(?:e|es|ed|ing)\b/i.test(text) && /\b(?:weekly|per week|each week|a week)\b/i.test(text) && !text.startsWith('{'));
       if (!validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
-          !forecastClear || !coverClear || !peakClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
+          !forecastClear || !coverClear || !peakClear || !averageClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
           facts.some(key=>findingLabels[key]&&!refs.includes(findingLabels[key]))) {
         rejected.push(card);
         continue;
       }
-      const display = text.replace(/\{([A-Za-z]+)\}/g,(match,key)=>available.has(key)?formatFinding(key,metrics[key]):match);
+      const display = text.replace(/\{([A-Za-z]+)\}/g,(match,key)=>available.has(key)?formatFinding(key,metrics[key]):match)
+        .replace(/\b(day|week)(s?)\s+\1s?\b/gi,'$1$2');
       const size = encoder.encode(display).length;
       if (size>155 || size>bytesRemaining) continue;
       bytesRemaining-=size;
@@ -284,9 +295,9 @@ Deno.serve(async request => {
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      cards = body.version === 'home-insights-v7' ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      cards = ['home-insights-v7','home-insights-v8'].includes(body.version) ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
       isFindings = cards === findingCards || cards === detailedFindingCards || cards === contextualFindingCards;
-      version = cards === contextualFindingCards ? 'home-insights-v7' : cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
+      version = cards === contextualFindingCards ? body.version : cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
       metrics = sanitise(body.metrics, cards);
     } catch { return json(400, {error:'The insights request is invalid.'}); }
     if (Object.values(metrics).every(value => value === null)) return json(422, {error:'There are no reportable figures for AI insights yet.'});
@@ -309,7 +320,7 @@ Deno.serve(async request => {
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
         model:'gpt-6-luna', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
-        instructions:cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
+        instructions:version === 'home-insights-v8' ? comparisonFindingInstructions : cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
         text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards) : outputSchema(metrics, cards)}}
       })
     });
@@ -338,7 +349,7 @@ Deno.serve(async request => {
     if (!output?.text) { stage = 'openai_missing_text'; throw Error('No text response.'); }
     stage = 'openai_invalid_json';
     const parsed = JSON.parse(output.text);
-    const {bullets, generated, rejected} = isFindings ? renderFindings(parsed,metrics,cards) : renderBullets(parsed,metrics,cards);
+    const {bullets, generated, rejected} = isFindings ? renderFindings(parsed,metrics,cards,version) : renderBullets(parsed,metrics,cards);
     if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
     if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
     const evidence = isFindings ? Object.entries(metrics).sort(([a],[b])=>a<b?-1:a>b?1:0) : metrics;

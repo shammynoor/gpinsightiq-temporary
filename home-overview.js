@@ -3,7 +3,7 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const insightVersion='home-insights-v7';
+const insightVersion='home-insights-v8';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
@@ -315,15 +315,15 @@ function reportableShare(part,total){
 
 function capacityComparisonLine(comparison){
  const benchmarks=[
-  [comparison.year,'the same four weeks last year'],
-  [comparison.average,'the typical four-week period in the preceding year'],
-  [comparison.previous,'the previous four weeks']
+  [comparison.year,'the weekly average for the same period last year'],
+  [comparison.average,'the weekly average over the preceding year'],
+  [comparison.previous,'the weekly average for the preceding four weeks']
  ];
  const match=benchmarks.find(([value])=>value!==null);
  if(!match)return '';
  const [value,label]=match;
- return value===0?'That was in line with '+label+'.':
-  'That was '+describeChange(value)+' than '+label+'.';
+ return value===0?'The recent weekly average was in line with '+label+'.':
+  'Over the last four weeks, we averaged '+describeChange(value)+' slots per week than '+label+'.';
 }
 function renderCare(section,options,metrics){
  const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks}=options;
@@ -340,9 +340,15 @@ function renderCare(section,options,metrics){
  const currentWeeks=Array.from({length:4},(_,i)=>shift(latestCompleteWeek,-(3-i)*7));
  const previousWeeks=currentWeeks.map(w=>shift(w,-28));
  const lastYearWeeks=currentWeeks.map(w=>shift(w,-364));
- const hasWeeks=weeks=>weeks.filter(w=>bookingMap.has(w)).length>=3;
- const yoy=hasWeeks(currentWeeks)&&hasWeeks(lastYearWeeks)?signedTrend(sumWeeks(currentWeeks),sumWeeks(lastYearWeeks)):null;
- const previous=hasWeeks(currentWeeks)&&hasWeeks(previousWeeks)?signedTrend(sumWeeks(currentWeeks),sumWeeks(previousWeeks)):null;
+ const observedAverage=weeks=>{
+  const reported=weeks.filter(week=>bookingMap.has(week));
+  return reported.length>=3?sumWeeks(reported)/reported.length:null;
+ };
+ const currentAverage=observedAverage(currentWeeks);
+ const yearAverage=observedAverage(lastYearWeeks);
+ const previousAverage=observedAverage(previousWeeks);
+ const yoy=currentAverage!==null?signedTrend(currentAverage,yearAverage):null;
+ const previous=currentAverage!==null?signedTrend(currentAverage,previousAverage):null;
  const recentTotal=sumWeeks(currentWeeks);
  const seasonalTotals=[364,728,1092].map(days=>currentWeeks.map(w=>shift(w,-days)))
   .filter(weeks=>weeks.every(w=>bookingMap.has(w))&&sumWeeks(weeks)>=30).map(sumWeeks);
@@ -399,8 +405,8 @@ function renderCare(section,options,metrics){
   unusedContext
  ];
  const yearChange=reportableChange(yoy,recentTotal,sumWeeks(lastYearWeeks));
- const yearDetail=yearChange===null?null:yearChange===0?'Bookings were similar to the same weeks last year.':
-  describeChange(yearChange)+' bookings than the same weeks last year.';
+ const yearDetail=yearChange===null?null:yearChange===0?'Our recent weekly average was similar to the average for the same period last year.':
+  'Over the last four weeks, we averaged '+describeChange(yearChange)+' '+(section==='acute'?'urgent':'routine')+' bookings per week than the average for the same period last year.';
  const seasonalComparison=yearDetail||seasonDetail;
  const recentWeeks=adjustedHistory.slice(-8).filter(Number.isFinite);
  const low=Math.min(...recentWeeks),high=Math.max(...recentWeeks);
@@ -457,8 +463,8 @@ function renderCare(section,options,metrics){
   metrics.routineSeason=yearChange===null?seasonIndex:null;
   metrics.routineVariation=variation;
   const recent=metrics.routineTrend===null?'There’s too little data to compare with the previous four weeks.':
-   metrics.routineTrend===0?'Routine bookings held steady over the last four weeks.':
-   describeChange(metrics.routineTrend)+' routine bookings than in the previous four weeks.';
+   metrics.routineTrend===0?'Average weekly routine bookings held steady across the two four-week periods.':
+   'Over the last four weeks, we averaged '+describeChange(metrics.routineTrend)+' routine bookings per week than in the preceding four weeks.';
   setInsight('routine',0,'Demand trend',[recent,seasonalComparison],
    [seasonPosition,metrics.routineTrend?describeChange(metrics.routineTrend):'',yearChange?describeChange(yearChange):'']);
   const recentStart=shift(today,-28),previousStart=shift(today,-56);
