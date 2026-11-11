@@ -9,8 +9,16 @@ const cards = {
 const counts = new Set(['extra', 'unused', 'available']);
 const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear']);
 const metricNames = Object.values(cards).flat();
-const properties = Object.fromEntries(Object.keys(cards).map(key => [key, {type:'string'}]));
-const schema = {type:'object', additionalProperties:false, required:Object.keys(cards), properties};
+function outputSchema(metrics) {
+  const prose = '[^0-9%{}<>\\r\\n]*';
+  const properties = Object.fromEntries(Object.entries(cards).map(([card, allowed]) => {
+    const supported = allowed.filter(key => metrics[key] !== null);
+    if (!supported.length) return [card, {type:'string', enum:['']}];
+    const placeholder = '\\{(' + supported.join('|') + ')\\}';
+    return [card, {type:'string', pattern:'^(' + prose + placeholder + ')+' + prose + '$'}];
+  }));
+  return {type:'object', additionalProperties:false, required:Object.keys(cards), properties};
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -46,26 +54,34 @@ function formatFact(key, value) {
 
 function renderBullets(output, metrics) {
   const result = {};
+  let generated = 0;
+  const rejected = [];
   for (const [card, allowed] of Object.entries(cards)) {
     const supported = allowed.filter(key => metrics[key] !== null);
-    const text = output?.[card];
-    if (typeof text !== 'string' || text.length > 260) throw Error('Invalid insight format.');
+    const text = typeof output?.[card] === 'string' ? output[card].trim() : '';
     if (!supported.length) {
       result[card] = 'There is not enough reportable data for this insight.';
       continue;
     }
     const refs = [...text.matchAll(/\{([a-zA-Z]+)\}/g)].map(m => m[1]);
-    if (!refs.length || refs.some(key => !supported.includes(key)) ||
-        /[\d%{}<>\r\n]/.test(text.replace(/\{[a-zA-Z]+\}/g, ''))) throw Error('Unsupported insight claim.');
-    result[card] = text.trim().replace(/\{([a-zA-Z]+)\}/g, (_, key) => formatFact(key, metrics[key]));
+    if (text.length > 260 || !refs.length || refs.some(key => !supported.includes(key)) ||
+        /[\d%{}<>\r\n]/.test(text.replace(/\{[a-zA-Z]+\}/g, ''))) {
+      rejected.push(card);
+      result[card] = null;
+      continue;
+    }
+    result[card] = text.replace(/\{([a-zA-Z]+)\}/g, (_, key) => formatFact(key, metrics[key]));
+    generated++;
   }
-  return result;
+  return {bullets:result, generated, rejected};
 }
 
 const instructions = [
   'Write six short British English homepage insights for a GP practice operations dashboard, one sentence each.',
   'Only describe the supplied metrics. Treat a null as unavailable and leave the corresponding field empty when it has no usable metric.',
   'For every non-empty insight insert at least one supported metric as an exact placeholder, such as {forecast}. Never write literal numbers or percent signs.',
+  'Example: Urgent bookings are forecast to be {forecast} compared with the recent average.',
+  'Example: The latest diary shows {available} routine slots available up to {horizon} ahead.',
   'Placeholders for changes expand to a complete phrase such as “8% higher” or “roughly unchanged”.',
   'Seasonal demand: {forecast} compares the next four forecast weeks of urgent bookings to the recent average; {acuteYear} compares recent bookings with the same weeks last year.',
   'Extra capacity: {extra} is booked urgent Extra slots over the last four complete weeks.',
@@ -116,9 +132,9 @@ Deno.serve(async request => {
       headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
-        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:450,
+        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:900,
         instructions, input:JSON.stringify(metrics),
-        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema}}
+        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:outputSchema(metrics)}}
       })
     });
     if (!response.ok) {
@@ -138,9 +154,16 @@ Deno.serve(async request => {
     }
     stage = 'openai_output';
     const answer = await response.json();
-    if (answer.status !== 'completed') throw Error('Generation did not complete.');
+    if (answer.status !== 'completed') {
+      stage = answer.incomplete_details?.reason === 'max_output_tokens' ? 'openai_token_limit' : 'openai_incomplete';
+      throw Error('Generation did not complete.');
+    }
     const output = answer.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text');
-    const bullets = renderBullets(JSON.parse(output?.text || 'null'), metrics);
+    if (!output?.text) { stage = 'openai_missing_text'; throw Error('No text response.'); }
+    stage = 'openai_invalid_json';
+    const {bullets, generated, rejected} = renderBullets(JSON.parse(output.text), metrics);
+    if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
+    if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, metrics])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
     stage = 'save';
@@ -154,7 +177,7 @@ Deno.serve(async request => {
     return json(200, {snapshot:record.snapshot,bullets:record.bullets,generated_at:record.generated_at});
   } catch {
     console.warn(JSON.stringify({event:'home_insights_failed', stage}));
-    return json(502, {error:stage === 'openai_output'
+    return json(502, {error:stage.startsWith('openai_') && stage !== 'openai_request'
       ? 'The AI response could not be verified against the dashboard figures. Try regenerating.'
       : 'AI insights could not be generated. The existing overview is still available.'});
   }

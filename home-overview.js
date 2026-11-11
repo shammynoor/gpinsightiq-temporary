@@ -107,8 +107,10 @@ const insightCards={
 let aiState=null;
 function renderSavedInsights(state){
  const row=state.saved;
- if(!row||row.snapshot!==state.snapshot||!Object.keys(insightCards).every(key=>typeof row.bullets?.[key]==='string'))return false;
- for(const [key,args] of Object.entries(insightCards))setInsight(...args,row.bullets[key]);
+ if(!row||row.snapshot!==state.snapshot||!Object.keys(insightCards).every(key=>row.bullets?.[key]===null||typeof row.bullets?.[key]==='string'))return false;
+ for(const [key,args] of Object.entries(insightCards)){
+  if(row.bullets[key]!==null)setInsight(...args,row.bullets[key]);
+ }
  return true;
 }
 function showAiInsights(home,period,metrics){
@@ -130,7 +132,8 @@ function showAiInsights(home,period,metrics){
  status.textContent='';
  const apply=()=>{
   if(aiState!==state||home.classList.contains('hidden'))return;
-  status.textContent=renderSavedInsights(state)?'AI-generated insights':'';
+  if(!renderSavedInsights(state)){status.textContent='';return;}
+  status.textContent=Object.values(state.saved.bullets).includes(null)?'AI-generated and standard insights':'AI-generated insights';
  };
  void (async()=>{
   try{
