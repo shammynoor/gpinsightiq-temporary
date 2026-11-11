@@ -345,13 +345,14 @@ function renderCare(section,options,metrics){
  const yearChange=reportableChange(yoy,recentTotal,sumWeeks(lastYearWeeks));
  const yearDetail=yearChange===null?null:yearChange===0?'Bookings were similar to the same weeks last year.':
   fact(section==='acute'?'acuteYear':'routineYear',describeChange(yearChange)+' bookings than the same weeks last year.');
+ const seasonalComparison=yearDetail||seasonDetail;
  if(section==='acute'){
   metrics.forecast=reportableChange(change,recentMean,meanForecast);
   metrics.acuteYear=yearChange;
   const forecastDetail=metrics.forecast===null?'There’s too little data for a four-week comparison.':
    metrics.forecast===0?'Expect about as many urgent bookings as in recent weeks.':
    fact('forecast','Expect '+describeChange(metrics.forecast)+' urgent bookings than the recent average.');
-  setInsight('acute',0,'Seasonal demand',[forecastDetail,seasonDetail,yearDetail],
+  setInsight('acute',0,'Seasonal demand',[forecastDetail,seasonalComparison],
    [seasonPosition,metrics.forecast?describeChange(metrics.forecast):'',yearChange?describeChange(yearChange):'']);
   const extra=[...extras.values()].reduce((total,n)=>total+n,0);
   const [topExtra,extraCount]=largestGroup(extras);
@@ -380,7 +381,7 @@ function renderCare(section,options,metrics){
   const recent=metrics.routineTrend===null?'There’s too little data to compare with the previous four weeks.':
    metrics.routineTrend===0?'Routine bookings held steady over the last four weeks.':
    fact('routineTrend',describeChange(metrics.routineTrend)+' routine bookings than in the previous four weeks.');
-  setInsight('routine',0,'Demand trend',[recent,seasonDetail,yearDetail],
+  setInsight('routine',0,'Demand trend',[recent,seasonalComparison],
    [seasonPosition,metrics.routineTrend?describeChange(metrics.routineTrend):'',yearChange?describeChange(yearChange):'']);
   const recentStart=shift(today,-28),previousStart=shift(today,-56);
   const now=[],before=[],waitSegments=new Map();
