@@ -3,7 +3,7 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const insightVersion='home-insights-v5';
+const insightVersion='home-insights-v6';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
@@ -33,6 +33,7 @@ const median=pairs=>{
  return pairs.at(-1)[0];
 };
 const roundWeeks=value=>value.toFixed(1)+' weeks';
+const peakForecastWeeks=9;
 const waitDays=value=>value.toLocaleString('en-GB',{maximumFractionDigits:1})+(value===1?' day':' days');
 const insightCopy=new WeakMap();
 const insightCards={
@@ -291,7 +292,7 @@ function routineSegment(row){
  return hasGroup(group)&&mode?JSON.stringify([group,mode]):'';
 }
 function renderCare(section,options,metrics){
- const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks}=options;
+ const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast}=options;
  const currentFour=adjustedHistory.slice(-4).filter((_,i)=>!holidayWeeks.has(shift(latestCompleteWeek,(i-3)*7)));
  const recentMean=currentFour.length>=2&&currentFour.every(Number.isFinite)?currentFour.reduce((a,b)=>a+b,0)/currentFour.length:null;
  const regularForecast=forecast.filter(row=>!holidayWeeks.has(row.weekStart));
@@ -360,8 +361,8 @@ function renderCare(section,options,metrics){
   metrics.acuteSeason=yearChange===null?seasonIndex:null;
   metrics.acuteVariation=variation;
   const forecastDetail=metrics.forecast===null?'There’s too little data for a four-week comparison.':
-   metrics.forecast===0?'Expect urgent bookings over the next four weeks to stay close to the recent average.':
-   'Expect '+describeChange(metrics.forecast)+' urgent bookings over the next four weeks than the recent average.';
+   metrics.forecast===0?'We expect urgent bookings over the next four weeks to stay close to the recent average.':
+   'We expect to see '+describeChange(metrics.forecast)+' urgent bookings over the next four weeks than the recent average.';
   setInsight('acute',0,'Seasonal demand',[forecastDetail,seasonalComparison],
    [seasonPosition,metrics.forecast?describeChange(metrics.forecast):'',yearChange?describeChange(yearChange):'']);
   const extra=[...extras.values()].reduce((total,n)=>total+n,0);
@@ -377,13 +378,14 @@ function renderCare(section,options,metrics){
   metrics.unused=unused;
   metrics.unusedGroupCount=hotspot?Math.round(topCount):null;
   setInsight('acute',2,'Unused capacity',unusedBullets,unusedEmphasis,{unusedGroup:hotspot?topMissed:''});
-  const peak=completeForecast?predicted.reduce((highest,row)=>row.estimate>highest.estimate?row:highest):null;
+  const peak=peakForecast.length&&peakForecast.every(row=>Number.isFinite(row.estimate))
+   ?peakForecast.reduce((highest,row)=>row.estimate>highest.estimate?row:highest):null;
   metrics.peak=peak?reportableCount(peak.estimate):null;
   metrics.peakChange=metrics.peak===null?null:reportableChange(signedTrend(peak.estimate,recentMean),peak.estimate,recentMean);
   const peakDate=peak?fmtDate(peak.weekStart):'';
   setInsight('acute',3,'Peak demand',metrics.peak===null?['There’s too little data to pick the busiest week.']:[
-   'The busiest week is expected to start '+peakDate+'.',
-   'Expect about '+integer(metrics.peak)+' urgent bookings that week.',
+   'Over the next nine weeks, we expect the busiest week to start '+peakDate+'.',
+   'We expect to see about '+integer(metrics.peak)+' urgent bookings that week.',
    metrics.peakChange?'That’s '+describeChange(metrics.peakChange)+' than a recent week on average.':
     metrics.peakChange===0?'That’s close to the recent weekly average.':''
   ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent bookings',metrics.peakChange?describeChange(metrics.peakChange):''],{peakWeek:peakDate});
@@ -415,7 +417,7 @@ function renderCare(section,options,metrics){
    const mode=mappedConsultMode(row);
    if(!hasGroup(type)||!mode)continue;
    const key=JSON.stringify([type,mode]);
-   if(!waitSegments.has(key))waitSegments.set(key,{label:type+' · '+mode,values:[],count:0});
+   if(!waitSegments.has(key))waitSegments.set(key,{label:type+' ('+mode+')',values:[],count:0});
    const segment=waitSegments.get(key);
    segment.values.push([row.leadMinutes/1440,n]);
    segment.count+=n;
@@ -427,17 +429,19 @@ function renderCare(section,options,metrics){
    .map(segment=>({label:segment.label,days:Math.round(median(segment.values)*10)/10}))
    .sort((a,b)=>a.days-b.days||a.label.localeCompare(b.label));
   const shortest=reportable[0],longest=reportable.at(-1);
+  const middleGroups=reportable.filter(segment=>segment.days>shortest.days&&segment.days<longest.days);
+  const middle=middleGroups[Math.floor(middleGroups.length/2)];
   let waitBullets=['There’s too little data to compare waits by clinician type and appointment mode.'];
   const waitEmphasis=[];
   if(reportable.length>=2){
    const gap=Math.round((longest.days-shortest.days)*10)/10;
    if(gap>0){
     waitBullets=[
-     'Longest median wait: '+waitDays(longest.days)+' for '+longest.label+'.',
-     'Shortest median wait: '+waitDays(shortest.days)+' for '+shortest.label+'.',
-     'That’s a gap of '+waitDays(gap)+' over the last 28 days.'
+     'Over the last 28 days, we’ve seen the longest median wait for '+longest.label+' at '+waitDays(longest.days)+'.',
+     shortest.label+' had the shortest median wait at '+waitDays(shortest.days)+', a gap of '+waitDays(gap)+'.',
+     middle?middle.label+' sat between them at '+waitDays(middle.days)+'.':''
     ];
-    waitEmphasis.push(waitDays(longest.days),waitDays(shortest.days),waitDays(gap));
+    waitEmphasis.push(waitDays(longest.days),waitDays(shortest.days),waitDays(gap),middle?waitDays(middle.days):'');
    }else{
     waitBullets=['The median wait was about '+waitDays(shortest.days)+' across the groups we could compare.',
      'That’s based on the last 28 days.'];
@@ -452,8 +456,9 @@ function renderCare(section,options,metrics){
   metrics.longWait=hasWaitRange?longest.days:null;
   metrics.shortWait=hasWaitRange?shortest.days:null;
   metrics.waitGap=hasWaitRange?Math.round((longest.days-shortest.days)*10)/10:null;
+  metrics.middleWait=middle?.days??null;
   setInsight('routine',1,'Waiting times',waitBullets,waitEmphasis,
-   {longestGroup:hasWaitRange?longest.label:'',shortestGroup:hasWaitRange?shortest.label:''});
+   {longestGroup:hasWaitRange?longest.label:'',shortestGroup:hasWaitRange?shortest.label:'',middleGroup:middle?.label||''});
   for(const row of records){
    if(!allowed(row)||careFor(row.slot)!=='routine'||!row.bookedDay||row.bookedDay<start||row.bookedDay>end)continue;
    const segment=routineSegment(row);
@@ -470,13 +475,14 @@ function renderCare(section,options,metrics){
   const risk=risks[0];
   metrics.riskSlots=risk?reportableCount(risk.slots):null;
   const [group,mode]=risk?JSON.parse(risk.segment):[];
-  const coverLabel=risk?(risk.cover<1?'less than a week':roundWeeks(Math.round(risk.cover*10)/10)):'';
-  const segmentLabel=risk?group+' · '+mode:'';
-  metrics.riskCover=risk?risk.cover<1?.9:Math.round(risk.cover*10)/10:null;
+  metrics.riskCoverDays=risk&&risk.cover<1?Math.max(.1,Math.round(risk.cover*70)/10):null;
+  metrics.riskCover=risk&&risk.cover>=1?Math.round(risk.cover*10)/10:null;
+  const coverLabel=metrics.riskCoverDays!==null?waitDays(metrics.riskCoverDays):metrics.riskCover!==null?roundWeeks(metrics.riskCover):'';
+  const segmentLabel=risk?group+' ('+mode+')':'';
   setInsight('routine',2,'Forward availability',risk?[
    segmentLabel+' has the least cover.',
    integer(risk.slots)+' slots are open in the diary.',
-   'That’s '+coverLabel+' at the recent booking pace if no more slots are released.'
+   'That’s about '+coverLabel+' at the recent booking pace if no more slots are released.'
   ]:['There’s too little data to see which slots may run out first.'],
    risk?[segmentLabel,coverLabel,integer(risk.slots)+' slots']:[],{riskGroup:segmentLabel});
   metrics.routineUnused=unused;
@@ -518,7 +524,7 @@ function update(){
   const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
   const nextWeek=shift(presentMonday,7);
   const holidayWeeks=new Set();
-  const lastForecastWeek=shift(nextWeek,21);
+  const lastForecastWeek=shift(nextWeek,(peakForecastWeeks-1)*7);
   for(let year=Number(historyStart.slice(0,4));year<=Number(shift(lastForecastWeek,6).slice(0,4));year++){
    for(const holiday of englandWalesBankHolidays(year))holidayWeeks.add(monday(holiday));
   }
@@ -546,12 +552,12 @@ function update(){
    const history=GPCorrectness.smoothDemandSeries(weekDates.map((date,i)=>({date,count:adjustedHistory[i]})),{level:1})
     .map((point,i)=>adjustedHistory[i]===null?null:point.smoothed);
    const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care==='acute'?'urgent':'routine');
-   const projection=Array.from({length:4},(_,i)=>{
+   const projection=Array.from({length:care==='acute'?peakForecastWeeks:4},(_,i)=>{
     const weekStart=shift(nextWeek,i*7);
     const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true);
     return {...range,weekStart};
    });
-   series.push({care,history,adjustedHistory,forecast:projection,groups:groupNames[care],bookingMap:weekCounts});
+   series.push({care,history,adjustedHistory,forecast:projection.slice(0,4),peakForecast:projection.filter(row=>!holidayWeeks.has(row.weekStart)),groups:groupNames[care],bookingMap:weekCounts});
   }
   const axis=sharedAxis(series);
   for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date,holidayWeeks},metrics);

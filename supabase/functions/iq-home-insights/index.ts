@@ -27,14 +27,19 @@ const findingCards = {
   forwardAvailability: ['riskSlots','riskCover'],
   routineUnused: ['routineUnused','routineUnusedGroupCount']
 };
+const detailedFindingCards = {
+  ...findingCards,
+  waitingTimes: [...findingCards.waitingTimes,'middleWait'],
+  forwardAvailability: [...findingCards.forwardAvailability,'riskCoverDays']
+};
 const findingLabels = {
   extraGroupCount:'extraGroup', unusedGroupCount:'unusedGroup', peak:'peakWeek',
   longWait:'longestGroup', shortWait:'shortestGroup', riskSlots:'riskGroup',
-  riskCover:'riskGroup', routineUnusedGroupCount:'routineUnusedGroup'
+  riskCover:'riskGroup', riskCoverDays:'riskGroup', middleWait:'middleGroup', routineUnusedGroupCount:'routineUnusedGroup'
 };
 const seasonalFacts = new Set(['acuteSeason','routineSeason']);
 const variationFacts = new Set(['acuteVariation','routineVariation']);
-const dayFacts = new Set(['longWait','shortWait','waitGap']);
+const dayFacts = new Set(['longWait','shortWait','waitGap','middleWait','riskCoverDays']);
 const counts = new Set(['extra', 'unused', 'available', 'peak', 'riskSlots', 'routineUnused', 'extraGroupCount', 'unusedGroupCount', 'routineUnusedGroupCount']);
 const changes = new Set(['forecast', 'acuteYear', 'routineTrend', 'routineYear', 'peakChange', 'routineForecast']);
 function outputSchema(metrics, cards) {
@@ -165,18 +170,25 @@ const findingInstructions = [
   'Return the requested JSON. Use ordinary bullets as plain sentences inside the arrays, without adding bullet characters.'
 ].join(' ');
 
-function findingInput(metrics) {
-  return Object.fromEntries(Object.entries(findingCards).map(([card,fields])=>{
+const detailedFindingInstructions = findingInstructions + ' ' + [
+  'Write like a practice colleague briefing the team. Use phrases such as “we’re seeing”, “we’ve seen” and “we expect to see” where they fit. Vary the opening naturally.',
+  'The peak forecast looks across the next nine weeks, about two months. When describing the peak, mention that horizon and use the date label for the week starting.',
+  'When waiting times differ across categories, name the categories alongside their median waits. Give the longest and shortest, include the middle comparison if supplied, and mention the gap when it adds context. The labels already include any appointment mode in parentheses.',
+  'When riskCoverDays is supplied, state the estimate in days and keep it approximate. Include the named group, the recent booking pace, and the assumption that no further slots are released.'
+].join(' ');
+
+function findingInput(metrics,cards=findingCards) {
+  return Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
     const figures = Object.fromEntries(fields.filter(key=>metrics[key]!==null).map(key=>[key,metrics[key]]));
     const reportLabels = Object.fromEntries(Object.keys(figures).filter(key=>findingLabels[key]).map(key=>[key,findingLabels[key]]));
     return [card,{figures,reportLabels}];
   }));
 }
 
-function findingSchema(metrics) {
-  const properties = Object.fromEntries(Object.keys(findingCards).map(card =>
-    [card,{type:'array',maxItems:findingCards[card].some(key=>metrics[key]!==null)?3:0,items:{type:'string'}}]));
-  return {type:'object',additionalProperties:false,required:Object.keys(findingCards),properties};
+function findingSchema(metrics,cards=findingCards) {
+  const properties = Object.fromEntries(Object.keys(cards).map(card =>
+    [card,{type:'array',maxItems:cards[card].some(key=>metrics[key]!==null)?3:0,items:{type:'string'}}]));
+  return {type:'object',additionalProperties:false,required:Object.keys(cards),properties};
 }
 
 function formatFinding(key,value) {
@@ -187,13 +199,13 @@ function formatFinding(key,value) {
   return formatFact(key,value,true);
 }
 
-function renderFindings(output,metrics) {
+function renderFindings(output,metrics,cards=findingCards) {
   const bullets = {};
   const rejected = [];
   let generated = 0;
   let bytesRemaining = 3600;
   const encoder = new TextEncoder();
-  for (const [card,fields] of Object.entries(findingCards)) {
+  for (const [card,fields] of Object.entries(cards)) {
     const available = new Set(fields.filter(key=>metrics[key]!==null));
     const labels = new Set([...available].map(key=>findingLabels[key]).filter(Boolean));
     const accepted = [];
@@ -204,9 +216,10 @@ function renderFindings(output,metrics) {
       const facts = refs.filter(key=>available.has(key));
       const validProse = /^[A-Za-z .,;:!?()'’‘“”–—-]+$/.test(text.replace(/\{[A-Za-z]+\}/g,''));
       const forecastClear = !facts.some(key=>key==='forecast'||key==='routineForecast')||(/\b(?:weeks?|month)\b/i.test(text)&&/\b(?:next|coming|ahead)\b/i.test(text)&&/\b(?:average|recent)\b/i.test(text));
-      const coverClear = !facts.includes('riskCover')||(/\b(?:pace|rate)\b/i.test(text)&&/\b(?:if|unless|without|assuming)\b/i.test(text));
+      const coverClear = !facts.some(key=>key==='riskCover'||key==='riskCoverDays')||(/\b(?:pace|rate)\b/i.test(text)&&/\b(?:if|unless|without|assuming)\b/i.test(text));
+      const peakClear = cards!==detailedFindingCards || !facts.includes('peak') || /\b(?:nine weeks|two months|couple of months)\b/i.test(text);
       if (!validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
-          !forecastClear || !coverClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
+          !forecastClear || !coverClear || !peakClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
           facts.some(key=>findingLabels[key]&&!refs.includes(findingLabels[key]))) {
         rejected.push(card);
         continue;
@@ -219,7 +232,11 @@ function renderFindings(output,metrics) {
       facts.forEach(key=>seen.add(key));
       generated++;
     }
-    bullets[card]=accepted;
+    const required = card==='waitingTimes'?['longWait','shortWait','middleWait']:
+      card==='forwardAvailability'?['riskCoverDays']:card==='forecastPeak'?['peak']:[];
+    const complete = cards!==detailedFindingCards || required.every(key=>!available.has(key)||seen.has(key));
+    bullets[card]=complete?accepted:[];
+    if(!complete)generated-=accepted.length;
   }
   return {bullets,generated,rejected:[...new Set(rejected)]};
 }
@@ -239,12 +256,13 @@ Deno.serve(async request => {
     const user = await identity.json();
     const raw = await request.text();
     if (raw.length > 2500) return json(400, {error:'The insights request is too large.'});
-    let body, metrics, cards, version;
+    let body, metrics, cards, version, isFindings;
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      cards = body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
-      version = cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
+      cards = body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      isFindings = cards === findingCards || cards === detailedFindingCards;
+      version = cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
       metrics = sanitise(body.metrics, cards);
     } catch { return json(400, {error:'The insights request is invalid.'}); }
     if (Object.values(metrics).every(value => value === null)) return json(422, {error:'There are no reportable figures for AI insights yet.'});
@@ -266,9 +284,9 @@ Deno.serve(async request => {
       headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
-        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:cards === findingCards ? 2000 : cards === legacyCards ? 900 : 1100,
-        instructions:cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(cards === findingCards ? findingInput(metrics) : metrics),
-        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:cards === findingCards ? findingSchema(metrics) : outputSchema(metrics, cards)}}
+        model:'gpt-5.4-nano', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
+        instructions:cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
+        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards) : outputSchema(metrics, cards)}}
       })
     });
     if (!response.ok) {
@@ -296,10 +314,10 @@ Deno.serve(async request => {
     if (!output?.text) { stage = 'openai_missing_text'; throw Error('No text response.'); }
     stage = 'openai_invalid_json';
     const parsed = JSON.parse(output.text);
-    const {bullets, generated, rejected} = cards === findingCards ? renderFindings(parsed,metrics) : renderBullets(parsed,metrics,cards);
+    const {bullets, generated, rejected} = isFindings ? renderFindings(parsed,metrics,cards) : renderBullets(parsed,metrics,cards);
     if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
     if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
-    const evidence = cards === findingCards ? Object.entries(metrics).sort(([a],[b])=>a<b?-1:a>b?1:0) : metrics;
+    const evidence = isFindings ? Object.entries(metrics).sort(([a],[b])=>a<b?-1:a>b?1:0) : metrics;
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, evidence, version])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
     stage = 'save';
