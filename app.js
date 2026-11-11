@@ -2801,12 +2801,12 @@ function installDemandCardTooltip(target){
  target.on('plotly_unhover',()=>{card.hidden=true});
 }
 
-function historicInsightPresets(firstAppointment,lastAppointment){
+function historicInsightPresets(firstAppointment,lastAppointment,selected){
  const all=groupUrgencyNames.filter(isDashboardToggleOption);
  if(!all.length)return [];
  const families=Map.groupBy(all,appointmentCategoryFor);
  const urgent=[...families].find(([name])=>/urgent|acute/i.test(name))?.[1]||[];
- const groups=[all,...[...families.values()].filter(group=>group.length!==all.length),...all.map(name=>[name])];
+ const groups=[...(selected.length?[selected]:[]),all,...[...families.values()].filter(group=>group.length!==all.length),...all.map(name=>[name])];
  if(urgent.length===3)for(let i=0;i<urgent.length;i++)groups.push(urgent.filter((_,index)=>i!==index));
  const profiles=[
   {match:()=>true,groups},
@@ -2872,7 +2872,7 @@ function drawCombinedDemandChart(){
   const view=GPHistoricInsights.makeView(completePeriods,selected,demandCategoryTotals,{
    monthly:monthlyMode,adjusted:adjustDemandForListSize,combined:additiveLines,adjust:adjustedCount
   });
-  GPHistoricInsights.update(view,()=>historicInsightPresets(firstAppointmentDate,lastAppointmentDate));
+  GPHistoricInsights.update(view,()=>historicInsightPresets(firstAppointmentDate,lastAppointmentDate,selected));
  }
  const years=[...new Set(visibleWeeks.map(w=>Number(w.slice(0,4))))].sort((a,b)=>a-b);
  const latestYear=years.length?years[years.length-1]:null;
