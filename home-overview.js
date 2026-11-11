@@ -350,8 +350,8 @@ function renderCare(section,options,metrics){
   metrics.forecast=reportableChange(change,recentMean,meanForecast);
   metrics.acuteYear=yearChange;
   const forecastDetail=metrics.forecast===null?'There’s too little data for a four-week comparison.':
-   metrics.forecast===0?'Expect about as many urgent bookings as in recent weeks.':
-   fact('forecast','Expect '+describeChange(metrics.forecast)+' urgent bookings than the recent average.');
+   metrics.forecast===0?'Expect urgent bookings over the next four weeks to stay close to the recent average.':
+   'Expect '+describeChange(metrics.forecast)+' urgent bookings over the next four weeks than the recent average.';
   setInsight('acute',0,'Seasonal demand',[forecastDetail,seasonalComparison],
    [seasonPosition,metrics.forecast?describeChange(metrics.forecast):'',yearChange?describeChange(yearChange):'']);
   const extra=[...extras.values()].reduce((total,n)=>total+n,0);
