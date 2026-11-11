@@ -630,10 +630,11 @@ function renderCare(section,options,metrics){
   setInsight('routine',3,'Unused capacity',unusedBullets,unusedEmphasis,{routineUnusedGroup:hotspot?topMissed:''});
  }
 }
-function currentCareWeek(care,date,weekStart,slots,adjustCount,holidayWeeks,coverage){
+function currentCareWeek(care,date,weekStart,slots,adjustCount,holidayWeeks,coverage,firstAppointment){
  if(!Number.isFinite(capacityCSVLatestModified))return null;
  const snapshot=new Date(Math.min(Date.now(),capacityCSVLatestModified));
- const clock=dayView2LondonClock(snapshot),oldest=shift(weekStart,-750);
+ const clock=dayView2LondonClock(snapshot),lookback=shift(weekStart,-750);
+ const oldest=lookback>firstAppointment?lookback:firstAppointment;
  const included=row=>row.bookedDay>=oldest&&!excludedSlotTypes.has(row.slot)&&careFor(row.slot)===care&&locumMatches(row,'homePage');
  const daily=new Map(),timed=[];
  for(const row of slots){
@@ -669,7 +670,9 @@ function update(){
    fitObserver.observe(home);
    window.addEventListener('resize',fitOverviewCharts);
   }
-  const all=Array.isArray(records)?records:[];
+  const coverage=slotReportCoverage;
+  const firstAppointment=GPCorrectness.firstAppointmentDate(coverage);
+  const all=firstAppointment?records.filter(row=>row.bookedDay>=firstAppointment):[];
   const date=typeof todayLondon==='string'?todayLondon:new Date().toISOString().slice(0,10);
   if(!all.length){
    showAiInsights(home,date,{});
@@ -692,7 +695,10 @@ function update(){
   boundary.setUTCFullYear(boundary.getUTCFullYear()-1);
   const boundaryDay=boundary.toISOString().slice(0,10);
   const firstMonday=monday(boundaryDay);
-  const historyStart=firstMonday===boundaryDay?firstMonday:shift(firstMonday,7);
+  const firstCoveredMonday=monday(firstAppointment);
+  const startOfCoverage=firstCoveredMonday===firstAppointment?firstCoveredMonday:shift(firstCoveredMonday,7);
+  const yearStart=firstMonday===boundaryDay?firstMonday:shift(firstMonday,7);
+  const historyStart=yearStart>startOfCoverage?yearStart:startOfCoverage;
   const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
   const holidayWeeks=new Set();
   const lastForecastWeek=shift(presentMonday,peakForecastWeeks*7);
@@ -707,7 +713,6 @@ function update(){
    const care=appointmentCare(name);
    if(care)groupNames[care].push(name);
   }
-  const coverage=typeof slotReportCoverage==='undefined'?[]:slotReportCoverage;
   const metrics={},series=[];
   for(const care of ['acute','routine']){
    const weekCounts=new Map(),adjustedCounts=new Map();
@@ -726,14 +731,18 @@ function update(){
    // End the historical line at the observed value, without smoothing the fan anchor.
    const lastObserved=adjustedHistory.findLastIndex(Number.isFinite);
    if(lastObserved>=0)history[lastObserved]=adjustedHistory[lastObserved];
-   const predictor=window.getHomeOverviewPredictor?.(groupNames[care]);
+   const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care);
    const projection=Array.from({length:care==='acute'?peakForecastWeeks+1:5},(_,i)=>{
     const weekStart=shift(presentMonday,i*7);
     const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
     return {...range,weekStart};
    });
-   const nowcast=currentCareWeek(care,date,presentMonday,slots,adjustCount,holidayWeeks,coverage);
-   if(nowcast)projection[0]={weekStart:presentMonday,estimate:nowcast.estimate,low:nowcast.low,high:nowcast.high,nowcast};
+   const nowcast=currentCareWeek(care,date,presentMonday,slots,adjustCount,holidayWeeks,coverage,firstAppointment);
+   if(nowcast){
+    const fullWeek=predictor?.range?.(presentMonday,true,.85,1);
+    const bounds=GPCorrectness.currentWeekForecastBounds(nowcast,fullWeek);
+    projection[0]={weekStart:presentMonday,estimate:nowcast.estimate,...bounds,nowcast};
+   }
    series.push({care,history,adjustedHistory,forecast:projection.slice(0,5),peakForecast:projection.slice(1).filter(row=>!holidayWeeks.has(row.weekStart)),groups:groupNames[care],bookingMap:weekCounts});
   }
   const datedCoverage=coverage.filter(range=>GPCorrectness.validDate(range.asOf));

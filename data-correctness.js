@@ -25,6 +25,17 @@ function coverageFromEntries(entries){
  }
  return ranges;
 }
+function firstAppointmentDate(ranges){
+ return ranges.reduce((first,{start})=>validDate(start)&&(!first||start<first)?start:first,'');
+}
+function currentWeekForecastBounds(nowcast,seasonal){
+ if(!seasonal||![seasonal.estimate,seasonal.low,seasonal.high].every(Number.isFinite))return {low:nowcast.low,high:nowcast.high};
+ // Apply the same full-week error scale to the unobserved share of this week.
+ const remainingScale=Math.sqrt(Math.max(0,1-nowcast.fraction));
+ const low=nowcast.estimate-(seasonal.estimate-seasonal.low)*remainingScale;
+ const high=nowcast.estimate+(seasonal.high-seasonal.estimate)*remainingScale;
+ return {low:Math.max(nowcast.observed,Math.floor(low)),high:Math.ceil(high)};
+}
 function completeWeeks(ranges,today,windowWeeks){
  const lastSunday=shift(monday(today),-1);
  const intervals=ranges.filter(r=>validDate(r.start)&&validDate(r.end)).map(r=>({
@@ -170,7 +181,7 @@ function averageCapsuleLayout(labels,width,height){
  return placed;
 }
 
-const api={averageCapsuleLayout,currentPeriodNowcast,periodBounds,smoothDemandSeries,shift,monday,londonDate,dateContext,validDate,coverageFromEntries,completeWeeks,roles,renameRole};
+const api={averageCapsuleLayout,currentPeriodNowcast,periodBounds,smoothDemandSeries,shift,monday,londonDate,dateContext,validDate,coverageFromEntries,firstAppointmentDate,currentWeekForecastBounds,completeWeeks,roles,renameRole};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 else root.GPCorrectness=api;
 })(typeof window!=='undefined'?window:globalThis);
