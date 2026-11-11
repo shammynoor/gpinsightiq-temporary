@@ -89,7 +89,7 @@ function sharedAxis(series){
  const step=[1,2,2.5,5,10].map(n=>n*magnitude).find(n=>n>=target);
  return {step,top:step*4};
 }
-function renderChart(section,history,forecast,colour,axis,historyStart){
+function renderChart(section,history,forecast,colour,axis,historyStart,adjustedHistory=history){
  const root=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-plot');if(!root)return;
  root.replaceChildren();
  if(!history.some(Number.isFinite)&&!forecast.some(item=>Number.isFinite(item?.estimate))){
@@ -97,11 +97,20 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   empty.textContent='No booked appointment data for this chart range.';
   root.append(empty);return;
  }
+ const observed=adjustedHistory.filter(Number.isFinite);
+ const average=observed.length?observed.reduce((sum,value)=>sum+value,0)/observed.length:null;
  const legend=document.createElement('div');legend.className='iq-home-legend';
- legend.textContent='● Bookings (list size adjusted, low smoothing)   ··· Forecast with indicative range';
+ const legendItems=[['Bookings','iq-home-dot'],['Forecast','iq-home-legend-line']];
+ if(average!==null)legendItems.push(['Average','iq-home-legend-line is-average']);
+ for(const [text,className] of legendItems){
+  const item=document.createElement('span'),symbol=document.createElement('i');
+  symbol.className=className;symbol.setAttribute('aria-hidden','true');
+  item.append(symbol,text);legend.append(item);
+ }
  root.append(legend);
- const svg=svgElement('svg',{viewBox:'0 0 728 191',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'});
- const left=58,right=706,bottom=136,top=14;
+ const averageLabel=average===null?'':' Historical weekly average: '+integer(average)+' list-size-adjusted bookings.';
+ const svg=svgElement('svg',{viewBox:'0 0 728 207',class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks and four forecast weeks. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel});
+ const left=58,right=706,bottom=152,top=14;
  // Use calendar spacing even when the latest uploaded booking week is older.
  const firstForecast=Math.round((isoDay(forecast[0].weekStart)-isoDay(historyStart))/604800000);
  const spacing=(right-left)/(firstForecast+forecast.length-1);
@@ -115,19 +124,29 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
  }
  const divider=xpos(firstForecast-.5);
  svg.append(svgElement('line',{x1:divider,y1:top,x2:divider,y2:bottom,stroke:'#8baec5','stroke-width':1.5,'stroke-dasharray':'4 5'}));
- let current=[];
- const addPath=()=>{
-  if(current.length>1)svg.append(svgElement('path',{d:current.map((point,i)=>(i?'L':'M')+point.join(' ')).join(' '),fill:'none',stroke:colour,'stroke-width':3,'stroke-linecap':'round'}));
-  current=[];
+ if(average!==null){
+  const y=ypos(average);
+  const line=svgElement('line',{class:'iq-home-average-line',x1:left,y1:y,x2:right,y2:y,stroke:'#496278','stroke-width':1.5,'stroke-dasharray':'1 5','stroke-linecap':'round'});
+  line.append(svgElement('title',{},'Historical weekly average: '+integer(average)+' adjusted bookings'));
+  svg.append(line);
+ }
+ const drawTrend=(points,projection=false)=>{
+  if(points.length<2)return;
+  const path=points.map(([x,y],i)=>{
+   if(i===0)return 'M'+x+' '+y;
+   const [previousX,previousY]=points[i-1],gap=x-previousX;
+   if(gap<=spacing*1.5)return 'L'+x+' '+y;
+   // Ease across skipped weeks without adding markers or values at those dates.
+   return 'C'+(previousX+gap/3)+' '+previousY+' '+(x-gap/3)+' '+y+' '+x+' '+y;
+  }).join(' ');
+  const attrs={d:path,fill:'none',stroke:colour,'stroke-width':projection?2.6:3,'stroke-linecap':'round','stroke-linejoin':'round'};
+  if(projection)attrs['stroke-dasharray']='1 6';
+  svg.append(svgElement('path',attrs));
  };
- history.forEach((value,i)=>{if(value===null)addPath();else current.push([xpos(i),ypos(value)]);});addPath();
- const last=history.at(-1);
- let forecastLine=Number.isFinite(last)?[[xpos(history.length-1),ypos(last)]]:[];
- const addForecastPath=()=>{
-  if(forecastLine.length>1)svg.append(svgElement('path',{d:forecastLine.map((point,i)=>(i?'L':'M')+point.join(' ')).join(' '),fill:'none',stroke:colour,'stroke-width':2.6,'stroke-dasharray':'1 6','stroke-linecap':'round'}));
-  forecastLine=[];
- };
- forecast.forEach((item,i)=>{if(Number.isFinite(item?.estimate))forecastLine.push([xpos(firstForecast+i),ypos(item.estimate)]);else addForecastPath();});addForecastPath();
+ const historyPoints=history.flatMap((value,i)=>Number.isFinite(value)?[[xpos(i),ypos(value)]]:[]);
+ drawTrend(historyPoints);
+ const forecastPoints=forecast.flatMap((row,i)=>Number.isFinite(row?.estimate)?[[xpos(firstForecast+i),ypos(row.estimate)]]:[]);
+ if(forecastPoints.length)drawTrend(historyPoints.slice(-1).concat(forecastPoints),true);
  const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
  const label=(x,y,text)=>svg.append(svgElement('text',{x,y,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},text));
  const years=new Map();
@@ -139,7 +158,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
   if(month!==lastMonth){
    const monthIndex=Number(date.slice(5,7))-1;
    if((i===0||monthIndex%2===0)&&x-lastLabelX>=36){
-    label(x,157,monthLabel.format(isoDay(date)));
+    label(x,173,monthLabel.format(isoDay(date)));
     lastLabelX=x;
    }
    lastMonth=month;
@@ -153,8 +172,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart){
  for(const [year,[from,to]] of years){
   const a=Math.max(left,from-spacing/2),b=Math.min(right,to+spacing/2);
   if(b-a<27)continue;
-  svg.append(svgElement('line',{x1:a+2,y1:166,x2:b-2,y2:166,stroke:'#bacbd9','stroke-width':1}));
-  label((a+b)/2,182,year);
+  svg.append(svgElement('line',{x1:a+2,y1:182,x2:b-2,y2:182,stroke:'#bacbd9','stroke-width':1}));
+  label((a+b)/2,198,year);
  }
  forecast.forEach((row,i)=>{
   if(!row)return;
@@ -268,8 +287,8 @@ function renderCare(section,options,metrics){
  const completeForecast=predicted.length>0&&predicted.length===regularForecast.length;
  const meanForecast=completeForecast?predicted.reduce((a,b)=>a+b.estimate,0)/predicted.length:null;
  const change=recentMean!==null&&meanForecast!==null?signedTrend(meanForecast,recentMean):null;
- setOutlook(section,change!==null?percent(change):'—',change===null?'Comparison unavailable':'Next 4 weeks vs last 4 complete weeks, excluding bank holidays');
- renderChart(section,history,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,historyStart);
+ setOutlook(section,change!==null?percent(change):'—',change===null?'Comparison unavailable':'Next 4 weeks vs last 4 weeks');
+ renderChart(section,history,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,historyStart,adjustedHistory);
  const sumWeeks=weeks=>weeks.reduce((sum,w)=>sum+(bookingMap.get(w)||0),0);
  const currentWeeks=Array.from({length:4},(_,i)=>shift(latestCompleteWeek,-(3-i)*7));
  const previousWeeks=currentWeeks.map(w=>shift(w,-28));

@@ -53,41 +53,38 @@
  #dashboardShell .dashboard-header .header-user{max-width:110px}
  #dashboardShell .dashboard-header .iq-header-practice{width:92px}
 }
-.iq-overview .iq-home-hero{display:grid;grid-template-columns:185px minmax(0,1fr) auto;align-items:center;gap:20px;margin:2px 0 14px}
+.iq-overview .iq-home-hero{display:grid;grid-template-columns:148px minmax(0,1fr) auto;align-items:center;gap:16px;margin:0 0 9px}
 .iq-overview .iq-home-illustration{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0}
-.iq-overview .iq-home-illustration img{width:100%;max-width:180px;height:auto;display:block;filter:drop-shadow(0 4px 5px #39799710)}
+.iq-overview .iq-home-illustration img{width:100%;max-width:140px;height:auto;display:block;filter:drop-shadow(0 4px 5px #39799710)}
 .iq-overview .iq-home-practice-name{color:#526b83;font-size:11px;font-weight:650;min-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .iq-overview .iq-home-welcome h2{font-size:29px;line-height:1.12;letter-spacing:-.6px;color:#101f49;font-weight:800;margin:0 0 6px}
 .iq-overview .iq-home-welcome p{font-size:14px;line-height:1.45;color:#233b5a;max-width:680px;margin:0}
-.iq-overview .iq-home-updated{background:#fff;border:1px solid #d8e7f7;border-radius:17px;padding:10px 14px;box-shadow:0 7px 19px #285d8a12;display:flex;flex-direction:column;gap:6px;min-width:220px;max-width:265px;align-self:center}
-.iq-overview .iq-home-updated .iq-home-update-label{font-size:14px;font-weight:750;color:#335675}
-.iq-overview .iq-home-updated strong{color:#112d50;font-size:16px;line-height:1.35}
-.iq-overview .iq-home-updated details{font-size:11px;color:#688096;margin-top:6px}
-.iq-overview .iq-home-updated summary{cursor:pointer}
-.iq-overview .iq-home-updated details p{font-size:11px;line-height:1.45;margin:5px 0;color:#687d91}
+.iq-overview .iq-home-updated{background:#fff;border:1px solid #d8e7f7;border-radius:12px;padding:7px 10px;display:flex;flex-direction:column;gap:2px;min-width:0;max-width:200px;align-self:center}
+.iq-overview .iq-home-updated .iq-home-update-label{font-size:11px;font-weight:750;color:#335675}
+.iq-overview .iq-home-updated strong{color:#112d50;font-size:14px;line-height:1.35}
 .iq-overview .iq-home-panes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
 .iq-overview .iq-home-lane{display:flex;flex-direction:column;gap:15px;min-width:0}
 .iq-overview .iq-home-card{border-radius:22px;border:1px solid #e6eaf0;box-shadow:0 6px 19px #31587c10;overflow:hidden}
 .iq-overview .iq-home-acute .iq-home-chart-card{background:linear-gradient(155deg,#fff1f4 0%,#ffe8ef 48%,#fffafd 100%);border-color:#f5d6e0}
 .iq-overview .iq-home-routine .iq-home-chart-card{background:linear-gradient(155deg,#ecfbf7 0%,#e3f8f1 50%,#fafffd 100%);border-color:#d0f0e7}
-.iq-overview .iq-home-card-heading{display:flex;gap:11px;align-items:center;padding:10px 15px}
-.iq-overview .iq-home-symbol{width:43px;height:43px;border-radius:50%;display:grid;place-items:center;flex:0 0 43px;background:linear-gradient(140deg,#ff5d79,#e92356);color:#fff;box-shadow:0 5px 12px #db477229}
+.iq-overview .iq-home-card-heading{display:flex;gap:8px;align-items:center;padding:5px 11px}
+.iq-overview .iq-home-symbol{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:0 0 30px;background:linear-gradient(140deg,#ff5d79,#e92356);color:#fff;box-shadow:0 5px 12px #db477229}
 .iq-overview .iq-home-routine .iq-home-symbol{background:linear-gradient(140deg,#12bf9a,#008d70);box-shadow:0 5px 12px #14977b29}
-.iq-overview .iq-home-symbol svg{width:24px;height:24px;stroke:currentColor;stroke-width:2.9}
+.iq-overview .iq-home-symbol svg{width:17px;height:17px;stroke:currentColor;stroke-width:2.9}
 .iq-overview .iq-home-heading-text{flex:1;min-width:0}
-.iq-overview .iq-home-heading-text h3{font-size:21px;line-height:1.13;font-weight:800;color:#12244d;letter-spacing:-.3px;margin:0}
-.iq-overview .iq-home-heading-text p{font-size:13px;color:#24425e;margin:3px 0 0}
-.iq-overview .iq-home-outlook{background:#ffffffc9;border:1px solid #f0dce4;border-radius:16px;padding:6px 9px;text-align:center;box-shadow:0 4px 10px #35567712;margin-left:auto;min-width:100px;max-width:130px}
+.iq-overview .iq-home-heading-text h3{font-size:18px;line-height:1.13;font-weight:800;color:#12244d;letter-spacing:-.3px;margin:0}
+.iq-overview .iq-home-outlook{background:#ffffffc9;border:1px solid #f0dce4;border-radius:10px;padding:3px 7px;text-align:center;margin-left:auto}
 .iq-overview .iq-home-routine .iq-home-outlook{border-color:#ccece4}
-.iq-overview .iq-home-outlook strong{font-size:24px;font-weight:800;line-height:1.1;display:block;color:#e22e58}
+.iq-overview .iq-home-outlook strong{font-size:20px;font-weight:800;line-height:1.1;display:block;color:#e22e58}
 .iq-overview .iq-home-routine .iq-home-outlook strong{color:#05956c}
-.iq-overview .iq-home-outlook small{display:block;font-size:11px;line-height:1.25;color:#234563;font-weight:650}
-.iq-overview .iq-home-plot{margin:0 10px 10px;padding:8px 8px 7px;background:#fff;border:1px solid #f5eef1;border-radius:17px}
-.iq-overview .iq-home-legend{text-align:center;color:#405b75;font-size:12px;display:flex;gap:18px;justify-content:center;align-items:center;min-height:19px}
+.iq-overview .iq-home-outlook small{display:block;font-size:10px;line-height:1.25;color:#234563;font-weight:650}
+.iq-overview .iq-home-plot{margin:0 7px 7px;padding:5px 5px 4px;background:#fff;border:1px solid #f5eef1;border-radius:17px}
+.iq-overview .iq-home-legend{text-align:center;color:#405b75;font-size:12px;display:flex;flex-wrap:wrap;gap:2px 13px;justify-content:center;align-items:center}
 .iq-overview .iq-home-legend span{display:flex;align-items:center;gap:6px}
 .iq-overview .iq-home-dot{display:inline-block;border-radius:50%;width:8px;height:8px;background:var(--care-accent)}
-.iq-overview .iq-home-dot.is-hollow{background:#fff;border:2px solid var(--care-accent)}
-.iq-overview .iq-home-chart-svg{width:100%;height:auto;display:block;margin-top:4px;overflow:visible}
+.iq-overview .iq-home-legend-line{width:16px;border-top:2px dotted var(--care-accent)}
+.iq-overview .iq-home-legend-line.is-average{border-color:#496278}
+.iq-overview .iq-home-chart-svg{width:100%;height:auto;display:block;margin-top:1px;overflow:visible}
 .iq-overview .iq-home-acute{--care-accent:#f03265;--care-pale:#ffe2ec}
 .iq-overview .iq-home-routine{--care-accent:#0b9c7f;--care-pale:#dcf8ed}
 .iq-overview .iq-home-insights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;background:linear-gradient(180deg,var(--care-pale) 0,#fff 76px);border:1px solid #dce7f0;padding:8px 12px 12px}
@@ -108,8 +105,8 @@
 .iq-overview .iq-home-ai-controls:has(button[hidden] + span:empty){display:none}
 .iq-overview .iq-home-ai-controls button{width:auto;padding:6px 12px}
 .iq-overview .iq-home-caveat{font-size:11px;line-height:1.45;color:#61798c;margin:12px 5px 0}
-@media(max-width:1050px){.iq-overview .iq-home-hero{grid-template-columns:150px 1fr;gap:16px}.iq-overview .iq-home-updated{grid-column:1/-1;justify-self:end;max-width:none}.iq-overview .iq-home-panes{grid-template-columns:1fr}.iq-overview .iq-home-illustration img{max-width:190px}}
-@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:90px 1fr;gap:10px}.iq-overview .iq-home-welcome h2{font-size:22px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{justify-self:stretch;width:100%}.iq-overview .iq-home-card-heading{padding:9px;gap:8px}.iq-overview .iq-home-symbol{width:34px;height:34px;flex-basis:34px}.iq-overview .iq-home-symbol svg{width:19px;height:19px}.iq-overview .iq-home-heading-text h3{font-size:17px}.iq-overview .iq-home-heading-text p{font-size:12px}.iq-overview .iq-home-outlook{min-width:84px;max-width:102px;padding:5px}.iq-overview .iq-home-outlook strong{font-size:20px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:16px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{display:none}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
+@media(max-width:1050px){.iq-overview .iq-home-hero{grid-template-columns:125px minmax(0,1fr) auto;gap:12px}.iq-overview .iq-home-updated{justify-self:end}.iq-overview .iq-home-panes{grid-template-columns:1fr}.iq-overview .iq-home-illustration img{max-width:120px}}
+@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:76px minmax(0,1fr);gap:6px 10px}.iq-overview .iq-home-welcome h2{font-size:22px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{grid-column:1/-1;flex-direction:row;align-items:center;justify-self:end;max-width:none;gap:6px;padding:4px 7px}.iq-overview .iq-home-card-heading{padding:5px 7px;gap:6px}.iq-overview .iq-home-symbol{width:26px;height:26px;flex-basis:26px}.iq-overview .iq-home-symbol svg{width:15px;height:15px}.iq-overview .iq-home-heading-text h3{font-size:15px}.iq-overview .iq-home-outlook{max-width:116px;padding:3px 5px}.iq-overview .iq-home-outlook strong{font-size:17px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:16px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{display:none}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
 
 /* Keep the mobile menu visible on the refreshed white navigation bar. */
 #dashboardShell .header-menu-toggle{background:#eaf4fd!important;color:#1e476d!important;border:1px solid #d7e7f6!important;border-radius:10px!important}
@@ -123,6 +120,6 @@
 
 /* Real-data loading and diagnostic states for the homepage plots. */
 #homePage .iq-home-chart-empty{display:flex;align-items:center;justify-content:center;min-height:143px;font-size:13px;color:#58718a;text-align:center;padding:16px;margin:0;line-height:1.5}
-#homePage .iq-home-legend{font-size:12px;letter-spacing:.1px;white-space:normal;color:#4a657c}
+#homePage .iq-home-legend{font-size:11px;letter-spacing:.1px;white-space:normal;color:#4a657c}
 #homePage .iq-home-caveat{font-size:11px;line-height:1.6;color:#647b8e}
 #homePage .iq-home-insight-copy small{font-weight:400}

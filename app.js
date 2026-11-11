@@ -2116,7 +2116,7 @@ function renderRapidHealthTable(){
  }
  body.append(fragment);
 }
-function updateHomeReportDates(items){const slots=items.filter(f=>/slot[\s_-]*report/i.test(f.name));const signs=items.filter(f=>isSignpostingFile(f.name));const display=files=>{if(!files.length)return 'No report found';const dates=files.map(f=>Date.parse(f.lastModifiedDateTime||'')).filter(Number.isFinite);return dates.length?new Date(Math.max(...dates)).toLocaleString('en-GB',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Europe/London'}):'Modified date unavailable'};$('homeSlotModified').textContent=display(slots);$('homeSignpostingModified').textContent=display(signs);$('homeRapidHealthModified').textContent=display(items.filter(f=>isDirectRHFile(f.name)))}
+function updateHomeReportDates(items){const slots=items.filter(f=>/slot[\s_-]*report/i.test(f.name));const display=files=>{if(!files.length)return 'No report found';const dates=files.map(f=>Date.parse(f.lastModifiedDateTime||'')).filter(Number.isFinite);return dates.length?new Date(Math.max(...dates)).toLocaleString('en-GB',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'Europe/London'}):'Modified date unavailable'};$('homeSlotModified').textContent=display(slots)}
 // Parsed per-file contributions survive reloads in a private browser IndexedDB cache.
 // A replacement invalidates only its own contribution, not the other CSV files.
 const csvContributionCache=new Map();
@@ -5619,8 +5619,7 @@ const drawingErrors=[];
 
 function updateHomeReportDates(items){
  const display=kind=>{const rows=iqSources.filter(row=>row.kind===kind);if(!rows.length)return 'No report uploaded';const latest=Math.max(...rows.map(row=>Date.parse(row.clinical_at)));return new Date(latest).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/London'});};
- $('homeSlotModified').textContent=display('slot');$('homeSignpostingModified').textContent=display('signposting');
- $('homeRapidHealthModified').textContent=iqBridge.rapidDate()||'No report uploaded';
+ $('homeSlotModified').textContent=display('slot');
 }
 let iqUploadElement=null,iqUploadStatus=null;
 function iqCreateUploadPanel(){
