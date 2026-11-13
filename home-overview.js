@@ -637,8 +637,10 @@ function renderCare(section,options,metrics){
 function currentCareWeek(care,date,weekStart,slots,adjustCount,holidayWeeks,coverage,firstAppointment){
  if(!Number.isFinite(capacityCSVLatestModified))return null;
  const snapshot=new Date(Math.min(Date.now(),capacityCSVLatestModified));
- const clock=dayView2LondonClock(snapshot),lookback=shift(weekStart,-750);
- const oldest=lookback>firstAppointment?lookback:firstAppointment;
+ // Use the entire validated appointment-report history for the current-week
+ // booking-pace baseline, not an arbitrary 750-day cutoff.
+ const clock=dayView2LondonClock(snapshot);
+ const oldest=firstAppointment;
  const included=row=>row.bookedDay>=oldest&&!excludedSlotTypes.has(row.slot)&&careFor(row.slot)===care&&locumMatches(row,'homePage');
  const daily=new Map(),timed=[];
  for(const row of slots){
@@ -694,15 +696,13 @@ function update(){
   let latestCompleteWeek=shift(presentMonday,-7);
   const fullWeeks=new Set(all.filter(r=>r.bookedDay<date&&r.bookedWeek<presentMonday).map(r=>r.bookedWeek));
   while(latestCompleteWeek>earliestBooked&&!fullWeeks.has(latestCompleteWeek))latestCompleteWeek=shift(latestCompleteWeek,-7);
-  // Include only complete weeks inside the one-year window.
-  const boundary=isoDay(shift(latestCompleteWeek,7));
-  boundary.setUTCFullYear(boundary.getUTCFullYear()-1);
-  const boundaryDay=boundary.toISOString().slice(0,10);
-  const firstMonday=monday(boundaryDay);
+  // All available historical weeks, starting with the first *complete*
+  // week covered by imported appointment reports. The forecast model already
+  // uses all history; the homepage chart must use that same full window.
   const firstCoveredMonday=monday(firstAppointment);
-  const startOfCoverage=firstCoveredMonday===firstAppointment?firstCoveredMonday:shift(firstCoveredMonday,7);
-  const yearStart=firstMonday===boundaryDay?firstMonday:shift(firstMonday,7);
-  const historyStart=yearStart>startOfCoverage?yearStart:startOfCoverage;
+  const historyStart=firstCoveredMonday===firstAppointment
+   ?firstCoveredMonday:shift(firstCoveredMonday,7);
+  if(historyStart>latestCompleteWeek)throw Error('No complete appointment weeks available.');
   const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
   const holidayWeeks=new Set();
   const lastForecastWeek=shift(presentMonday,peakForecastWeeks*7);
