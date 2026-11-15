@@ -2446,7 +2446,7 @@ function historicBookingFilterCounts(){
  const lastAppointment=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort().at(-1)||'';
  const firstPeriod=firstAppointment?(monthlyMode?firstAppointment.slice(0,7):mondayOf(firstAppointment)):'';
  const lastPeriod=lastAppointment?(monthlyMode?lastAppointment.slice(0,7):mondayOf(lastAppointment)):'';
- for(const r of records){
+ for(const r of historicalBookingRecords()){
   if(r.status!=='Booked'||excludedSlotTypes.has(r.slot)||!(r.count>0)||!locumMatches(r,'chartPage'))continue;
   const period=periodKey(r);if(!period)continue;
   if((firstPeriod&&period<firstPeriod)||(lastPeriod&&period>lastPeriod))continue;
@@ -2648,7 +2648,7 @@ $('historicBreakdown').querySelectorAll('[data-historic-breakdown]').forEach(but
 const additiveLines=!historicChart2&&selectedTypes.length>1&&additiveControl?.checked===true;
 const regroup=breakdown==='clinician'||breakdown==='locum';
 const activeWeekSet=new Set();
-for(const r of records){if(includedRecord(r)){const key=periodKey(r);if(key)activeWeekSet.add(key)}}
+for(const r of historicalBookingRecords()){if(includedRecord(r)){const key=periodKey(r);if(key)activeWeekSet.add(key)}}
 const reportClock=Number.isFinite(capacityCSVLatestModified)?dayView2LondonClock(new Date(Math.min(Date.now(),capacityCSVLatestModified))):null;
 if(showCurrentWeek&&reportClock&&periodKey({bookedDay:reportClock.date,bookedWeek:mondayOf(reportClock.date)})===(monthlyMode?thisMonth:thisWeek)&&(monthlyMode||!excludeBankHolidays||!bankHolidayWeeks.has(thisWeek)))activeWeekSet.add(monthlyMode?thisMonth:thisWeek);
 const activeWeeks=[...activeWeekSet].sort();
@@ -2671,7 +2671,7 @@ function seriesForBooking(row){
  if(breakdown==='total')return 'Selected bookings';
  return additiveLines?'Combined':appointmentType;
 }
-for(const r of records){
+for(const r of historicalBookingRecords()){
  const key=periodKey(r);
  if(!sums.has(key)||!includedRecord(r))continue;
  sums.set(key,sums.get(key)+r.count);
@@ -3806,13 +3806,31 @@ function capacitySnapshotClock(){
 }
 // Display assumption only: the source report retains its original status.
 let pastBlockedAsBooked=iqLocalStorage.getItem('capacity:pastBlockedAsBooked')!=='false';
+// Blocked slots have no known booking date. Use their appointment date only as
+// an explicit proxy for historical booking charts and forecasts.
+let historicalBookingCache=null;
+function historicalBookingRecords(){
+ const clock=capacitySnapshotClock();
+ if(!pastBlockedAsBooked||!clock)return records;
+ if(historicalBookingCache?.records===records&&historicalBookingCache.availability===availabilityRecords&&historicalBookingCache.date===clock.date)return historicalBookingCache.value;
+ const assumed=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='blocked'&&r.date&&r.date<clock.date).map(r=>({...r,bookedDay:r.date,bookedWeek:mondayOf(r.date),week:mondayOf(r.date),status:'Booked',assumedBlocked:true}));
+ const value=records.concat(assumed);historicalBookingCache={records,availability:availabilityRecords,date:clock.date,value};return value;
+}
+function isPastBlockedSlot(row,clock=capacitySnapshotClock()){return !!clock&&!!row.date&&row.date<clock.date;}
 function setupPastBlockedControls(){
- for(const id of ['urgentPastBlockedAsBooked','routinePastBlockedAsBooked']){
-  const input=$(id);if(!input)continue;input.checked=pastBlockedAsBooked;
+ for(const page of ['chartPage','dailyForecastPage','weeklyForecastPage','homePage','dayView2Page']){
+  const root=$(page);if(!root||root.querySelector('[data-past-blocked-control]'))continue;
+  const label=document.createElement('label');label.className='filter-row';label.dataset.pastBlockedControl='';label.style.margin='12px';
+  label.innerHTML='<span class="switch"><input type="checkbox" role="switch" data-past-blocked><span class="switch-track"></span></span><span>Count past blocked as booked (appointment date used as an estimate)</span>';root.prepend(label);
+ }
+ for(const input of document.querySelectorAll('#urgentPastBlockedAsBooked,#routinePastBlockedAsBooked,[data-past-blocked]')){
+  input.checked=pastBlockedAsBooked;
   input.addEventListener('change',()=>{
    pastBlockedAsBooked=input.checked;iqLocalStorage.setItem('capacity:pastBlockedAsBooked',String(pastBlockedAsBooked));
-   for(const other of ['urgentPastBlockedAsBooked','routinePastBlockedAsBooked'])if($(other))$(other).checked=pastBlockedAsBooked;
+   historicalBookingCache=null;
+   for(const other of document.querySelectorAll('#urgentPastBlockedAsBooked,#routinePastBlockedAsBooked,[data-past-blocked]'))other.checked=pastBlockedAsBooked;
    renderAvailabilityChart();renderRoutineAvailabilityChart();if(!$('dayView2Page').classList.contains('hidden'))renderDayView2();
+   if(!$('chartPage').classList.contains('hidden'))refresh();window.refreshForecastCharts?.();if(!$('homePage').classList.contains('hidden'))window.updateHomeOverview?.();
   });
  }
 }
@@ -3934,7 +3952,7 @@ function collectDayView2Capacity(date,names,disabled,rows,clock=capacitySnapshot
   day.matched+=count;
   let status=String(r.availability||'').trim().toLowerCase();
   if(status==='available'&&isMissedAvailableSlot(r,clock))status='missedEmpty';
-  else if(status==='blocked'&&pastBlockedAsBooked&&isMissedAvailableSlot(r,clock))status='booked';
+  else if(status==='blocked'&&pastBlockedAsBooked&&isPastBlockedSlot(r,clock))status='booked';
   if(!statuses.includes(status)){day.unknown+=count;continue;}
   group[status]+=count;day.totals[status]+=count;
  }
@@ -4824,7 +4842,7 @@ function weeklyCapacityTodayX(weekIndex,dayIndex){
 function capacityChartStatus(row,held,clock){
  let status=String(row.availability||'').trim().toLowerCase();
  if(status==='available'&&isMissedAvailableSlot(row,clock))return 'Missed Empty';
- if(status==='blocked'&&pastBlockedAsBooked&&isMissedAvailableSlot(row,clock))return 'Booked';
+ if(status==='blocked'&&pastBlockedAsBooked&&isPastBlockedSlot(row,clock))return 'Booked';
  return ({booked:'Booked',available:'Available',embargoed:held?'Held Back':'Embargoed',blocked:held?'Held Back':'Blocked'})[status]||null;
 }
 function capacityHoverDetails(dates,names,counts,held,heading){
