@@ -65,14 +65,14 @@ const groupEnabled=name=>!disabled[mode].has(name)&&(mode!=='weekly'||!disabled.
 for(const input of filter.querySelectorAll('input[data-forecast-preference]'))input.checked=groupEnabled(input.dataset.forecastPreference);
 root.replaceChildren();if(!records.length){root.textContent='Load appointment data to generate a forecast.';return}
 const selected=names.filter(groupEnabled);if(!selected.length){root.textContent='Select at least one Appointment Types.';return}
-const today=forecastLocalDate(),latest=records.reduce((x,r)=>r.bookedDay&&r.bookedDay>x?r.bookedDay:x,'');
+const today=forecastLocalDate(),latest=historicalBookingRecords().reduce((x,r)=>r.bookedDay&&r.bookedDay>x?r.bookedDay:x,'');
 const firstAppointment=GPCorrectness.firstAppointmentDate(slotReportCoverage);
 if(!firstAppointment){root.textContent='Load a Slot Report with appointment dates to generate a forecast.';return}
 const end=latest&&latest<today?latest:shift(today,-1),weeks=Number($(prefix+'History').value);
 if(firstAppointment>end){root.textContent='No completed history is available from the first appointment date.';return}
 const windowStart=shift(end,1-weeks*7),start=firstAppointment>windowStart?firstAppointment:windowStart;
 const byDate=new Map(),allDates=new Set();
-for(const r of records){if(!r.bookedDay||r.bookedDay<firstAppointment||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;allDates.add(r.bookedDay);if(!locumMatches(r,'weeklyForecastPage'))continue;const n=capacityUrgencyCategory(r.slot);if(!selected.includes(n))continue;const k=r.bookedDay+'|'+n;byDate.set(k,(byDate.get(k)||0)+r.count)}
+for(const r of historicalBookingRecords()){if(!r.bookedDay||r.bookedDay<firstAppointment||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;allDates.add(r.bookedDay);if(!locumMatches(r,'weeklyForecastPage'))continue;const n=capacityUrgencyCategory(r.slot);if(!selected.includes(n))continue;const k=r.bookedDay+'|'+n;byDate.set(k,(byDate.get(k)||0)+r.count)}
 const earliest=[...allDates].sort()[0]||start;
 const dates=[];for(let d=earliest;d<=end;d=shift(d,1))dates.push(d);
 const recentDays=dates.filter(d=>d>=start);
@@ -271,7 +271,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
  const panel=capacityGroups?'capacity':planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
  const locumPage=capacityGroups?capacitySourcePage:planningOnly?'workforceNeedPage':'dailyForecastPage';
- const signature=JSON.stringify([locumPage,locumFilterSelections.get(locumPage),userTypeLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
+ const signature=JSON.stringify([pastBlockedAsBooked,capacitySnapshotClock()?.date,locumPage,locumFilterSelections.get(locumPage),userTypeLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
  const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups,allHistory,capacitySourcePage,recencyHalfLife]):signature;
  const cached=forecastRenderCache[panel];
  if(cached?.records===records&&cached.signature===cacheKey){if(panel==='predictions')applyForecastHorizon();return cached.capacityPrediction;}
@@ -301,7 +301,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
  const normalise=capacitySourcePage==='homePage'?createListSizeAdjuster(true):forecastAdjust;
  const totals=new Map(),parts=new Map(),allWeekdayTotals=new Map();
  const selectedGroups=new Set(groups),weekdayByDate=new Map();
- for(const r of records){
+ for(const r of historicalBookingRecords()){
   if(!r.bookedDay||r.bookedDay<firstAppointment||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;
   const urgency=capacityUrgencyCategory(r.slot);
   if(!selectedGroups.has(urgency)||!locumMatches(r,locumPage))continue;

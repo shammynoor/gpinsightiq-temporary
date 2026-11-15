@@ -678,7 +678,7 @@ function update(){
   }
   const coverage=slotReportCoverage;
   const firstAppointment=GPCorrectness.firstAppointmentDate(coverage);
-  const all=firstAppointment?records.filter(row=>row.bookedDay>=firstAppointment):[];
+  const all=firstAppointment?historicalBookingRecords().filter(row=>row.bookedDay>=firstAppointment):[];
   const date=typeof todayLondon==='string'?todayLondon:new Date().toISOString().slice(0,10);
   if(!all.length){
    showAiInsights(home,date,{});
