@@ -3804,6 +3804,18 @@ function dayView2LondonClock(value=new Date()){
 function capacitySnapshotClock(){
  return Number.isFinite(capacityCSVLatestModified)?dayView2LondonClock(new Date(capacityCSVLatestModified)):null;
 }
+// Display assumption only: the source report retains its original status.
+let pastBlockedAsBooked=iqLocalStorage.getItem('capacity:pastBlockedAsBooked')!=='false';
+function setupPastBlockedControls(){
+ for(const id of ['urgentPastBlockedAsBooked','routinePastBlockedAsBooked']){
+  const input=$(id);if(!input)continue;input.checked=pastBlockedAsBooked;
+  input.addEventListener('change',()=>{
+   pastBlockedAsBooked=input.checked;iqLocalStorage.setItem('capacity:pastBlockedAsBooked',String(pastBlockedAsBooked));
+   for(const other of ['urgentPastBlockedAsBooked','routinePastBlockedAsBooked'])if($(other))$(other).checked=pastBlockedAsBooked;
+   renderAvailabilityChart();renderRoutineAvailabilityChart();if(!$('dayView2Page').classList.contains('hidden'))renderDayView2();
+  });
+ }
+}
 function isMissedAvailableSlot(row,clock=capacitySnapshotClock()){
  return !!clock&&(row.date<clock.date||(row.date===clock.date&&Number.isFinite(row.minute)&&row.minute<clock.minute));
 }
@@ -3922,6 +3934,7 @@ function collectDayView2Capacity(date,names,disabled,rows,clock=capacitySnapshot
   day.matched+=count;
   let status=String(r.availability||'').trim().toLowerCase();
   if(status==='available'&&isMissedAvailableSlot(r,clock))status='missedEmpty';
+  else if(status==='blocked'&&pastBlockedAsBooked&&isMissedAvailableSlot(r,clock))status='booked';
   if(!statuses.includes(status)){day.unknown+=count;continue;}
   group[status]+=count;day.totals[status]+=count;
  }
@@ -4165,7 +4178,7 @@ function renderDayView2(){
  $('dayView2Total').textContent=number(total)+' total slots';
  const bookable=totals.booked+totals.available+totals.missedEmpty;
  $('dayView2Fill').textContent=bookable?Math.round(100*totals.booked/bookable)+'% of bookable capacity filled':'No bookable slots reported';
- $('dayView2Detail').textContent='Select a capacity segment for its count and meaning.';
+ $('dayView2Detail').textContent=pastBlockedAsBooked?'Booked includes past blocked slots assumed booked. Select a segment for details.':'Select a capacity segment for its count and meaning.';
  const lanes=$('dayView2Lanes');hideDayView2Tooltip();dayView2SegmentObserver?.disconnect();lanes.replaceChildren();
  // Shared count axis across every appointment-type bar on all three dates.
  const visibleDays=Array.from({length:3},(_,i)=>days.get(dayView2AddWorkingDays(date,i)));
@@ -4205,7 +4218,7 @@ function renderDayView2(){
    segment.setAttribute('aria-label',laneDateLabel+' · '+name+': '+number(counts[status])+' '+(status==='missedEmpty'?'Missed Empty':status)+' slots');
    if(counts[status]/laneTotal>=.04)segment.textContent=number(counts[status]);
    segment.addEventListener('click',()=>{
-    const meaning={missedEmpty:'An unbooked slot whose appointment start time was before the imported Slot Report refresh time.',booked:'Already booked for this appointment date.',available:'An unbooked slot whose start time has not passed in the loaded report.',embargoed:'Held from booking. The report does not supply a release time.',blocked:'Currently unavailable; these slots are not counted as free to book.'};
+    const meaning={missedEmpty:'An unbooked slot whose appointment start time was before the imported Slot Report refresh time.',booked:pastBlockedAsBooked?'Includes booked slots and past blocked slots assumed booked.':'Already booked for this appointment date.',available:'An unbooked slot whose start time has not passed in the loaded report.',embargoed:'Held from booking. The report does not supply a release time.',blocked:'Currently unavailable; these slots are not counted as free to book.'};
     $('dayView2Detail').textContent=laneDateLabel+' · '+name+' · '+number(counts[status])+' '+(status==='missedEmpty'?'Missed Empty':status)+' slots. '+meaning[status];
    });
    groupSpan.append(segment);
@@ -4811,6 +4824,7 @@ function weeklyCapacityTodayX(weekIndex,dayIndex){
 function capacityChartStatus(row,held,clock){
  let status=String(row.availability||'').trim().toLowerCase();
  if(status==='available'&&isMissedAvailableSlot(row,clock))return 'Missed Empty';
+ if(status==='blocked'&&pastBlockedAsBooked&&isMissedAvailableSlot(row,clock))return 'Booked';
  return ({booked:'Booked',available:'Available',embargoed:held?'Held Back':'Embargoed',blocked:held?'Held Back':'Blocked'})[status]||null;
 }
 function capacityHoverDetails(dates,names,counts,held,heading){
@@ -4912,7 +4926,7 @@ function renderAvailabilityChart(){
   const details=target._capacityHoverData.get(buckets[index]);
   if(details)details.predictedNeed=value;
  });
- const note=$('availabilityNote');if(note)note.textContent=names.length?'':'Select an Urgent detailed Appointment Types to display appointments.';
+ const note=$('availabilityNote');if(note)note.textContent=names.length?(pastBlockedAsBooked?'Booked includes past blocked slots assumed booked; change this in Display options.':''):'Select an Urgent detailed Appointment Types to display appointments.';
  renderPreferencePlot(target,traces,{dragmode:false,
   autosize:true,height:640,barmode:'stack',barcornerradius:weekly?6:5,bargap:weekly?0.11:0.025,margin:{l:62,r:18,t:40,b:100},paper_bgcolor:'white',plot_bgcolor:'#e1eaf1',
   legend:{orientation:'h',x:0.5,y:-0.23,xanchor:'center',yanchor:'top',font:{size:13,color:'#42576a'},bgcolor:'rgba(255,255,255,0)'},
@@ -4922,6 +4936,7 @@ function renderAvailabilityChart(){
 }
 window.addEventListener('resize',()=>{if(!$('availabilityPage').classList.contains('hidden'))renderAvailabilityChart()});
 setupUrgentRangeControls();
+setupPastBlockedControls();
 
 // Independent filters for Routine Appointment Availability.
 const routineDisabledTypes=new Set();
@@ -5085,7 +5100,7 @@ function renderRoutineAvailabilityChart(){
  for(let i=0;i<weeks.length-1;i++){const boundary=isDaily?(i+1)*7-0.5:i+0.5;shapes.push({type:'line',xref:'x',yref:'paper',x0:boundary,x1:boundary,y0:0,y1:1,line:{color:'#bdcbd6',width:1,dash:'dot'},layer:'above'});}
  if(todayX!==null)annotations.push(capacityTodayAnnotation(todayX,dates.length,target.clientWidth));
  const note=$('routineAvailabilityNote');
- if(note)note.textContent=matched?'':"No matching Routine Appointment Types appointments found. Check Manage categories → Appointment Types.";
+ if(note)note.textContent=matched?(pastBlockedAsBooked?'Booked includes past blocked slots assumed booked; change this in Display options.':''):"No matching Routine Appointment Types appointments found. Check Manage categories → Appointment Types.";
  renderPreferencePlot(target,traces,{dragmode:false,
   height:640,autosize:true,barmode:'stack',barcornerradius:isDaily?5:6,bargap:isDaily?0.07:0.11,
   margin:{l:62,r:18,t:40,b:100},paper_bgcolor:'#fff',plot_bgcolor:plotBackground,
