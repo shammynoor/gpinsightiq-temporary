@@ -3,7 +3,7 @@
 // Read-only practice home. Uses the same imported records, slot mappings and
 // weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
 const $=id=>document.getElementById(id);
-const insightVersion='home-insights-v9';
+const insightVersion='home-insights-v10';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
 const shift=(date,days)=>{const d=isoDay(date);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10)};
 const monday=date=>shift(date,-((isoDay(date).getUTCDay()+6)%7));
@@ -371,6 +371,7 @@ function showAiInsights(home,period,metrics){
    if(aiState!==state)return;
    const before=visibleCopy();
    if(!renderSavedInsights(state,row))throw Error('The response did not match the current dashboard figures. Try regenerating again.');
+   if(row.fallback){state.saved=row;status.textContent='AI wording could not be verified. Showing insights calculated from the dashboard figures.';return;}
    state.saved=row;
    status.textContent=(visibleCopy()===before?'AI insights regenerated. The wording is unchanged.':'AI insights updated.')+timeLabel(row);
   }catch(error){

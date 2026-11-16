@@ -1889,9 +1889,9 @@ function renderDropEditor(dimension){
 // Only replace an existing CSV in the selected source folder. Never create files,
 // and never write to the separate app-folder settings JSON.
 let csvDropBusy=false,csvDragDepth=0;
-function csvDropStatus(message,isError=false){
+function csvDropStatus(message,isError=false,loading=!!message&&!isError){
  const status=$('csvDropStatus');if(status){status.textContent='';status.classList.toggle('csv-drop-error',isError)}
- showRefreshFeedback(message,!!message&&!isError);
+ showRefreshFeedback(message,loading);
 }
 function csvDropOverlay(show){
  const overlay=$('csvDropOverlay');if(overlay)overlay.classList.toggle('hidden',!show);
@@ -1977,7 +1977,7 @@ async function replaceExistingCSV(file){
     throw Error('Rejected: the CSV column headings or their order do not match the existing practice workspace file.');
   }
   csvDropStatus('Validated '+file.name+'. Waiting for confirmation…');
-  if(!await awaitCSVConfirmation(file.name,match,appendSummary)){csvDropStatus('Upload cancelled. No files were changed.');return}
+  if(!await awaitCSVConfirmation(file.name,match,appendSummary)){csvDropStatus('Upload cancelled. No files were changed.',false,false);return}
   csvDropStatus('Uploading '+file.name+' to practice workspace…');
   const bearer=await token();
   // PUT by existing item ID, never by path: this can only replace the matched file.
@@ -5751,7 +5751,7 @@ async function renderPracticeUsers(){
 }
 async function removePracticeUser(){iqBridge.users();}
 async function loadFolder(force=true){
- if(!selectedFolder||busy)return;busy=true;setButtons();showRefreshFeedback('Loading practice reports…',true);
+ if(!selectedFolder||busy)return false;busy=true;setButtons();showRefreshFeedback('Loading practice reports…',true);
  try{
  await iqBridge.ensure();
  iqSources=await iqBridge.list();
@@ -5833,12 +5833,14 @@ const drawingErrors=[];
   try{await draw()}catch(error){drawingErrors.push(label+': '+(error?.message||String(error)));console.error('Dashboard rendering error in '+label,error)}
  }
  showRefreshFeedback(drawingErrors.length?'Data loaded; chart issue: '+drawingErrors.join('; '):(!isOwner?'Data refreshed · shared slot assignments: '+Object.keys(assignments).length:'Data refreshed successfully'));
- scheduleChartResize();setSync(`Downloaded ${downloaded} changed CSV file(s), reused ${reused} cached · ${newSlotFiles} Slot Report CSV files · ${newSignpostingFiles} Signposting CSV files · ${valid.toLocaleString('en-GB')} booked Slot Report rows + ${newSignposting.length.toLocaleString('en-GB')} signposting events · ${skipped.toLocaleString('en-GB')} skipped · ${Object.keys(assignments).length} assigned slot types · Updated ${new Date().toLocaleString('en-GB')}`)
+ scheduleChartResize();setSync(`Downloaded ${downloaded} changed CSV file(s), reused ${reused} cached · ${newSlotFiles} Slot Report CSV files · ${newSignpostingFiles} Signposting CSV files · ${valid.toLocaleString('en-GB')} booked Slot Report rows + ${newSignposting.length.toLocaleString('en-GB')} signposting events · ${skipped.toLocaleString('en-GB')} skipped · ${Object.keys(assignments).length} assigned slot types · Updated ${new Date().toLocaleString('en-GB')}`);
+ return !drawingErrors.length;
  }catch(e){
  const message=e?.message||String(e);
  console.error('Practice report refresh error',e);
  showRefreshFeedback('Refresh failed: '+message);
  setSync('Refresh failed: '+message+' · You remain signed in; the existing charts have been preserved where possible.');
+ return false;
  }finally{busy=false;setButtons()}}
 
 function updateHomeReportDates(items){
@@ -5913,10 +5915,10 @@ async function replaceExistingCSV(file){
   const text=await file.text();
   if(/\.json$/i.test(file.name)){
    const settings=parseSettingsJSON(text);delete settings.folder;delete settings.peopleClinicianType;delete settings.peopleLocum;if(!confirm('Replace this practice’s shared settings with '+file.name+'? Personal display preferences are kept separately.'))return;
-   iqSettingsRevision=await iqBridge.saveSettings(settings,iqSettingsRevision);await loadCloudCategories({strict:true});await loadFolder(true);iqUploadStatus.textContent='Practice settings imported.';csvDropStatus(iqUploadStatus.textContent);return;
+   iqSettingsRevision=await iqBridge.saveSettings(settings,iqSettingsRevision);await loadCloudCategories({strict:true});const refreshed=await loadFolder(true);iqUploadStatus.textContent=refreshed?'Practice settings imported.':'Settings saved, but the dashboard could not refresh. Refresh the page.';csvDropStatus(iqUploadStatus.textContent,!refreshed,false);return;
   }
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
-  if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);await loadFolder(true);iqUploadStatus.textContent='Rapid Health import finished.';csvDropStatus(iqUploadStatus.textContent);return;}
+  if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);const refreshed=await loadFolder(true);iqUploadStatus.textContent=refreshed?'Rapid Health import finished.':'Rapid Health data saved, but the dashboard could not refresh. Refresh the page.';csvDropStatus(iqUploadStatus.textContent,!refreshed,false);return;}
   const kind=headers.includes('Code Term')&&headers.includes('Date')?'signposting':'slot';
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
@@ -5953,9 +5955,9 @@ async function replaceExistingCSV(file){
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
   csvDropStatus(iqUploadStatus.textContent);
   await iqBridge.save({existing,kind,name:sourceName,clinical_at:clinical.toISOString(),count,contribution});
-  await loadFolder(true);
-  iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.';
-  csvDropStatus(iqUploadStatus.textContent);
+  const refreshed=await loadFolder(true);
+  iqUploadStatus.textContent=refreshed?'Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.':'Report saved, but the dashboard could not refresh. Refresh the page; do not upload the report again.';
+  csvDropStatus(iqUploadStatus.textContent,!refreshed,false);
  }catch(error){if(iqUploadStatus)iqUploadStatus.textContent='Upload failed: '+error.message;csvDropStatus('Upload failed: '+error.message,true);}
  finally{iqUploading=false;csvDropBusy=false;}
 }
