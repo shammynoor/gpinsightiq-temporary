@@ -117,3 +117,8 @@
 #homePage .iq-home-insight-copy small{font-weight:400}
 
 @media(max-width:470px){.iq-overview .iq-home-insights{grid-template-columns:minmax(0,1fr)}}
+
+/* Urgent insights retain the existing card layout but stand out at a glance. */
+#homePage .iq-home-insight.iq-home-insight-urgent{border:2px solid #d64a5f!important;background:#fff6f7!important;box-shadow:3px 5px 14px rgba(164,43,62,.2)!important}
+#homePage .iq-home-insight-urgent .iq-home-insight-copy strong{font-weight:750;color:#8b2033}
+#homePage .iq-home-urgent-symbol{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:#b92f48;color:white;font-weight:800;font-size:16px;line-height:1}
