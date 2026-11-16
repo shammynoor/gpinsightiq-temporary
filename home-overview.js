@@ -22,7 +22,7 @@ const allowed=row=>row&&!excludedSlotTypes.has(row.slot)&&careFor(row.slot);
 const isExtraAppointmentType=type=>['extra','urgentextra'].includes(String(type).toLowerCase().replace(/[^a-z0-9]/g,''));
 const clinicianGroup=row=>{
  const type=effectiveClinicianType(row.clinician)||'';
- return clinicianGroupAssignments[type]||type||'Unassigned';
+ return clinicianGroupAssignments[type]||'Unassigned';
 };
 const median=pairs=>{
  if(!pairs.length)return null;
@@ -59,16 +59,21 @@ function appendEmphasis(node,text,terms){
   offset=start+match.length;
  }
 }
-function setInsight(section,index,title,bullets,emphasis=[],labels={}){
+function setInsight(section,index,title,bullets,emphasis=[],labels={},urgent=false){
  const card=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-insights');
  const item=card?.querySelectorAll('.iq-home-insight')[index];
  if(!item)return;
  item.querySelector('strong').textContent=title;
- const details={key:insightCards[section][index],bullets:bullets.filter(Boolean),emphasis:emphasis.filter(Boolean),labels};
+ item.classList.toggle('iq-home-insight-urgent',urgent);
+ let warning=item.querySelector('.iq-home-urgent-symbol');
+ if(urgent&&!warning){warning=document.createElement('span');warning.className='iq-home-urgent-symbol';warning.textContent='!';warning.setAttribute('aria-label','Urgent');item.prepend(warning);}
+ if(!urgent)warning?.remove();
+ const details={key:insightCards[section][index],bullets:bullets.filter(Boolean),emphasis:emphasis.filter(Boolean),labels,urgent};
  insightCopy.set(item,details);
  paintInsight(item,details);
 }
-function paintInsight(item,{bullets,emphasis,labels},generated){
+function paintInsight(item,{bullets,emphasis,labels,urgent},generated){
+ if(urgent)generated=null;
  const list=document.createElement('span');
  list.setAttribute('role','list');
  for(const bullet of generated?.length?generated:bullets){
@@ -436,7 +441,7 @@ function renderCare(section,options,metrics){
  const seasonDetail=seasonPosition?'Recent bookings were '+seasonPosition+' for this time of year.':'';
  const start=currentWeeks[0],end=shift(latestCompleteWeek,6);
  const clock=capacitySnapshotClock();
- const missed=new Map(),extras=new Map(),future=new Map(),bookedBySegment=new Map();
+ const missed=new Map(),extras=new Map(),future=new Map(),futureObserved=new Set(),bookedBySegment=new Map();
  const missedByWeek=new Map(),extrasByWeek=new Map();
  let bookedCapacity=0;
  const todayClock=dayView2LondonClock();
@@ -459,9 +464,9 @@ function renderCare(section,options,metrics){
     if(coveredCapacityWeeks.has(week))addCount(missedByWeek,week,n);
    }
   }
-  if(section==='routine'&&status==='available'&&(row.date>today||(row.date===today&&Number.isFinite(row.minute)&&row.minute>=todayClock.minute))){
+  if(section==='routine'&&(row.date>today||(row.date===today&&Number.isFinite(row.minute)&&row.minute>=todayClock.minute))){
    const segment=routineSegment(row);
-   if(segment)addCount(future,segment,n);
+   if(segment){futureObserved.add(segment);if(status==='available')addCount(future,segment,n);}
   }
  }
  const unusedTotal=[...missed.values()].reduce((total,n)=>total+n,0);
@@ -554,7 +559,7 @@ function renderCare(section,options,metrics){
     else{before.push([weeks,n]);beforeCount+=n}
    }
    if(row.appointmentDate<recentStart)continue;
-   const type=effectiveClinicianType(row.clinician);
+   const type=clinicianGroup(row);
    const mode=mappedConsultMode(row);
    if(!hasGroup(type)||!mode)continue;
    const key=JSON.stringify([type,mode]);
@@ -607,24 +612,27 @@ function renderCare(section,options,metrics){
   }
   const risks=[];
   if(fourComplete&&clock){
-   for(const [segment,slots] of future){
-    const booked=bookedBySegment.get(segment)||0;
-    if(slots>=10&&booked>=30)risks.push({segment,slots,booked,cover:4*slots/booked});
+   for(const segment of futureObserved){
+    const slots=future.get(segment)||0,booked=bookedBySegment.get(segment)||0;
+    if(booked>=30)risks.push({segment,slots,booked,cover:4*slots/booked});
    }
   }
   risks.sort((a,b)=>a.cover-b.cover||b.booked-a.booked||a.segment.localeCompare(b.segment));
   const risk=risks[0];
   metrics.riskSlots=risk?reportableCount(risk.slots):null;
   const [group,mode]=risk?JSON.parse(risk.segment):[];
-  metrics.riskCoverDays=risk&&risk.cover<1?Math.max(.1,Math.round(risk.cover*70)/10):null;
-  metrics.riskCover=risk&&risk.cover>=1?Math.round(risk.cover*10)/10:null;
+  metrics.riskCoverDays=risk&&risk.slots>=10&&risk.cover<1?Math.max(.1,Math.round(risk.cover*70)/10):null;
+  metrics.riskCover=risk&&risk.slots>=10&&risk.cover>=1?Math.round(risk.cover*10)/10:null;
   const coverLabel=metrics.riskCoverDays!==null?waitDays(metrics.riskCoverDays):metrics.riskCover!==null?roundWeeks(metrics.riskCover):'';
   const segmentLabel=risk?group+' ('+mode+')':'';
-  setInsight('routine',2,'Forward availability',risk?[
-   segmentLabel+' has the least cover, with '+integer(risk.slots)+' slots open.',
-   'That’s about '+coverLabel+' at the recent booking pace if no more slots are released.'
-  ]:['There’s too little data to see which slots may run out first.'],
-   risk?[segmentLabel,coverLabel,integer(risk.slots)+' slots']:[],{riskGroup:segmentLabel});
+  const urgent=!!risk&&(risk.slots<10||risk.cover*7<1);
+  const riskBullets=!risk?['There’s too little data to see which slots may run out first.']:risk.slots<10?[
+   segmentLabel+' has fewer than 10 open slots in the available report.',
+   'This is a commonly booked appointment type and may need attention.'
+  ]:[segmentLabel+' has the least cover, with '+integer(risk.slots)+' slots open.',
+   'That’s about '+coverLabel+' at the recent booking pace if no more slots are released.'];
+  setInsight('routine',2,'Forward availability',riskBullets,
+   risk?[segmentLabel,coverLabel,risk.slots>=10?integer(risk.slots)+' slots':'fewer than 10']:[],{riskGroup:segmentLabel},urgent);
   metrics.routineUnused=unused;
   metrics.routineUnusedShare=unusedShare;
   metrics.routineUnusedYear=unusedComparison.year;
