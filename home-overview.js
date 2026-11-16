@@ -101,6 +101,33 @@ function svgElement(tag,attrs={},text){
  if(text!==undefined)node.textContent=text;
  return node;
 }
+// Limit only the graph display; keep forecast and insight calculations unchanged.
+function homeHistoryView(historyStart,presentMonday,series,mode){
+ const shortStart=shift(presentMonday,-16*7);
+ const viewStart=mode==='short'&&shortStart>historyStart?shortStart:historyStart;
+ const offset=Math.max(0,Math.round((isoDay(viewStart)-isoDay(historyStart))/604800000));
+ return {start:viewStart,series:series.map(item=>({...item,history:item.history.slice(offset),adjustedHistory:item.adjustedHistory.slice(offset)}))};
+}
+let homeHistorySelection=null,homeHistoryAccount;
+function homeHistoryMode(){
+ const account=window.gpChartPreferences?.account?.()||null;
+ if(account!==homeHistoryAccount){homeHistoryAccount=account;homeHistorySelection=null;}
+ return homeHistorySelection||(window.gpChartPreferences?.read()?.['home:historyRange']==='short'?'short':'long');
+}
+function setupHomeHistoryControl(){
+ const root=$('homePage');if(!root)return;
+ const mode=homeHistoryMode();
+ root.querySelectorAll('[data-home-history]').forEach(button=>{
+  button.setAttribute('aria-pressed',String(button.dataset.homeHistory===mode));
+  if(button.dataset.historyBound)return;
+  button.dataset.historyBound='1';
+  button.addEventListener('click',()=>{
+   homeHistorySelection=button.dataset.homeHistory;
+   window.gpChartPreferences?.write('home:historyRange',homeHistorySelection);
+   update();
+  });
+ });
+}
 function sharedAxis(series){
  let peak=0;
  for(const {history,forecast} of series){
@@ -405,7 +432,7 @@ function capacityComparisonLine(comparison){
   'We averaged '+describeChange(value)+' slots per week than '+label+'.';
 }
 function renderCare(section,options,metrics){
- const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks}=options;
+ const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks,viewHistory,viewAdjustedHistory,viewStart}=options;
  const currentFour=adjustedHistory.slice(-4).filter((_,i)=>!holidayWeeks.has(shift(latestCompleteWeek,(i-3)*7)));
  const recentMean=currentFour.length>=2&&currentFour.every(Number.isFinite)?currentFour.reduce((a,b)=>a+b,0)/currentFour.length:null;
  const regularForecast=forecast.slice(1).filter(row=>!holidayWeeks.has(row.weekStart));
@@ -414,7 +441,7 @@ function renderCare(section,options,metrics){
  const meanForecast=completeForecast?predicted.reduce((a,b)=>a+b.estimate,0)/predicted.length:null;
  const change=recentMean!==null&&meanForecast!==null?signedTrend(meanForecast,recentMean):null;
  setOutlook(section,change!==null?percent(change):'—',change===null?'Comparison unavailable':'Next 4 weeks vs last 4 weeks');
- renderChart(section,history,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,historyStart,adjustedHistory);
+ renderChart(section,viewHistory,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,viewStart,viewAdjustedHistory);
  const sumWeeks=weeks=>weeks.reduce((sum,w)=>sum+(bookingMap.get(w)||0),0);
  const currentWeeks=Array.from({length:4},(_,i)=>shift(latestCompleteWeek,-(3-i)*7));
  const previousWeeks=currentWeeks.map(w=>shift(w,-28));
@@ -677,6 +704,7 @@ function currentCareWeek(care,date,weekStart,slots,adjustCount,holidayWeeks,cove
 let rendering=false;
 function update(){
  const home=$('homePage');if(!home||home.classList.contains('hidden')||rendering)return;
+ setupHomeHistoryControl();
  rendering=true;
  try{
   if(!fitObserver){
@@ -761,8 +789,9 @@ function update(){
   const coveredCapacityWeeks=new Set(GPCorrectness.completeWeeks(datedCoverage,shift(latestCompleteWeek,7),56)
    .filter(week=>coverage.every(range=>
     range.end<week||range.start>shift(week,6)||range.asOf>(range.end<shift(week,6)?range.end:shift(week,6)))));
-  const axis=sharedAxis(series);
-  for(const item of series)renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date,holidayWeeks,coveredCapacityWeeks},metrics);
+  const view=homeHistoryView(historyStart,presentMonday,series,homeHistoryMode());
+  const axis=sharedAxis(view.series);
+  series.forEach((item,i)=>renderCare(item.care,{...item,axis,historyStart,latestCompleteWeek,today:date,holidayWeeks,coveredCapacityWeeks,viewHistory:view.series[i].history,viewAdjustedHistory:view.series[i].adjustedHistory,viewStart:view.start},metrics));
   showAiInsights(home,date,metrics);
  }catch(error){
   showAiInsights(home,'',{});
