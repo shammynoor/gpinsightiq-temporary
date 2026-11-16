@@ -2616,7 +2616,7 @@ function reportRangeEndLabel(monthIndex){
 }
 
 const historicBreakdowns=['appointment','clinician','locum','total'];
-let historicChart2=false;
+let historicChart2=true;
 function historicChartBreakdown(){
  const saved=readChartPreferences()['historicChart2:breakdown'];
  return historicChart2&&historicBreakdowns.includes(saved)?saved:'appointment';
@@ -2814,12 +2814,12 @@ function installDemandCardTooltip(target){
   }
   card.replaceChildren();
   const heading=document.createElement('div');heading.className='availability-tooltip-heading';
-  heading.textContent=currentActual?'Actual bookings so far — current '+currentActual.mode:projection?'Indicative 70% prediction interval':formatted||(name.match(/\d{4}$/)?.[0]||'Appointment demand');card.append(heading);
+  heading.textContent=currentActual?'Actual bookings so far — current '+currentActual.mode:projection?'Indicative 70% prediction interval':(formatted||(name.match(/\d{4}$/)?.[0]||'Appointment demand'))+(Array.isArray(values)&&values[4]?' · incomplete period':'');card.append(heading);
   const row=document.createElement('div');row.className='availability-tooltip-line';
   const dot=document.createElement('span');dot.className='availability-tooltip-dot';dot.style.backgroundColor=point.data.line.color;
   const value=document.createElement('span');value.textContent=name+': '+Number(Array.isArray(values)?values[1]:point.y).toLocaleString('en-GB')+' actual bookings';
   if(Array.isArray(values)&&adjustDemandForListSize)value.textContent+=' · Adjusted: '+Number(values[2]).toLocaleString('en-GB',{maximumFractionDigits:1});
-  if(demandSmoothingLevel()&&!projection&&!currentActual&&!/\(incomplete\)$/.test(name))value.textContent+=' · Smoothed: '+Number(point.y).toLocaleString('en-GB',{maximumFractionDigits:1});
+  if(demandSmoothingLevel()&&!projection&&!currentActual&&!/\(incomplete\)$/.test(name))value.textContent+=' · Smoothed: '+Number(Array.isArray(values)&&Number.isFinite(values[3])?values[3]:point.y).toLocaleString('en-GB',{maximumFractionDigits:1});
   if(projection){value.textContent=projection.category+': '+Math.round(projection.low).toLocaleString('en-GB')+'–'+Math.round(projection.high).toLocaleString('en-GB')+' estimated bookings · '+Math.round(projection.rawObserved).toLocaleString('en-GB')+' actual bookings so far'+(adjustDemandForListSize?' · Range adjusted for list size':'')+' · Report: '+projection.asOfLabel+' · '+projection.samples+' complete historical '+(projection.mode==='month'?'months':'weeks')+(projection.intradayProfile?' · Historical booking-time profile':' · Uniform-time fallback; wider range');}
   if(currentActual){value.textContent=currentActual.category+': '+Math.round(currentActual.rawObserved).toLocaleString('en-GB')+' actual bookings so far'+(adjustDemandForListSize?' · Adjusted: '+Number(currentActual.observed).toLocaleString('en-GB',{maximumFractionDigits:1}):'')+' · Report: '+currentActual.asOfLabel;}
   row.append(dot,value);card.append(row);card.hidden=false;
@@ -2914,10 +2914,11 @@ function drawCombinedDemandChart(){
  const years=[...new Set(visibleWeeks.map(w=>Number(w.slice(0,4))))].sort((a,b)=>a-b);
  const latestYear=years.length?years[years.length-1]:null;
  const traces=[];
+ const stacked=historicChart2&&breakdown!=='total';
  const yearWidth=(year)=>[2.6,2.0,1.5][latestYear-year]??1.2;
  const x=p=>continuousMode?monthOfPeriod(p.date):(monthlyMode?Number(p.date.slice(5,7))-.5:monthPosition(p.date));
  // One legend entry per year; colour indicates urgency, thickness highlights the latest year.
- if(!continuousMode)for(const [i,year] of years.entries()){
+ if(!continuousMode&&!stacked)for(const [i,year] of years.entries()){
   traces.push({name:String(year),x:[null],y:[null],type:'scatter',mode:'lines',showlegend:true,
    line:{color:'#58677a',width:yearWidth(year)},hoverinfo:'skip'});
  }
@@ -2960,7 +2961,24 @@ function drawCombinedDemandChart(){
   }
  }
 
- for(const category of series){
+ if(stacked){
+  const stackedTotals=new Map();
+  for(const category of series){
+   const points=GPCorrectness.smoothDemandSeries([...totalsFor(category)].filter(([date])=>visibleWeeks.includes(date)).map(([date,count])=>({date,rawCount:count,count:adjustedCount(date,count),year:Number(date.slice(0,4))})),{level:demandSmoothingLevel(),continuous:continuousMode,currentPeriod:showCurrentWeek?(monthlyMode?thisMonth:thisWeek):''});
+   for(const p of points)stackedTotals.set(p.date,(stackedTotals.get(p.date)||0)+(Number(p.smoothed)||0));
+   for(const year of continuousMode?[null]:years){
+    const data=points.filter(p=>year===null||p.year===year).sort((a,b)=>a.date.localeCompare(b.date));
+    if(!data.length)continue;
+    const colour=seriesColour(category),rgb=/^#[0-9a-f]{6}$/i.test(colour)?[1,3,5].map(i=>parseInt(colour.slice(i,i+2),16)):[38,120,173];
+    traces.push({name:category+(year===null?'':' '+year),showlegend:false,type:'scatter',mode:'lines',
+     x:data.map(x),y:data.map(p=>p.smoothed),customdata:data.map(p=>[p.date,p.rawCount,p.count,p.smoothed,showCurrentWeek&&periodIsCurrent(p.date)]),
+     stackgroup:year===null?'historic-all':'historic-'+year,fillcolor:'rgba('+rgb.join(',')+',0.55)',
+     line:{color:colour,width:1.5,shape:'linear'},hoverinfo:'text',text:data.map(p=>p.date)});
+   }
+  }
+  for(const value of stackedTotals.values())maxCount=Math.max(maxCount,value);
+ }
+ if(!stacked)for(const category of series){
   const totals=totalsFor(category);
   const points=GPCorrectness.smoothDemandSeries([...totals].filter(([date])=>(!demandMonthStart||date.slice(0,7)>=demandMonthStart)&&(!demandMonthEnd||date.slice(0,7)<=demandMonthEnd)).map(([date,count])=>({date,rawCount:count,count:adjustedCount(date,count),year:Number(date.slice(0,4))})),{level:demandSmoothingLevel(),continuous:continuousMode,currentPeriod:showCurrentWeek?(monthlyMode?thisMonth:thisWeek):''});
   for(const [i,year] of years.entries()){
@@ -3012,7 +3030,7 @@ function drawCombinedDemandChart(){
  // currently selected booking weeks/months (including zero-count periods).
  const averageShapes=[];
  const averageCapsules=[];
- for(const category of series){
+ if(!stacked)for(const category of series){
   const totals=totalsFor(category);
   const values=visibleWeeks.filter(w=>!periodIsCurrent(w)).map(w=>adjustedCount(w,totals.get(w)||0)).filter(Number.isFinite);
   if(!values.length)continue;
@@ -3031,7 +3049,7 @@ function drawCombinedDemandChart(){
  renderPreferencePlot('combinedDemandChart',traces,{dragmode:false,autosize:true,height:535,
   margin:{l:62,r:24,t:continuousMode?28:50,b:65},paper_bgcolor:'white',plot_bgcolor:'#fafafa',
   shapes:[...yearBackgroundShapes(visibleWeeks),...averageShapes],
-  showlegend:!continuousMode,legend:{orientation:'h',y:1.14,x:0,xanchor:'left',yanchor:'bottom',entrywidth:85,entrywidthmode:'pixels',traceorder:'normal'},
+  showlegend:!continuousMode&&!stacked,legend:{orientation:'h',y:1.14,x:0,xanchor:'left',yanchor:'bottom',entrywidth:85,entrywidthmode:'pixels',traceorder:'normal'},
   xaxis:continuousMode?{...historicalAxisStyle,type:'date',domain:[0,1],title:monthlyMode?'Booking month':'Booking date',dtick:visibleWeeks.length<(monthlyMode?9:39)?'M1':'M3',showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,...(range?{range}: {})}:{...axis,...historicalAxisStyle,domain:[0,1],showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,dtick:3},
   yaxis:{...historicalAxisStyle,title:{text:monthlyMode?'Appointments per month':'Appointments per week',standoff:8,font:{size:11}},range:[0,yAxisTop],tick0:0,dtick:majorGridStep,showgrid:true,gridcolor:'#b0b0b0',gridwidth:1,zeroline:false,minor:{tick0:0,dtick:majorGridStep/2,showgrid:true,gridcolor:'#e3e3e3',gridwidth:0.6,ticks:''}},hovermode:'closest',
   annotations:!selected.length||(historicChart2&&!series.length)?[{text:selected.length?'No bookings match these filters':'Select an appointment type to display appointments',xref:'paper',yref:'paper',x:.5,y:.5,showarrow:false}]:[]
@@ -4285,6 +4303,7 @@ $('dayView2Next')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddW
 const workspacePages=[['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
 function showPage(which,{historyMode='push'}={}){
  if(which==='dayView2')which='dayView';
+ if(which==='chart2')which='chart';
  const forecastMode=which==='dailyForecast'?'daily':which==='weeklyForecast'?'weekly':null;
  const known=forecastMode||which==='chart2'||workspacePages.some(([, , name])=>name===which);
  if(!known||(!isOwner&&['categories','people','practiceSettings'].includes(which))){
@@ -4293,7 +4312,6 @@ function showPage(which,{historyMode='push'}={}){
  }
  if(historyMode!=='restore')iqBridge?.recordWorkspacePage(which,historyMode==='replace');
  writeChartPreference('workspacePage',which);
- $('navChart2').classList.toggle('active',which==='chart2');
  if(forecastMode){
   window.openWorkspaceForecast?.(forecastMode);
   return;
@@ -4303,9 +4321,9 @@ function showPage(which,{historyMode='push'}={}){
  closeDashboardMenus();hideDayView2Tooltip();
  for(const id of ['dailyForecastPage','weeklyForecastPage'])$(id)?.classList.add('hidden');
  for(const id of ['navDailyForecast','navWeeklyForecast'])$(id)?.classList.remove('active');
- historicChart2=which==='chart2';
- const pageName=historicChart2?'chart':which;
- $('historicChartTitle').textContent=historicChart2?'Historic Booking Activity 2':'Historic Booking Activity';
+ historicChart2=which==='chart';
+ const pageName=which;
+ $('historicChartTitle').textContent='Historic Booking Activity';
  $('historicBreakdown').hidden=!historicChart2;
  $('historicCombineRow').hidden=historicChart2;
  if(!historicChart2)$('historicSeriesLegend').hidden=true;
@@ -4331,7 +4349,6 @@ function showPage(which,{historyMode='push'}={}){
  else if(which==='practiceSettings'){selectPracticeSettingsTab(readChartPreferences()['practiceSettings:tab']);}
  else if(which==='categories'){restorePersonalSettingsWorkspace();renderSlotGroupBoxes();renderSlotTable();renderEditor();renderGroupUrgencyEditor();renderClinicianEditor();renderClinicianGroupEditor();renderConsultEditor()}
 }
-$('navChart2').onclick=()=>showPage('chart2');
 $('historicBreakdown').addEventListener('click',event=>{
  const button=event.target.closest('[data-historic-breakdown]');
  if(!button||button.dataset.historicBreakdown===historicChartBreakdown())return;
