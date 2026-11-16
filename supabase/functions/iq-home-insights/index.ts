@@ -216,10 +216,18 @@ function findingInput(metrics,cards=findingCards) {
   }));
 }
 
-function findingSchema(metrics,cards=findingCards) {
+function findingSchema(metrics,cards=findingCards,version) {
   const properties = Object.fromEntries(Object.entries(cards).map(([card,fields])=>{
-    const available = fields.filter(key=>metrics[key]!==null).length;
-    const items = {type:'array',maxItems:available?3:0,items:{type:'string'}};
+    const facts = fields.filter(key=>metrics[key]!==null);
+    const available = facts.length;
+    // Require actual supplied placeholders, rather than accepting literal model-generated figures.
+    // The existing verifier still checks the wording, context, labels and completeness.
+    const labels = [...new Set(facts.map(key=>findingLabels[key]).filter(Boolean))];
+    const allowed = [...facts,...labels].join('|');
+    const prose = "[A-Za-z .,;:!?()'’‘“”–—-]";
+    const fragment = available ? '(?:'+prose+'|\\{(?:'+allowed+')\\})' : prose;
+    const item = version==='home-insights-v10' && available ? {type:'string',pattern:'^'+fragment+'*\\{(?:'+facts.join('|')+')\\}'+fragment+'*$'} : {type:'string'};
+    const items = {type:'array',maxItems:available?3:0,items:item};
     return [card,cards!==findingCards?{...items,minItems:Math.min(available,2)}:items];
   }));
   return {type:'object',additionalProperties:false,required:Object.keys(cards),properties};
@@ -247,7 +255,7 @@ function renderFindings(output,metrics,cards=findingCards,version) {
     const seen = new Set();
     for (const line of Array.isArray(output?.[card])?output[card].slice(0,3):[]) {
       let text = typeof line==='string'?line.trim():'';
-      if (version==='home-insights-v9' && (card==='forecastPeak'||card==='seasonalDemand'||card==='routineDemand')) {
+      if (['home-insights-v9','home-insights-v10'].includes(version) && (card==='forecastPeak'||card==='seasonalDemand'||card==='routineDemand')) {
         text = text.replace(/\bmost recent weekly average\b/gi,'recent weekly average')
           .replace(/\s+for the same appointment type(?=[.,!?]|$)/gi,'');
         if(card==='routineDemand')text=text.replace(/\s+for routine appointments(?=[.,!?]|$)/gi,'');
@@ -260,10 +268,10 @@ function renderFindings(output,metrics,cards=findingCards,version) {
       const peakClear = cards===findingCards || !facts.includes('peak') || /\b(?:nine weeks|two months|couple of months)\b/i.test(text);
       const historicalComparison = facts.some(key=>capacityChanges.has(key)||
         ['acuteTrend','routineTrend','acuteYear','routineYear'].includes(key));
-      const averageClear = !['home-insights-v8','home-insights-v9'].includes(version) || !historicalComparison ||
+      const averageClear = !['home-insights-v8','home-insights-v9','home-insights-v10'].includes(version) || !historicalComparison ||
         (/\baverag(?:e|es|ed|ing)\b/i.test(text) && /\b(?:weekly|per week|each week|a week)\b/i.test(text) && !text.startsWith('{'));
       const groupsPerBullet = refs.filter(key=>['longestGroup','shortestGroup','middleGroup'].includes(key)).length;
-      if ((version==='home-insights-v9' && groupsPerBullet>1) || !validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
+      if ((['home-insights-v9','home-insights-v10'].includes(version) && groupsPerBullet>1) || !validProse || text.length>160 || !facts.some(key=>!seen.has(key)) ||
           !forecastClear || !coverClear || !peakClear || !averageClear || refs.some(key=>!available.has(key)&&!labels.has(key)) ||
           facts.some(key=>findingLabels[key]&&!refs.includes(findingLabels[key]))) {
         rejected.push(card);
@@ -271,9 +279,9 @@ function renderFindings(output,metrics,cards=findingCards,version) {
       }
       let display = text.replace(/\{([A-Za-z]+)\}/g,(match,key)=>available.has(key)?formatFinding(key,metrics[key]):match)
         .replace(/\b(day|week)(s?)\s+\1s?\b/gi,'$1$2');
-      if(version==='home-insights-v9')display=display.replace(/\b(more|fewer|higher|lower)\s+(?:compared (?:with|to)|versus)\b/gi,'$1 than');
+      if(['home-insights-v9','home-insights-v10'].includes(version))display=display.replace(/\b(more|fewer|higher|lower)\s+(?:compared (?:with|to)|versus)\b/gi,'$1 than');
       const size = encoder.encode(display).length;
-      if (size>155 || size>bytesRemaining || (version==='home-insights-v9' && display.trim().split(/\s+/).length>22)) continue;
+      if (size>155 || size>bytesRemaining || (['home-insights-v9','home-insights-v10'].includes(version) && display.trim().split(/\s+/).length>22)) continue;
       bytesRemaining-=size;
       accepted.push(display);
       facts.forEach(key=>seen.add(key));
@@ -308,7 +316,7 @@ Deno.serve(async request => {
     try {
       body = JSON.parse(raw);
       if (!uuid.test(body.practice) || !/^\d{4}-\d{2}-\d{2}$/.test(body.period)) throw Error();
-      cards = ['home-insights-v7','home-insights-v8','home-insights-v9'].includes(body.version) ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
+      cards = ['home-insights-v7','home-insights-v8','home-insights-v9','home-insights-v10'].includes(body.version) ? contextualFindingCards : body.version === 'home-insights-v6' ? detailedFindingCards : body.version === 'home-insights-v5' ? findingCards : body.version === 'home-insights-v4' ? bulletFields : body.metrics && Object.hasOwn(body.metrics, 'peak') ? expandedCards : legacyCards;
       isFindings = cards === findingCards || cards === detailedFindingCards || cards === contextualFindingCards;
       version = cards === contextualFindingCards ? body.version : cards === detailedFindingCards ? 'home-insights-v6' : cards === findingCards ? 'home-insights-v5' : cards === bulletFields ? 'home-insights-v4' : cards === expandedCards ? 'home-insights-v3' : 'home-insights-v2';
       metrics = sanitise(body.metrics, cards);
@@ -333,8 +341,8 @@ Deno.serve(async request => {
       signal:AbortSignal.timeout(20000),
       body:JSON.stringify({
         model:'gpt-6-luna', store:false, reasoning:{effort:'none'}, max_output_tokens:isFindings ? 2000 : cards === legacyCards ? 900 : 1100,
-        instructions:version === 'home-insights-v9' ? compactFindingInstructions : version === 'home-insights-v8' ? comparisonFindingInstructions : cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
-        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards) : outputSchema(metrics, cards)}}
+        instructions:['home-insights-v9','home-insights-v10'].includes(version) ? compactFindingInstructions : version === 'home-insights-v8' ? comparisonFindingInstructions : cards === contextualFindingCards ? contextualFindingInstructions : cards === detailedFindingCards ? detailedFindingInstructions : cards === findingCards ? findingInstructions : cards === bulletFields ? bulletInstructions : cards === expandedCards ? expandedInstructions : legacyInstructions, input:JSON.stringify(isFindings ? findingInput(metrics,cards) : metrics),
+        text:{format:{type:'json_schema',name:'practice_overview',strict:true,schema:isFindings ? findingSchema(metrics,cards,version) : outputSchema(metrics, cards)}}
       })
     });
     if (!response.ok) {
@@ -364,10 +372,16 @@ Deno.serve(async request => {
     const parsed = JSON.parse(output.text);
     const {bullets, generated, rejected} = isFindings ? renderFindings(parsed,metrics,cards,version) : renderBullets(parsed,metrics,cards);
     if (rejected.length) console.warn(JSON.stringify({event:'home_insights_cards_rejected', cards:rejected}));
-    if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
     const evidence = isFindings ? Object.entries(metrics).sort(([a],[b])=>a<b?-1:a>b?1:0) : metrics;
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([body.period, evidence, version])));
     const snapshot = [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
+    // Never save or label unverified model output as AI insights. The dashboard
+    // already has deterministic, figure-based text for each card.
+    if (!generated && isFindings && version==='home-insights-v10') {
+      console.warn(JSON.stringify({event:'home_insights_fallback',stage:'openai_no_valid_cards'}));
+      return json(200,{snapshot,bullets:Object.fromEntries(Object.keys(cards).map(card=>[card,[]])),generated_at:null,fallback:true});
+    }
+    if (!generated) { stage = 'openai_no_valid_cards'; throw Error('No verified insights.'); }
     stage = 'save';
     const saved = await fetch(url + '/rest/v1/iq_home_insights?practice_id=eq.'+body.practice+'&attempt_id=eq.'+attempt, {
       method:'PATCH', headers:{...headers,Prefer:'return=representation'},
