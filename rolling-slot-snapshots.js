@@ -3,8 +3,10 @@
 (function(root){
 'use strict';
 function add(map,key,n){map.set(key,(map.get(key)||0)+n)}
+// Contributions are decoded in the parent frame and can contain Maps from another realm.
+function isMap(value){return Object.prototype.toString.call(value)==='[object Map]';}
 function equalCounts(a,b){
- if(!(a instanceof Map)||a.size!==b.size)return false;
+ if(!isMap(a)||a.size!==b.size)return false;
  for(const [key,value] of a)if(b.get(key)!==value)return false;
  return true;
 }
@@ -47,7 +49,7 @@ function reconcile(entries){
   const later=snapshots.filter(s=>s.key!==entry.key&&s.at>at).sort((a,b)=>a.from.localeCompare(b.from));
   if(!later.length)return entry;
   const cutoff=later[0].from;
-  if(!Array.isArray(c.maps)||c.maps.length!==8||!c.maps.every(m=>m instanceof Map))throw Error('A saved Slot Report cannot be reconciled safely.');
+  if(!Array.isArray(c.maps)||c.maps.length!==8||!c.maps.every(isMap))throw Error('A saved Slot Report cannot be reconciled safely.');
   let overlaps=false;for(const key of c.maps[1].keys())if(JSON.parse(key)[0]>=cutoff){overlaps=true;break}
   if(!overlaps)return entry;
   const check=rebuild(c,()=>true);

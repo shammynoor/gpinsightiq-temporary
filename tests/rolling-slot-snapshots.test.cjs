@@ -27,6 +27,11 @@ const effective=reconcile([baseline,w1,w2]);assert.equal([...effective[0].contri
 for(const idx of [2,5,6,7]){assert.equal([...effective[0].contribution.maps[idx].values()].reduce((a,b)=>a+b,0),3);assert.equal([...effective[1].contribution.maps[idx].values()].reduce((a,b)=>a+b,0),2);assert.equal([...effective[2].contribution.maps[idx].values()].reduce((a,b)=>a+b,0),5);}
 assert.equal([...effective[0].contribution.maps[4].values()][0].max,'2026-11-01');
 const broken=entry('broken','2026-11-08',contribution([{date:'2026-11-17',status:'Booked'}]));broken.contribution.maps[0].clear();assert.throws(()=>reconcile([broken,w1]),/lacks the date detail/);
+const vm=require('node:vm');
+const crossFrame={...baseline,contribution:{...baseline.contribution,maps:baseline.contribution.maps.map(map=>vm.runInNewContext('new Map(entries)',{entries:[...map]}))}};
+assert.deepEqual(combined([crossFrame,w1]),combined([baseline,w1]));
+const notMap={...baseline,contribution:{...baseline.contribution,maps:baseline.contribution.maps.map((map,i)=>i===2?{}:map)}};
+assert.throws(()=>reconcile([notMap,w1]),/cannot be reconciled safely/);
 assert.equal(reconcile([baseline])[0],baseline);
 const invalid=entry('invalid','2026-11-20',contribution([], '2026-11-14'));assert.throws(()=>reconcile([baseline,invalid]),/inconsistent coverage dates/);
 assert.deepEqual(combined([baseline,w1]),combined([baseline,w1]));
