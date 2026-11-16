@@ -3860,7 +3860,7 @@ function historicalBookingRecords(){
 }
 function isPastBlockedSlot(row,clock=capacitySnapshotClock()){return !!clock&&!!row.date&&row.date<clock.date;}
 function setupPastBlockedControls(){
- for(const page of ['chartPage','dailyForecastPage','weeklyForecastPage','homePage','dayView2Page']){
+ for(const page of ['chartPage','dailyForecastPage','weeklyForecastPage','dayView2Page']){
   const root=$(page);if(!root||root.querySelector('[data-past-blocked-control]'))continue;
   const label=document.createElement('label');label.className='filter-row';label.dataset.pastBlockedControl='';label.style.margin='12px';
   label.innerHTML='<span class="switch"><input type="checkbox" role="switch" data-past-blocked><span class="switch-track"></span></span><span>Count past blocked as booked (appointment date used as an estimate)</span>';root.prepend(label);

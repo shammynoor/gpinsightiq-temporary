@@ -122,3 +122,13 @@
 #homePage .iq-home-insight.iq-home-insight-urgent{border:2px solid #d64a5f!important;background:#fff6f7!important;box-shadow:3px 5px 14px rgba(164,43,62,.2)!important}
 #homePage .iq-home-insight-urgent .iq-home-insight-copy strong{font-weight:750;color:#8b2033}
 #homePage .iq-home-urgent-symbol{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:#b92f48;color:white;font-weight:800;font-size:16px;line-height:1}
+
+/* Home graph time range */
+#homePage .iq-home-view-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin:0 0 12px;flex-wrap:wrap}
+#homePage .iq-home-view-label{font-size:12px;font-weight:650;color:#526b83}
+#homePage .iq-home-view-switch{display:inline-flex;align-items:stretch;padding:3px;border:1px solid #d8e7f0;border-radius:11px;background:#eef5fa;gap:3px}
+#homePage .iq-home-view-switch button{width:auto;min-height:38px;margin:0;padding:7px 12px;border:0;border-radius:8px;background:transparent;color:#425f75;font-size:13px;font-weight:650;box-shadow:none}
+#homePage .iq-home-view-switch button span{font-size:11px;font-weight:500;color:#617c8f;margin-left:3px}
+#homePage .iq-home-view-switch button[aria-pressed="true"]{background:#fff;color:#126a79;box-shadow:0 1px 5px #21445c26}
+#homePage .iq-home-view-switch button:focus-visible{outline:2px solid #247cab;outline-offset:2px}
+@media(max-width:480px){#homePage .iq-home-view-toolbar{justify-content:space-between}#homePage .iq-home-view-switch button{padding:7px 9px}}
