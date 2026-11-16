@@ -5766,6 +5766,11 @@ async function loadFolder(force=true){
   if(!entry||entry.revision!==source.revision){entry={revision:source.revision,value:await iqBridge.read(source.source_key)};downloaded++;}else reused++;
   iqContributions.set(source.source_key,entry);
   const contribution={...entry.value,version:JSON.stringify([source.source_key,source.source_name,source.clinical_at,0])};pendingCache.set(source.source_key,contribution);
+ }
+ const entries=iqSources.map(source=>({key:source.source_key,clinicalAt:source.clinical_at,contribution:pendingCache.get(source.source_key)}));
+ const effectiveEntries=GPRollingSlots.reconcile(entries);
+ const effectiveCache=new Map(effectiveEntries.map(entry=>[entry.key,entry.contribution]));
+ for(const {contribution} of effectiveEntries){
   if(contribution.kind==='signposting'){newSignposting.push(...contribution.events);newSignpostingFiles++;}
   else if(contribution.kind==='slot'){newSlotFiles++;valid+=contribution.valid;skipped+=contribution.skipped;const destinations=[aggregate,availabilityAggregate,bookingTimeAggregate,peopleAggregate,newSlotTypeStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate];for(let m=0;m<8;m++)mergeCSVCounts(destinations[m],contribution.maps[m]);}
  }
@@ -5776,7 +5781,7 @@ async function loadFolder(force=true){
  const capacityFileDates=items.filter(file=>pendingCache.get(file.id)?.kind==='slot').map(file=>Date.parse(file.lastModifiedDateTime||'')).filter(Number.isFinite);
  capacityCSVLatestModified=capacityFileDates.length?Math.max(...capacityFileDates):null;
  updateHeaderSlotReportTime(capacityCSVLatestModified);
- slotReportCoverage=GPCorrectness.coverageFromEntries(pendingCache);
+ slotReportCoverage=GPCorrectness.coverageFromEntries(effectiveCache);
  slotTypeFileStats=newSlotTypeStats;renderSlotInclusion();
  rapidHealthSummary=newRapidHealth;
  signpostingRecords=newSignposting;signpostingFileCount=newSignpostingFiles;signpostingSlotNames=new Set(newSignposting.map(event=>event.destination));
@@ -5916,14 +5921,38 @@ async function replaceExistingCSV(file){
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
   if(!count)throw Error('No valid records were found. The existing report has been preserved.');
-  const existing=iqSources.find(row=>row.kind===kind&&row.source_name.toLowerCase()===file.name.toLowerCase());
   const clinical=new Date(file.lastModified);
-  if(!Number.isFinite(clinical.getTime()))throw Error('Set the export date and time.');
-  const message=existing?'Replace '+existing.source_name+' with this refreshed export? Its previous counts will be replaced.':'Add '+file.name+' as a new report source? Use a new source only for a separate, non-overlapping reporting period; refreshed exports should replace an existing source.';
-  if(!confirm(message))return;
+  if(!Number.isFinite(clinical.getTime())||clinical.getTime()>Date.now()+300000)throw Error('The file has an invalid or future report timestamp.');
+  iqSources=await iqBridge.list(); // Recheck source versions before reconciling a new snapshot.
+  let existing=iqSources.find(row=>row.kind===kind&&row.source_name.toLowerCase()===file.name.toLowerCase());
+  let sourceName=existing?.source_name||file.name;
+  const hasSlotHistory=iqSources.some(row=>row.kind==='slot');
+  if(kind==='slot'&&hasSlotHistory){
+   const reportDate=GPCorrectness.londonDate(clinical),from=GPCorrectness.shift(reportDate,-7);
+   const dates=[...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]).sort();
+   if(dates[0]<from)throw Error('This file contains appointments before '+from+'. A weekly snapshot must contain only appointments from seven days before its report date onwards. Check the file date or choose the correct report.');
+   const latest=iqSources.filter(row=>row.kind==='slot').map(row=>Date.parse(row.clinical_at)).filter(Number.isFinite).reduce((a,b)=>Math.max(a,b),0);
+   if(clinical.getTime()<=latest)throw Error('This report is not newer than the latest saved Slot Report. Existing reports are unchanged.');
+   contribution.snapshotType='rolling-weekly';contribution.snapshotFrom=from;
+   sourceName='Weekly Slot Report '+clinical.toISOString();existing=null;
+   const entries=[];
+   for(const source of iqSources){
+    let entry=iqContributions.get(source.source_key);
+    if(!entry||entry.revision!==source.revision)entry={revision:source.revision,value:await iqBridge.read(source.source_key)};
+    entries.push({key:source.source_key,clinicalAt:source.clinical_at,contribution:entry.value});
+   }
+   entries.push({key:'new-weekly-snapshot',clinicalAt:clinical.toISOString(),contribution});
+   GPRollingSlots.reconcile(entries); // Fail before saving if historic aggregates cannot be split safely.
+   const previousDate=latest?GPCorrectness.londonDate(new Date(latest)):null;
+   const gap=previousDate&&from>previousDate?' The previous report was dated '+previousDate+'; changes to appointments before '+from+' may be missing because more than seven days have passed.':'';
+   if(!confirm('Add this complete weekly Slot Report? Report date: '+reportDate+'. Its data from '+from+' onwards will replace overlapping older report data. Earlier history stays in place. Confirm that the file timestamp matches its export date.'+gap))return;
+  }else{
+   const message=existing?'Replace '+existing.source_name+' with this refreshed export? Its previous counts will be replaced.':'Add '+file.name+' as a new report source? Use a new source only for a separate, non-overlapping reporting period; refreshed exports should replace an existing source.';
+   if(!confirm(message))return;
+  }
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
-csvDropStatus(iqUploadStatus.textContent);
-  await iqBridge.save({existing,kind,name:existing?.source_name||file.name,clinical_at:clinical.toISOString(),count,contribution});
+  csvDropStatus(iqUploadStatus.textContent);
+  await iqBridge.save({existing,kind,name:sourceName,clinical_at:clinical.toISOString(),count,contribution});
   await loadFolder(true);
   iqUploadStatus.textContent='Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.';
   csvDropStatus(iqUploadStatus.textContent);
