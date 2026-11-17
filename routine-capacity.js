@@ -42,10 +42,10 @@ function empty(note){
  $('routineCapRows')?.replaceChildren();
  setText('routineCapOutcome','No estimate available.');
 }
-function availableModes(doctors){
+function availableModes(isIncluded){
  const found=new Set();
  for(const r of availabilityRecords){
-  if(String(r.availability).toLowerCase()!=='booked'||!included(r,doctors))continue;
+  if(String(r.availability).toLowerCase()!=='booked'||!isIncluded(r))continue;
   const mode=rowMode(r.slot);if(mode&&isDashboardToggleOption(mode))found.add(mode);
  }
  return prioritySort('mode',[...found]);
@@ -74,25 +74,35 @@ function modelData(){
  if(typeof records==='undefined'||typeof availabilityRecords==='undefined'||typeof waitingTrendRecords==='undefined')return {error:'Appointment data has not loaded.'};
  const doctors=doctorGroups();
  if(!doctors.length)return {error:'Please enable a doctor group for routine capacity in People Settings and assign GP clinician types to it.'};
- const modes=availableModes(doctors);renderModes(modes);
+ // Slot type and clinician mappings are repeated across many aggregate rows.
+ // Resolve them once per combination, not for every appointment and chart.
+ const includedCache=new Map(),modeCache=new Map(),weekCache=new Map();
+ const isIncluded=r=>{
+  const key=JSON.stringify([r.slot,r.clinician,r.person]);
+  if(!includedCache.has(key))includedCache.set(key,included(r,doctors));
+  return includedCache.get(key);
+ };
+ const modeFor=slot=>{if(!modeCache.has(slot))modeCache.set(slot,rowMode(slot));return modeCache.get(slot)};
+ const weekFor=day=>{if(!weekCache.has(day))weekCache.set(day,monday(day));return weekCache.get(day)};
+ const modes=availableModes(isIncluded);renderModes(modes);
  if(!modes.length)return {error:'No booked routine doctor appointments with mapped consultation modes.'};
- const allowed=r=>included(r,doctors)&&!ui.disabledModes.has(rowMode(r.slot))&&modes.includes(rowMode(r.slot));
+ const allowed=r=>isIncluded(r)&&!ui.disabledModes.has(modeFor(r.slot))&&modes.includes(modeFor(r.slot));
  const allWeeks=GPCorrectness.completeWeeks(slotReportCoverage,londonToday(),Number($('routineCapHistory')?.value||52));
  if(allWeeks.length<8)return {error:'At least eight complete covered weeks of routine doctor history are needed.'};
  const includedWeeks=new Set(allWeeks),start=allWeeks[0],end=shift(allWeeks.at(-1),6);
  const appts=new Map(),bookings=new Map(),leads=[];
  const oldest=start;
  for(const r of availabilityRecords){
-  if(String(r.availability).toLowerCase()!=='booked'||r.date<start||r.date>end||!includedWeeks.has(monday(r.date))||!allowed(r))continue;
-  const key=monday(r.date);appts.set(key,(appts.get(key)||0)+r.count);
+  if(String(r.availability).toLowerCase()!=='booked'||r.date<start||r.date>end||!includedWeeks.has(weekFor(r.date))||!allowed(r))continue;
+  const key=weekFor(r.date);appts.set(key,(appts.get(key)||0)+r.count);
 
  }
  for(const r of records){
-  if(r.bookedDay<start||r.bookedDay>end||!includedWeeks.has(monday(r.bookedDay))||!allowed(r))continue;
-  const key=monday(r.bookedDay);bookings.set(key,(bookings.get(key)||0)+r.count);
+  if(r.bookedDay<start||r.bookedDay>end||!includedWeeks.has(weekFor(r.bookedDay))||!allowed(r))continue;
+  const key=weekFor(r.bookedDay);bookings.set(key,(bookings.get(key)||0)+r.count);
  }
  for(const r of waitingTrendRecords){
-  if(r.appointmentDate<start||r.appointmentDate>end||!includedWeeks.has(monday(r.appointmentDate))||!allowed(r)||!Number.isFinite(r.leadMinutes)||r.leadMinutes<0)continue;
+  if(r.appointmentDate<start||r.appointmentDate>end||!includedWeeks.has(weekFor(r.appointmentDate))||!allowed(r)||!Number.isFinite(r.leadMinutes)||r.leadMinutes<0)continue;
   leads.push([r.leadMinutes/10080,r.count]);
  }
  if(!oldest||!leads.length)return {error:'Not enough routine doctor appointments with valid booking-to-appointment times.'};

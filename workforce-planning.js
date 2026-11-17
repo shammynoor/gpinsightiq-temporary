@@ -40,7 +40,10 @@ function listSizeAdjustment(){
  return {size:sizes[reference],month:months[reference],scaleByMonth};
 }
 
+let annualCache=null;
 function annualBookedSlots(today,coverage,scaleByMonth){
+ const key=JSON.stringify([today,coverage.intervals,scaleByMonth?[...scaleByMonth]:null,clinicianAssignments,[...excludedSlotTypes].sort()]);
+ if(annualCache?.source===availabilityRecords&&annualCache.key===key)return annualCache.totals;
  const totals=new Map();
  for(const row of availabilityRecords){
   const year=row.date.slice(0,4);
@@ -56,6 +59,7 @@ function annualBookedSlots(today,coverage,scaleByMonth){
   const scale=scaleByMonth?.get(row.date.slice(0,7))??1;
   totals.set(key,(totals.get(key)||0)+row.count*scale);
  }
+ annualCache={source:availabilityRecords,key,totals};
  return totals;
 }
 

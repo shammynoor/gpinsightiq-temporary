@@ -1283,10 +1283,26 @@ function restoreChartExpansions(){
  });updateCollapsedFilterSummaries();}finally{chartPreferenceRestoring=wasRestoring}
 }
 
+// Plotly replaces thousands of SVG nodes during a redraw. Only DOM changes
+// that could add, remove or change restorable controls need a preferences scan.
+function chartPreferenceRestorationNeeded(mutations){
+ const selector='input,select,option,.collapse-filter-button';
+ for(const mutation of mutations){
+  const target=mutation.target;
+  if(target?.closest?.('.js-plotly-plot'))continue;
+  // Selects may receive or lose options after their saved value was read.
+  if(target?.matches?.('select'))return true;
+  for(const node of [...mutation.addedNodes,...mutation.removedNodes]){
+   if(node.nodeType!==1||node.matches?.('.js-plotly-plot'))continue;
+   if(node.matches?.(selector)||node.querySelector?.(selector))return true;
+  }
+ }
+ return false;
+}
 document.addEventListener('DOMContentLoaded',()=>{
  const shell=$('dashboardShell');if(!shell)return;
  let queued=false;
- new MutationObserver(()=>{if(queued)return;queued=true;queueMicrotask(()=>{queued=false;restoreChartCheckboxes();restoreChartExpansions()})}).observe(shell,{childList:true,subtree:true});
+ new MutationObserver(mutations=>{if(queued||!chartPreferenceRestorationNeeded(mutations))return;queued=true;queueMicrotask(()=>{queued=false;restoreChartCheckboxes();restoreChartExpansions()})}).observe(shell,{childList:true,subtree:true});
  restoreChartCheckboxes();restoreChartExpansions();
 });
 const CLOUD_SETTINGS_NAME='weekly-demand-categories.json';
@@ -2346,7 +2362,10 @@ function englandWalesBankHolidays(year){
  return dates;
 }
 const bankHolidayWeeks=new Set();
+let bankHolidayRecordSource=null;
 function refreshBankHolidayWeeks(){
+ if(bankHolidayRecordSource===records)return;
+ bankHolidayRecordSource=records;
  bankHolidayWeeks.clear();
  const years=new Set(records.map(r=>Number((r.bookedWeek||'').slice(0,4))).filter(Number.isInteger));
  for(const year of years)for(const y of [year-1,year,year+1])for(const day of englandWalesBankHolidays(y))bankHolidayWeeks.add(mondayOf(day));
@@ -2438,12 +2457,28 @@ document.getElementById('displayMode').onchange=e=>{continuousMode=e.target.chec
 function periodKey(r){return monthlyMode?r.bookedDay?.slice(0,7):r.bookedWeek}
 let demandFilterCache=null;
 const disabledDemandCapacities=new Set();
+// Availability is replaced as a whole when reports change. Reuse its date
+// bounds and months while toggles and chart options are being changed.
+let historicAvailabilitySource=null,historicAvailabilitySummary=null;
+function historicAvailabilityDates(){
+ if(historicAvailabilitySource===availabilityRecords&&historicAvailabilitySummary)return historicAvailabilitySummary;
+ let first='',last='';const months=new Set();
+ for(const r of availabilityRecords){
+  const date=typeof r.date==='string'?r.date:r.date instanceof Date&&!Number.isNaN(r.date.getTime())?r.date.toISOString().slice(0,10):'';
+  if(!date)continue;
+  months.add(date.slice(0,7));
+  if(String(r.availability||'').trim().toLowerCase()!=='booked')continue;
+  if(!first||date<first)first=date;if(!last||date>last)last=date;
+ }
+ historicAvailabilitySource=availabilityRecords;
+ historicAvailabilitySummary={first,last,months:[...months].sort()};
+ return historicAvailabilitySummary;
+}
 function historicBookingFilterCounts(){
  // Count only bookings eligible for the currently displayed chart, while
  // ignoring each option's own on/off state so it can be switched back on.
  const result={capacity:new Map(),consult:new Map(),clinician:new Map()};
- const firstAppointment=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort()[0]||'';
- const lastAppointment=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort().at(-1)||'';
+ const {first:firstAppointment,last:lastAppointment}=historicAvailabilityDates();
  const firstPeriod=firstAppointment?(monthlyMode?firstAppointment.slice(0,7):mondayOf(firstAppointment)):'';
  const lastPeriod=lastAppointment?(monthlyMode?lastAppointment.slice(0,7):mondayOf(lastAppointment)):'';
  for(const r of historicalBookingRecords()){
@@ -2472,9 +2507,8 @@ function historicBookingFilterCounts(){
  return result;
 }
 function historicBookingHasData(){
- const first=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort()[0]||'';
- const last=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort().at(-1)||'';
- return records.some(r=>{
+ const {first,last}=historicAvailabilityDates();
+ return historicalBookingRecords().some(r=>{
   if(!includedRecord(r)||!(r.count>0))return false;
   const p=periodKey(r),m=p?.slice(0,7);
   if(!p||p>(monthlyMode?thisMonth:thisWeek)||(!showCurrentWeek&&periodIsCurrent(p)))return false;
@@ -2652,9 +2686,7 @@ for(const r of historicalBookingRecords()){if(includedRecord(r)){const key=perio
 const reportClock=Number.isFinite(capacityCSVLatestModified)?dayView2LondonClock(new Date(Math.min(Date.now(),capacityCSVLatestModified))):null;
 if(showCurrentWeek&&reportClock&&periodKey({bookedDay:reportClock.date,bookedWeek:mondayOf(reportClock.date)})===(monthlyMode?thisMonth:thisWeek)&&(monthlyMode||!excludeBankHolidays||!bankHolidayWeeks.has(thisWeek)))activeWeekSet.add(monthlyMode?thisMonth:thisWeek);
 const activeWeeks=[...activeWeekSet].sort();
-const appointmentDates=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='booked').map(r=>r.date).filter(Boolean).sort();
-const firstAppointmentDate=appointmentDates[0]||'';
-const lastAppointmentDate=appointmentDates[appointmentDates.length-1]||'';
+const {first:firstAppointmentDate,last:lastAppointmentDate}=historicAvailabilityDates();
 const firstPeriod=firstAppointmentDate?(monthlyMode?firstAppointmentDate.slice(0,7):mondayOf(firstAppointmentDate)):'';
 const lastPeriod=lastAppointmentDate?(monthlyMode?lastAppointmentDate.slice(0,7):mondayOf(lastAppointmentDate)):'';
 const selectedWeeks=activeWeeks.filter(w=>(!firstPeriod||w>=firstPeriod)&&(!lastPeriod||w<=lastPeriod)&&w<=(monthlyMode?thisMonth:thisWeek)&&(showCurrentWeek||!periodIsCurrent(w)));
@@ -2699,7 +2731,7 @@ function yearBackgroundShapes(periods){
 }
 function setupDemandMonthSlider(){
  const start=$('demandRangeStart'),end=$('demandRangeEnd');if(!start||!end)return;
- const months=[...new Set(availabilityRecords.map(r=>typeof r.date==='string'?r.date.slice(0,7):r.date instanceof Date&&!Number.isNaN(r.date.getTime())?r.date.toISOString().slice(0,7):null).filter(Boolean))].sort();
+ const months=historicAvailabilityDates().months;
  if(!months.length)return;
  const reportDate=reportRangeDate();
  const reportMonth=reportDate?Number(reportDate.slice(0,4))*12+Number(reportDate.slice(5,7))-1:null;
@@ -3494,7 +3526,7 @@ function setupWaitingAppointmentSlider(){
    if(which==='end'&&y<x)x=y;
    waitingAppointmentMonthStart=toMonth(x);waitingAppointmentMonthEnd=toMonth(y);
    saveMonthRange('waitingRange',waitingAppointmentMonthStart,waitingAppointmentMonthEnd);
-   renderWaitingTimesChart();
+   scheduleWaitingTimesRender();
   };
   start.addEventListener('input',()=>changed('start'));
   end.addEventListener('input',()=>changed('end'));
@@ -3530,7 +3562,7 @@ function setupWaitingTrendSlider(){
    if(which==='end'&&y<x)x=y;
    waitingTrendMonthStart=toMonth(x);waitingTrendMonthEnd=toMonth(y);
    saveMonthRange('waitingTrendRange',waitingTrendMonthStart,waitingTrendMonthEnd);
-   renderWaitingTrendChart();
+   scheduleWaitingTrendRender();
   };
   start.addEventListener('input',()=>changed('start'));
   end.addEventListener('input',()=>changed('end'));
@@ -3570,6 +3602,20 @@ function installWaitingCardTooltip(target,total){
  });
  target.on('plotly_unhover',()=>{card.hidden=true});
 }
+// Defer redraw until after the change event bubbles, so preferences can be
+// saved before dynamically generated controls are rebuilt. Coalesce bursts
+// of changes (including bulk selection and slider input) into one redraw.
+let waitingTimesRenderQueued=false,waitingTrendRenderQueued=false;
+function scheduleWaitingTimesRender(){
+ if(waitingTimesRenderQueued)return;
+ waitingTimesRenderQueued=true;
+ requestAnimationFrame(()=>{waitingTimesRenderQueued=false;renderWaitingTimesChart()});
+}
+function scheduleWaitingTrendRender(){
+ if(waitingTrendRenderQueued)return;
+ waitingTrendRenderQueued=true;
+ requestAnimationFrame(()=>{waitingTrendRenderQueued=false;renderWaitingTrendChart()});
+}
 function renderWaitingTimesChart(){
  const chart=$('waitingTimesChart'),root=$('waitingUrgencyToggles');
  if(!chart||!root||$('waitingTimesPage')?.classList.contains('hidden')||!window.Plotly)return;
@@ -3577,7 +3623,6 @@ function renderWaitingTimesChart(){
  const kinds=['urgency','consult','capacity','clinician'];
  const optionsByKind=Object.fromEntries(kinds.map(k=>[k,new Set()]));
  const bins=new Map(),bySlot=new Map();
- const rows=[];
  const dimensionsFor=chartDimensionLookup(waitingRowDimensions);
  // Calculate each row's dimensions and selection once, then reuse for all filter counts.
  for(const r of waitingTimeRecords){
@@ -3594,9 +3639,10 @@ function renderWaitingTimesChart(){
    capacity:!waitingFilterDisabled.capacity.has(d.capacity),
    clinician:!waitingFilterDisabled.clinician.has(d.clinician)
   };
-  const off=kinds.filter(k=>!enabled[k]);
-  for(const kind of kinds)if(off.length===0||(off.length===1&&off[0]===kind))optionsByKind[kind].add(d[kind]);
-  if(off.length)continue;
+  let disabledCount=0,disabledKind='';
+  for(const kind of kinds)if(!enabled[kind]){disabledCount++;disabledKind=kind}
+  for(const kind of kinds)if(disabledCount===0||(disabledCount===1&&disabledKind===kind))optionsByKind[kind].add(d[kind]);
+  if(disabledCount)continue;
   bins.set(r.day,(bins.get(r.day)||0)+r.count);
   let item=bySlot.get(r.slot);
   if(!item){item={total:0,day0:0};bySlot.set(r.slot,item)}
@@ -3608,7 +3654,7 @@ function renderWaitingTimesChart(){
   const input=document.createElement('input');input.type='checkbox';input.setAttribute('role','switch');input.checked=checked;input.dataset.filterName=name;
   const track=document.createElement('span');track.className='switch-track';track.style.setProperty('--switch-on',colour);
   sw.append(input,track);const title=document.createElement('span');title.textContent=name;row.append(sw,title);container.append(row);
-  input.addEventListener('change',()=>{onChange(input.checked);renderWaitingTimesChart()});
+  input.addEventListener('change',()=>{onChange(input.checked);scheduleWaitingTimesRender()});
  };
  root.replaceChildren();
  for(const name of groupUrgencyNames.filter(n=>isDashboardToggleOption(n)&&(!optionsByKind.urgency.size||optionsByKind.urgency.has(n))))
@@ -3657,9 +3703,9 @@ function renderWaitingTimesChart(){
   yaxis:{title:'Number of appointments',rangemode:'tozero',gridcolor:'#edf1f5'},showlegend:false
  },{responsive:true,displayModeBar:false}).then(()=>installWaitingCardTooltip(chart,total));
 }
-$('waitingSuppressSmallBins')?.addEventListener('change',renderWaitingTimesChart);
-$('waitingTrendSuppressSmall')?.addEventListener('change',renderWaitingTrendChart);
-$('waitingTrendIgnoreRoutineSameDay')?.addEventListener('change',renderWaitingTrendChart);
+$('waitingSuppressSmallBins')?.addEventListener('change',scheduleWaitingTimesRender);
+$('waitingTrendSuppressSmall')?.addEventListener('change',scheduleWaitingTrendRender);
+$('waitingTrendIgnoreRoutineSameDay')?.addEventListener('change',scheduleWaitingTrendRender);
 function installTrendCardTooltip(target,useHours){
  if(!target||typeof target.on!=='function')return;
  target.querySelector('.availability-tooltip-card')?.remove();
@@ -3713,9 +3759,10 @@ function renderWaitingTrendChart(){
   optionsByKind.urgency.add(d.urgency);
   const enabled={urgency:!waitingTrendDisabledUrgency.has(d.urgency)};
   for(const kind of kinds.slice(1))enabled[kind]=!waitingTrendDisabled[kind].has(d[kind]);
-  const off=kinds.filter(k=>!enabled[k]);
-  for(const kind of kinds)if(!off.length||(off.length===1&&off[0]===kind))optionsByKind[kind].add(d[kind]);
-  if(off.length)continue;
+  let disabledCount=0,disabledKind='';
+  for(const kind of kinds)if(!enabled[kind]){disabledCount++;disabledKind=kind}
+  for(const kind of kinds)if(disabledCount===0||(disabledCount===1&&disabledKind===kind))optionsByKind[kind].add(d[kind]);
+  if(disabledCount)continue;
   if(ignoreRoutineSameDay&&/^routine$/i.test(d.urgency)&&r.leadMinutes<1440)continue;
   const month=r.appointmentMonth,key=d.urgency+'|'+month;
   eligibleCounts.set(d.urgency,(eligibleCounts.get(d.urgency)||0)+r.count);
@@ -3727,7 +3774,7 @@ function renderWaitingTrendChart(){
   const sw=document.createElement('span');sw.className='switch';const input=document.createElement('input');input.type='checkbox';input.setAttribute('role','switch');input.dataset.filterName=name;input.checked=checked;
   const track=document.createElement('span');track.className='switch-track';track.style.setProperty('--switch-on',colour);sw.append(input,track);
   const label=document.createElement('span');label.textContent=name;row.append(sw,label);container.append(row);
-  input.addEventListener('change',()=>{change(input.checked);renderWaitingTrendChart()});
+  input.addEventListener('change',()=>{change(input.checked);scheduleWaitingTrendRender()});
  };
  root.replaceChildren();
  for(const name of groupUrgencyNames.filter(n=>isDashboardToggleOption(n)&&(!optionsByKind.urgency.size||optionsByKind.urgency.has(n))))
@@ -4194,13 +4241,18 @@ function createDayView2FurtherBooking(context){
  box.append(note);return box;
 }
 
+let dayViewFilterRenderPending=false;
+function scheduleDayViewFilterRender(){
+ if(dayViewFilterRenderPending)return;
+ dayViewFilterRenderPending=true;
+ requestAnimationFrame(()=>{dayViewFilterRenderPending=false;renderDayView2()});
+}
 function renderDayView2(){
  const page=$('dayView2Page'),input=$('dayView2Date'),filters=$('dayView2UrgencyToggles');
  if(!page||page.classList.contains('hidden')||!input||!filters)return;
  syncDayView2Preferences();
  input.value=dayView2WorkingDate(input.value||dayView2LocalDate());
  $('dayView2DatePicker').textContent=new Date(input.value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- syncDayView2Preferences();
  const date=input.value,names=prioritySort('urgency',groupUrgencyNames.filter(isDashboardToggleOption));
  const signature=JSON.stringify(names);
  if(filters.dataset.groups!==signature){
@@ -4212,7 +4264,7 @@ function renderDayView2(){
    const track=document.createElement('span');track.className='switch-track';
    const caption=document.createElement('span');caption.textContent=name;
    sw.append(checkbox,track);label.append(sw,caption);filters.append(label);
-   checkbox.addEventListener('change',()=>{if(checkbox.checked)dayView2DisabledUrgencies.delete(name);else dayView2DisabledUrgencies.add(name);saveDayView2Preferences();renderDayView2();});
+   checkbox.addEventListener('change',()=>{if(checkbox.checked)dayView2DisabledUrgencies.delete(name);else dayView2DisabledUrgencies.add(name);saveDayView2Preferences();scheduleDayViewFilterRender();});
   }
  }
  filters.querySelectorAll('input[data-filter-name]').forEach(checkbox=>{
@@ -4463,18 +4515,22 @@ function availabilityRecordsInRange(page){
  const finish=new Date(thisWeek+'T12:00:00Z');finish.setUTCDate(finish.getUTCDate()+(to+1)*7);
  const first=start.toISOString().slice(0,10),last=finish.toISOString().slice(0,10);
  const urgentNames=urgent?new Set(urgentCategoryNames()):null;
+ const weekdayByDate=new Map();
  return availabilityRecords.filter(r=>{
   if(excludedSlotTypes.has(r.slot))return false;
   if(!(r.count>0)||r.date<first||r.date>=last)return false;
   const category=String(assignments[r.slot]||'').trim();
   if(!isDashboardToggleOption(capacityUrgencyCategory(r.slot))||(urgent&&!urgentNames.has(capacityUrgencyCategory(r.slot))))return false;
-  if(urgent){const day=new Date(r.date+'T12:00:00Z').getUTCDay();if(day===0||day===6)return false;}
+  if(urgent){
+   if(!weekdayByDate.has(r.date))weekdayByDate.set(r.date,new Date(r.date+'T12:00:00Z').getUTCDay());
+   const day=weekdayByDate.get(r.date);if(day===0||day===6)return false;
+  }
   return true;
  });
 }
-function availabilitySecondaryRecords(page){
+function availabilitySecondaryRecords(page,range=availabilityRecordsInRange(page)){
  const disabled=page==='urgent'?urgentCategoryDisabled:page==='planned'?plannedDisabledTypes:routineDisabledTypes;
- return availabilityRecordsInRange(page).filter(r=>!disabled.has(capacityUrgencyCategory(r.slot)));
+ return range.filter(r=>!disabled.has(capacityUrgencyCategory(r.slot)));
 }
 function availabilityOptionHasData(page,kind,name){
  return (kind==='category'?availabilityRecordsInRange(page):availabilitySecondaryRecords(page)).some(r=>{
@@ -4484,8 +4540,8 @@ function availabilityOptionHasData(page,kind,name){
   return kind==='category'?capacityUrgencyCategory(r.slot)===name:kind==='clinician'?clinician===name:consult===name;
  });
 }
-function availabilityHasVisibleRecords(page){
- return availabilityRecordsInRange(page).some(r=>{
+function availabilityHasVisibleRecords(page,range=availabilityRecordsInRange(page)){
+ return range.some(r=>{
   const category=String(assignments[r.slot]||'').trim();
   const clinician=clinicianGroupAssignments[effectiveClinicianType(r.clinician,r.person)];
   const consult=consultAssignments[r.slot];
@@ -4503,12 +4559,22 @@ function changeAvailabilityFilter(page,disabled,name,checked,checkbox){
  if(checked)disabled.delete(name);else disabled.add(name);
  // Reject any change that would remove every appointment from the chart.
  // If source data itself has no matches, do not block filter changes.
- if(!appointmentBulkFilterChange&&!chartPreferenceRestoring&&availabilityRecordsInRange(page).length&&!availabilityHasVisibleRecords(page)){
+ const range=!appointmentBulkFilterChange&&!chartPreferenceRestoring?availabilityRecordsInRange(page):null;
+ if(range?.length&&!availabilityHasVisibleRecords(page,range)){
   if(previouslyOff)disabled.add(name);else disabled.delete(name);
   checkbox.checked=!previouslyOff;
   return;
  }
- (page==='urgent'?renderAvailabilityChart:page==='planned'?renderPlannedAvailabilityChart:renderRoutineAvailabilityChart)();
+ scheduleAvailabilityFilterRender(page);
+}
+const pendingAvailabilityFilterRenders=new Set();
+function scheduleAvailabilityFilterRender(page){
+ if(pendingAvailabilityFilterRenders.has(page))return;
+ pendingAvailabilityFilterRenders.add(page);
+ requestAnimationFrame(()=>{
+  pendingAvailabilityFilterRenders.delete(page);
+  (page==='urgent'?renderAvailabilityChart:page==='planned'?renderPlannedAvailabilityChart:renderRoutineAvailabilityChart)();
+ });
 }
 function removeInvalidDashboardToggles(){
  document.querySelectorAll('input[data-filter-name],input[data-classification],input[data-urgency-group]').forEach(input=>{
@@ -4519,12 +4585,12 @@ function removeInvalidDashboardToggles(){
   }
  });
 }
-function refreshAvailabilityOptionStates(page){
+function refreshAvailabilityOptionStates(page,range=availabilityRecordsInRange(page)){
  removeInvalidDashboardToggles();
  // Build eligibility once per render instead of rescanning all CSV rows per toggle.
  const available={category:new Set(),clinician:new Set(),consult:new Set()};
  const disabledCategories=page==='urgent'?urgentCategoryDisabled:page==='planned'?plannedDisabledTypes:routineDisabledTypes;
- for(const row of availabilityRecordsInRange(page)){
+ for(const row of range){
   const group=capacityUrgencyCategory(row.slot);available.category.add(group);
   if(disabledCategories.has(group))continue;
   available.clinician.add(clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)]);
@@ -4559,10 +4625,10 @@ function selectedClinicianTypes(page){
   return group&&clinicianGroupNames.includes(group)&&!disabled.has(group);
  });
 }
-function renderClinicianTypeFilters(page){
+function renderClinicianTypeFilters(page,range=availabilityRecordsInRange(page)){
  const root=$(page+'ClinicianTypeFilters');if(!root)return;
  const disabled=page==='urgent'?urgentDisabledClinicianTypes:page==='planned'?plannedDisabledClinicianTypes:routineDisabledClinicianTypes;
- const presentTypes=new Set(availabilitySecondaryRecords(page).map(r=>effectiveClinicianType(r.clinician,r.person)));
+ const presentTypes=new Set(availabilitySecondaryRecords(page,range).map(r=>effectiveClinicianType(r.clinician,r.person)));
  const names=selectedClinicianTypes(page).filter(name=>presentTypes.has(name)&&isDashboardToggleOption(name));
  const existing=[...root.querySelectorAll('input[data-filter-name]')].map(input=>input.dataset.filterName);
  if(existing.length!==names.length||names.some((name,i)=>name!==existing[i])){
@@ -4575,7 +4641,7 @@ function renderClinicianTypeFilters(page){
    const track=document.createElement('span');track.className='switch-track';
    const label=document.createElement('span');label.textContent=name;
    sw.append(input,track);row.append(sw,label);root.append(row);
-   input.addEventListener('change',()=>{input.checked?disabled.delete(name):disabled.add(name);(page==='urgent'?renderAvailabilityChart:page==='planned'?renderPlannedAvailabilityChart:renderRoutineAvailabilityChart)();});
+   input.addEventListener('change',()=>{input.checked?disabled.delete(name):disabled.add(name);scheduleAvailabilityFilterRender(page);});
   }
  }
  updateCollapsedFilterSummaries();
@@ -4922,8 +4988,9 @@ function renderAvailabilityChart(){
  restoreChartShadowControls();
  renderUrgentCategoryToggles();
  renderUrgentSideFilters();
- refreshAvailabilityOptionStates('urgent');
- renderClinicianTypeFilters('urgent');
+ const eligible=availabilityRecordsInRange('urgent');
+ refreshAvailabilityOptionStates('urgent',eligible);
+ renderClinicianTypeFilters('urgent',eligible);
  updateCollapsedFilterSummaries();
  const names=urgentCategoryNames().filter(n=>!urgentCategoryDisabled.has(n));
  const monday=new Date(thisWeek+'T12:00:00Z');const start=new Date(monday);start.setUTCDate(start.getUTCDate()-7*urgentWeeksBack);
@@ -5029,7 +5096,7 @@ function renderRoutineCategoryToggles(){
   track.style.setProperty('--switch-on',urgencyGroupColour(name));
   const caption=document.createElement('span');caption.textContent=name;
   sw.append(input,track);row.append(sw,caption);root.append(row);
-  input.addEventListener('change',()=>{input.checked?routineDisabledTypes.delete(name):routineDisabledTypes.add(name);renderRoutineAvailabilityChart()});
+  input.addEventListener('change',()=>{input.checked?routineDisabledTypes.delete(name):routineDisabledTypes.add(name);scheduleAvailabilityFilterRender('routine')});
  }
 }
 const routineDisabledClinicianGroups=new Set();
@@ -5092,7 +5159,7 @@ function setupRoutineRangeControls(){
   $('routineWeeksEndValue').textContent=label(b);
   const left=(a+2)/9*100,right=(b+2)/9*100;
   const active=$('routineRangeActive');active.style.left='calc(12px + (100% - 24px)*'+(left/100)+')';active.style.width='calc((100% - 24px)*'+((right-left)/100)+')';
-  renderRoutineAvailabilityChart();
+  scheduleAvailabilityFilterRender('routine');
  };
  start.addEventListener('input',()=>update('start'));
  end.addEventListener('input',()=>update('end'));
@@ -5106,8 +5173,9 @@ function renderRoutineAvailabilityChart(){
  restoreChartShadowControls();
  renderRoutineAvailabilityFilters();
  renderRoutineCategoryToggles();
- refreshAvailabilityOptionStates('routine');
- renderClinicianTypeFilters('routine');
+ const eligible=availabilityRecordsInRange('routine');
+ refreshAvailabilityOptionStates('routine',eligible);
+ renderClinicianTypeFilters('routine',eligible);
  updateCollapsedFilterSummaries();
  const isDaily=routineAvailabilityGranularity==='day';
  const start=new Date(thisWeek+'T12:00:00Z');start.setUTCDate(start.getUTCDate()+7*routineStartWeek);

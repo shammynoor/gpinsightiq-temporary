@@ -83,7 +83,11 @@ const seasonDistance=(a,b)=>{const diff=Math.abs(yearPosition(a)-yearPosition(b)
 const ageDays=d=>(Date.parse(end+'T12:00:00Z')-Date.parse(d+'T12:00:00Z'))/86400000;
 const weightedMean=(values,weights)=>{const sum=weights.reduce((a,b)=>a+b,0);return sum?values.reduce((a,v,i)=>a+v*weights[i],0)/sum:0};
 const weightedQuantile=(values,weights,q)=>{const pairs=values.map((v,i)=>[v,weights[i]]).sort((a,b)=>a[0]-b[0]);const total=weights.reduce((a,b)=>a+b,0);let cumulative=0;for(const [v,w] of pairs){cumulative+=w;if(cumulative>=q*total)return v}return pairs.length?pairs[pairs.length-1][0]:0};
+// Weekly estimates depend on the category and completed weeks, not on the
+// future target date. Reuse them across the eight displayed forecast rows.
+const weeklyCategoryCache=new Map();
 const predictCategory=(target,n)=>{
+ if(mode==='weekly'&&weeklyCategoryCache.has(n))return weeklyCategoryCache.get(n);
  const weekday=dayOfWeek(target);
  const candidates=dates.filter(d=>d>=start&&dayOfWeek(d)===weekday);
  const values=candidates.map(d=>byDate.get(d+'|'+n)||0);
@@ -94,7 +98,9 @@ const predictCategory=(target,n)=>{
   const weekly=fullWeeks.map(w=>Array.from({length:7},(_,j)=>byDate.get(shift(w,j)+'|'+n)||0).reduce((a,b)=>a+b,0));
   const mean=weekly.length?weekly.reduce((a,b)=>a+b,0)/weekly.length:0;
   const sorted=[...weekly].sort((a,b)=>a-b);
-  return {n,mean,low:sorted[Math.floor((sorted.length-1)*.1)]||0,high:sorted[Math.ceil((sorted.length-1)*.9)]||0,samples:weekly.length};
+  const result={n,mean,low:sorted[Math.floor((sorted.length-1)*.1)]||0,high:sorted[Math.ceil((sorted.length-1)*.9)]||0,samples:weekly.length};
+  weeklyCategoryCache.set(n,result);
+  return result;
  }
  // Seasonal factor uses same-weekday observations from all available years, including prior years.
  // A 45-day seasonal bandwidth avoids spurious month-boundary jumps.

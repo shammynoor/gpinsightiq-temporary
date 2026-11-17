@@ -35,6 +35,20 @@ const percentFormat=new Intl.NumberFormat('en-GB',{style:'percent'});
 const asDate=day=>new Date(day+'T12:00:00Z');
 const dayTotals=()=>({slots:[0,0,0],booked:0,teams:[0,0,0,0],consultation:[0,0]});
 const sum=values=>values.reduce((total,value)=>total+value,0);
+// Report rows are replaced on refresh. Build the date index once per report
+// snapshot so changing a planning toggle does not rescan the entire history.
+let planningIndexSource=null,planningRowsByDate=new Map();
+function planningRowsForDates(rows,dates){
+ if(rows!==planningIndexSource){
+  planningIndexSource=rows;planningRowsByDate=new Map();
+  for(const row of rows){
+   let bucket=planningRowsByDate.get(row.date);
+   if(!bucket){bucket=[];planningRowsByDate.set(row.date,bucket)}
+   bucket.push(row);
+  }
+ }
+ return dates.flatMap(date=>planningRowsByDate.get(date)||[]);
+}
 
 function teamIndex(group,type){
  for(const name of [group,type]){
@@ -165,7 +179,7 @@ function renderWeeklyPlanning(){
  const weekDates=new Set(dates),weeklyReported=new Set(),allocation=dayTotals();
  const snapshot=capacitySnapshotClock();
  let missingSlotTimes=false;
- for(const row of availabilityRecords){
+ for(const row of planningRowsForDates(availabilityRecords,dates)){
   if(!weekDates.has(row.date)||row.source==='signposting'||!(row.count>0))continue;
   weeklyReported.add(row.date);
   const totals=daily.get(row.date);
