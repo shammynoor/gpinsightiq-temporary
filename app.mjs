@@ -1,3 +1,4 @@
+import {passwordRequirements,passwordProblem,passwordAuthError} from './password-policy.mjs?v=password-rules-v1';
 import {weekdays,canManage,parseUpload,monthlyAverages,validateConfig,formatDate} from './core.mjs';
 import {SupabaseBackend} from './backend.mjs?v=historic-ai-v3';
 import {DemoBackend} from './demo.mjs?v=20261107-viewer-removal';
@@ -362,7 +363,7 @@ function showAuthForm(mode){
  $('returnSetupLogin').hidden=!ownerSetup||!signup;
  $('authBadge').textContent=invited?'Practice invitation':'Practice workspace';
  $('signupSubmit').textContent=ownerSetup?'Create administrator account':'Create account';
- $('signupHint').textContent=ownerSetup?'Use at least 12 characters. Verify your email to activate your designated platform administrator account.':'Use at least 12 characters.';
+ $('signupHint').textContent=passwordRequirements+(ownerSetup?' Verify your email to activate your designated platform administrator account.':'');
  let heading='Welcome back', description='Sign in to your practice workspace.';
  if(mode==='recovery'){
   heading='Reset your password';
@@ -395,6 +396,7 @@ $('signupForm').addEventListener('submit',event=>{
  run(async()=>{
   if(!invitation&&!ownerSetup)throw Error('An invitation link is required.');
   const email=$('signupEmail').value.trim(), password=$('signupPassword').value;
+  const problem=passwordProblem(password);if(problem)throw Error(problem);
   if(invitation&&!ownerSetup){
    const result=await backend.viewerAccess('register',{token:invitation,email,password});
    if(result.registered){
@@ -410,7 +412,7 @@ $('signupForm').addEventListener('submit',event=>{
    if(!result.use_standard_signup)throw Error('Account creation could not be completed. Try again.');
   }
   const query=ownerSetup?'?setup=1':'?invite='+encodeURIComponent(invitation);
-  const live=await backend.signup(email,password,location.origin+location.pathname+query);
+  let live;try{live=await backend.signup(email,password,location.origin+location.pathname+query)}catch(error){throw passwordAuthError(error)}
   $('signupPassword').value='';
   if(live){
    await loadUser();
@@ -420,7 +422,7 @@ $('signupForm').addEventListener('submit',event=>{
  });
 });
 $('forgotPassword').addEventListener('click',()=>run(async()=>{if(!$('email').value||!$('email').checkValidity())throw Error('Enter your email address first.');await backend.reset($('email').value,location.origin+location.pathname);notice('If this account exists, a password-reset email will be sent.');}));
-$('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{await backend.password($('newPassword').value);$('newPassword').value='';recovery=false;showAuthForm('login');await loadUser();notice('Your password has been changed.');});});
+$('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{const password=$('newPassword').value;try{await backend.password(password)}catch(error){throw passwordAuthError(error)}$('newPassword').value='';recovery=false;showAuthForm('login');await loadUser();notice('Your password has been changed.');});});
 $('showSignup').addEventListener('click',()=>showAuthForm('signup'));
 $('returnSetupLogin').addEventListener('click',()=>showAuthForm('login'));
 $('returnLogin').addEventListener('click',()=>{
