@@ -1666,7 +1666,7 @@ async function children(id){if(!isOwner&&id===sharedFolderId){const items=[];let
 async function showFolderPicker(){$('onedrivePanel').classList.remove('hidden');folderView={id:'root',name:'practice workspace',trail:[]};$('folderPicker').classList.remove('hidden');await showFolderContents()}
 async function showFolderContents(){try{$('pickerPath').textContent=[...folderView.trail.map(x=>x.name),folderView.name].join(' / ');$('pickerEntries').textContent='Loading folders…';const folders=(await children(folderView.id)).filter(x=>x.folder).sort((a,b)=>a.name.localeCompare(b.name));$('pickerEntries').replaceChildren();if(!folders.length)$('pickerEntries').textContent='No subfolders. You can select this folder.';for(const f of folders){const btn=document.createElement('button');btn.className='folder-entry';btn.textContent='📁 '+f.name;btn.onclick=async()=>{folderView={id:f.id,name:f.name,trail:[...folderView.trail,{id:folderView.id,name:folderView.name}]};await showFolderContents()};$('pickerEntries').append(btn)}}catch(e){$('pickerEntries').textContent='Could not list folders: '+e.message}}
 function weekMonday(d){const x=new Date(d);x.setUTCHours(12,0,0,0);x.setUTCDate(x.getUTCDate()-((x.getUTCDay()+6)%7));return x.toISOString().slice(0,10)}
-function parseDate(s){const m=/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec((s||'').trim());if(!m)return null;const mi=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase());if(mi<0)return null;const d=new Date(Date.UTC(Number(m[3]),mi,Number(m[1])));return d.getUTCMonth()===mi&&d.getUTCDate()===Number(m[1])?d:null}
+function parseDate(s){const m=/^(\d{1,2})-([A-Za-z]{3})-(\d{2}|\d{4})$/.exec((s||'').trim());if(!m)return null;const mi=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase());if(mi<0)return null;const y=m[3].length===2?(Number(m[3])<=68?2000:1900)+Number(m[3]):Number(m[3]);const d=new Date(Date.UTC(y,mi,Number(m[1])));return d.getUTCFullYear()===y&&d.getUTCMonth()===mi&&d.getUTCDate()===Number(m[1])?d:null}
 const slotUserTypeColumn='User Type of the Session Holder of the Session';
 const slotLeadTimeColumn='Booked Time to Slot Time';
 const slotQuantityColumn='Count';
@@ -5996,7 +5996,7 @@ async function replaceExistingCSV(file){
   const kind=headers.includes('Code Term')&&headers.includes('Date')?'signposting':'slot';
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
-  if(!count)throw Error('No valid records were found. The existing report has been preserved.');
+  if(!count)throw Error('No valid records were found in this file. No saved reports were changed.');
   const clinical=new Date(file.lastModified);
   if(!Number.isFinite(clinical.getTime())||clinical.getTime()>Date.now()+300000)throw Error('The file has an invalid or future report timestamp.');
   iqSources=await iqBridge.list(); // Recheck source versions before reconciling a new snapshot.
@@ -6024,6 +6024,16 @@ async function replaceExistingCSV(file){
    }
    GPRollingSlots.reconcile(entries);
    if(!confirm('Replace the historical report '+existing.source_name+'? The new file must be a complete replacement for '+bounds.first+' to '+bounds.last+'. Existing records in this report will be replaced; later weekly snapshots remain authoritative where they overlap.'))return;
+  }else if(kind==='slot'&&hasSlotHistory&&!existing&&[...contribution.maps[1].keys()].every(key=>JSON.parse(key)[0]<GPCorrectness.shift(GPCorrectness.londonDate(clinical),-7))){
+   const dates=new Set([...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]));
+   for(const source of iqSources.filter(row=>row.kind==='slot')){
+    let entry=iqContributions.get(source.source_key);
+    if(!entry||entry.revision!==source.revision)entry={revision:source.revision,value:await iqBridge.read(source.source_key)};
+    if(!entry.value?.maps?.[1]||Object.prototype.toString.call(entry.value.maps[1])!=='[object Map]')throw Error('An existing report cannot be checked safely. No data was changed.');
+    for(const key of entry.value.maps[1].keys())if(dates.has(JSON.parse(key)[0]))throw Error('This historical report overlaps an existing Slot Report. No data was changed; replace the existing report instead.');
+   }
+   const ordered=[...dates].sort();
+   if(!confirm('Add this historical Slot Report for '+ordered[0]+' to '+ordered.at(-1)+'? Its appointment dates do not overlap existing Slot Reports.'))return;
   }else if(kind==='slot'&&hasSlotHistory){
    const reportDate=GPCorrectness.londonDate(clinical),from=GPCorrectness.shift(reportDate,-7);
    const dates=[...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]).sort();
