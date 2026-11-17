@@ -202,6 +202,7 @@ const waitingTrendDisabledUrgency=new Set();
 const waitingTrendDisabled={consult:new Set(),capacity:new Set(),clinician:new Set()};
 const waitingDisabledUrgency=new Set();
 let userTypeLocum={};
+let sessionCategoryLocum={},sessionCategoryNames=[];
 const locumFilterPages=['chartPage','availabilityPage','routineAvailabilityPage','routineCapacityPage','waitingTimesPage','waitingOverTimePage','dayView2Page','bookingTimesPage','dailyForecastPage','weeklyForecastPage','workforceNeedPage'];
 const locumFilterSelections=new Map();
 function locumCategory(row){
@@ -1345,6 +1346,7 @@ async function loadCloudCategories(options={}){
    }
    updateHomePracticeName();
    userTypeLocum=Object.fromEntries(Object.entries(data.userTypeLocum||{}).filter(([,value])=>['yes','no','unknown'].includes(value)));
+   sessionCategoryLocum=Object.fromEntries(Object.entries(data.sessionCategoryLocum||{}).filter(([,value])=>['yes','no','unknown'].includes(value)));
    if(data.clinicianTypeColours&&typeof data.clinicianTypeColours==='object')clinicianTypeColours=Object.fromEntries(Object.entries(data.clinicianTypeColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)));
    if(data.urgencyTypeColours&&typeof data.urgencyTypeColours==='object')urgencyTypeColours=Object.fromEntries(Object.entries(data.urgencyTypeColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v)));
    if(data.clinicianGroupColours&&typeof data.clinicianGroupColours==='object'&&!Array.isArray(data.clinicianGroupColours))clinicianGroupColours=Object.fromEntries(Object.entries(data.clinicianGroupColours).filter(([k,v])=>typeof k==='string'&&/^#[0-9a-f]{6}$/i.test(v)));
@@ -1440,6 +1442,7 @@ async function saveCloudCategories(options={}){
    togglePriority:{...togglePriority},
   practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors}},
   userTypeLocum:{...userTypeLocum},
+  sessionCategoryLocum:{...sessionCategoryLocum},
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
@@ -1715,6 +1718,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
  const columnPositions=new Map(parsed.columns.map((name,index)=>[name,index]));
  const dna=columnPositions.has('DNA')?{attended:0,didNotAttend:0,unknown:0}:null;
  let valid=0,skipped=0;
+ const sessionCategories=new Set();
  const slotFieldPositions=slotHeaderlessColumns.map(column=>columnPositions.get(column));
  const leadTimePosition=columnPositions.get(slotLeadTimeColumn);
  const previous=parsed.columns.map(()=>'');
@@ -1744,6 +1748,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   const appointmentDay=parseDate(day);
   if(!appointmentDay)continue;
   const date=appointmentDay.toISOString().slice(0,10);
+  const category=String(r["Session's Session Category"]||'').trim();if(category)sessionCategories.add(category);
   const clinician=r[slotUserTypeColumn]||'Unknown clinician';
   // Preserve the aggregate key shape so existing reports can still load.
   const person='';
@@ -1787,7 +1792,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   const key=JSON.stringify([bookedDay,slotType,clinician,person]);
   aggregated.set(key,(aggregated.get(key)||0)+quantity);valid+=quantity;
  }
- return {valid,skipped,dna};
+ return {valid,skipped,dna,sessionCategories:[...sessionCategories].sort()};
 }
 // Drag-and-drop category editor. Existing practice workspace JSON schema remains unchanged.
 let pickedSlot=null;
@@ -2191,7 +2196,7 @@ function parseCSVContribution(csvText,name){
  if(!/slot[\s_-]*report/i.test(name))return {kind:'other'};
  const maps=Array.from({length:8},()=>new Map());
  const stats=aggregateCSV(csvText,...maps);
- return {kind:'slot',maps,valid:stats.valid,skipped:stats.skipped,dna:stats.dna};
+ return {kind:'slot',maps,valid:stats.valid,skipped:stats.skipped,dna:stats.dna,sessionCategories:stats.sessionCategories};
 }
 async function loadFolder(force=true){if(!selectedFolder||busy)return;busy=true;setButtons();showRefreshFeedback('Refreshing data…',true);setSync('Checking practice workspace CSV files…');try{
  const items=(await children(selectedFolder.id)).filter(f=>f.file&&/\.csv$/i.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name));if(!items.length)throw Error('No CSV files found directly inside this folder.');updateHomeReportDates(items);
@@ -4359,13 +4364,13 @@ $('dayView2Today')?.addEventListener('click',()=>{chooseDayView2Date(dayView2Wor
 $('dayView2Previous')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),-1));});
 $('dayView2Next')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),1));});
 
-const workspacePages=[['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
+const workspacePages=[['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['sessionSettingsPage','navSessionSettings','sessionSettings'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
 function showPage(which,{historyMode='push'}={}){
  if(which==='dayView2')which='dayView';
  if(which==='chart2')which='chart';
  const forecastMode=which==='dailyForecast'?'daily':which==='weeklyForecast'?'weekly':null;
  const known=forecastMode||which==='chart2'||workspacePages.some(([, , name])=>name===which);
- if(!known||(!isOwner&&['categories','people','practiceSettings'].includes(which))){
+ if(!known||(!isOwner&&['categories','people','sessionSettings','practiceSettings'].includes(which))){
   if(historyMode!=='push')showPage('home',{historyMode});
   return;
  }
@@ -4403,6 +4408,7 @@ function showPage(which,{historyMode='push'}={}){
  else if(which==='bookingTimes')setTimeout(renderBookingTimesChart,0);
  else if(which==='signposting')setTimeout(renderSignpostingChart,0);
  else if(which==='rapidHealth')renderRapidHealthTable();
+ else if(which==='sessionSettings')renderSessionSettings();
  else if(which==='people'){renderPeopleGroups();renderPeopleGroupFilter();renderPeople();}
  else if(which==='personalSettings'){renderPersonalSettings();}
  else if(which==='practiceSettings'){selectPracticeSettingsTab(readChartPreferences()['practiceSettings:tab']);}
@@ -4417,7 +4423,21 @@ $('historicBreakdown').addEventListener('click',event=>{
 });
 $('navWorkforcePlanning').onclick=()=>showPage('workforcePlanning');
 document.getElementById('navWorkforceNeed').onclick=()=>showPage('workforceNeed');document.getElementById('navHome').onclick=()=>showPage('home');document.getElementById('navRoutineCapacity').onclick=()=>showPage('routineCapacity');document.getElementById('navChart').onclick=()=>showPage('chart');document.getElementById('navWaitingTimes').onclick=()=>showPage('waitingTimes');document.getElementById('navWaitingTrend').onclick=()=>showPage('waitingTrend');document.getElementById('navCategories').onclick=()=>showPage('categories');document.getElementById('navAvailability').onclick=()=>showPage('availability');document.getElementById('navRoutineAvailability').onclick=()=>showPage('routineAvailability');
-document.getElementById('navDayView2').onclick=()=>showPage('dayView');document.getElementById('navBookingTimes').onclick=()=>showPage('bookingTimes');document.getElementById('navSignposting').onclick=()=>showPage('signposting');document.getElementById('navRapidHealth').onclick=()=>showPage('rapidHealth');document.getElementById('navPeople').onclick=()=>showPage('people');document.getElementById('navPracticeSettings').onclick=()=>showPage('practiceSettings');document.getElementById('navPersonalSettings').onclick=()=>showPage('personalSettings');$('personalSettingsForm').addEventListener('submit',savePersonalSettings);$('historicStackedArea')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('demandCombineLines')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('slotTableSearch').addEventListener('input',renderSlotTable);for(const id of ['slotGroupFilter','slotModeFilter','slotPurposeFilter','slotCapacityFilter'])$(id)?.addEventListener('change',renderSlotTable);$('slotUnassignedOnly').addEventListener('change',renderSlotTable);$('slotModeUnassignedOnly').addEventListener('change',renderSlotTable);$('slotPurposeUnassignedOnly')?.addEventListener('change',renderSlotTable);$('slotCapacityUnassignedOnly')?.addEventListener('change',renderSlotTable);$('peopleSearch').addEventListener('input',renderPeople);$('peopleGroupFilter').addEventListener('change',renderPeople);$('peopleUnassignedOnly').addEventListener('change',()=>{const only=$('peopleUnassignedOnly').checked;$('peopleGroupFilter').disabled=only;renderPeople()});
+document.getElementById('navDayView2').onclick=()=>showPage('dayView');document.getElementById('navBookingTimes').onclick=()=>showPage('bookingTimes');document.getElementById('navSignposting').onclick=()=>showPage('signposting');document.getElementById('navRapidHealth').onclick=()=>showPage('rapidHealth');document.getElementById('navPeople').onclick=()=>showPage('people');document.getElementById('navSessionSettings').onclick=()=>showPage('sessionSettings');document.getElementById('navPracticeSettings').onclick=()=>showPage('practiceSettings');document.getElementById('navPersonalSettings').onclick=()=>showPage('personalSettings');$('personalSettingsForm').addEventListener('submit',savePersonalSettings);$('historicStackedArea')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('demandCombineLines')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('slotTableSearch').addEventListener('input',renderSlotTable);for(const id of ['slotGroupFilter','slotModeFilter','slotPurposeFilter','slotCapacityFilter'])$(id)?.addEventListener('change',renderSlotTable);$('slotUnassignedOnly').addEventListener('change',renderSlotTable);$('slotModeUnassignedOnly').addEventListener('change',renderSlotTable);$('slotPurposeUnassignedOnly')?.addEventListener('change',renderSlotTable);$('slotCapacityUnassignedOnly')?.addEventListener('change',renderSlotTable);$('peopleSearch').addEventListener('input',renderPeople);$('peopleGroupFilter').addEventListener('change',renderPeople);$('peopleUnassignedOnly').addEventListener('change',()=>{const only=$('peopleUnassignedOnly').checked;$('peopleGroupFilter').disabled=only;renderPeople()});
+function renderSessionSettings(){
+ const body=$('sessionSettingsBody'),notice=$('sessionSettingsNotice');if(!body)return;
+ body.replaceChildren();
+ const names=[...new Set([...sessionCategoryNames,...Object.keys(sessionCategoryLocum)])].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+ notice.textContent=names.length?'Session categories are collected from newly uploaded Slot Reports. Older reports may need to be replaced to include their categories.':'No session categories are available yet. Upload or replace a Slot Report containing the Session Category column.';
+ for(const name of names){
+  const row=document.createElement('tr'),label=document.createElement('td'),cell=document.createElement('td'),select=document.createElement('select');
+  label.textContent=name;select.className='people-locum-select';select.setAttribute('aria-label','Locum status for '+name);
+  for(const [value,text] of [['unknown','Unknown'],['yes','Yes'],['no','No']]){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option)}
+  select.value=sessionCategoryLocum[name]||'unknown';select.disabled=!isOwner;
+  select.addEventListener('change',()=>{sessionCategoryLocum={...sessionCategoryLocum,[name]:select.value};markCategoryDirty();$('sessionSettingsSaveStatus').textContent='Changes are saving automatically to practice workspace.'});
+  cell.append(select);row.append(label,cell);body.append(row);
+ }
+}
 function renderClinicianEditor(){renderDropEditor('clinician');updateClinicianChartFilter()}
 function renderClinicianGroupEditor(){renderDropEditor('clinicianGroup');if(!$('peoplePage')?.classList.contains('hidden'))renderPeopleGroups()}
 $('addClinicianCategory').onclick=()=>{const el=$('newClinicianCategory');const c=el.value.trim();if(!c)return;if(c.toLowerCase()==='uncategorised'||clinicianCategoryNames.some(x=>x.toLowerCase()===c.toLowerCase())){alert('This clinician category name already exists or is reserved.');return}clinicianCategoryNames.push(c);el.value='';saveCategories();renderClinicianEditor();renderClinicianGroupEditor()};
@@ -5580,7 +5600,7 @@ function validateCloudCategories(data){
  for(const key of ['categories','clinicianCategories','consultCategories','purposeCategories','capacityCategories','clinicianGroupCategories','groupUrgencyCategories','appointmentCategoryNames','excludedSlotTypes']){
   if(data[key]!==undefined&&(!Array.isArray(data[key])||data[key].some(v=>typeof v!=='string')))invalid(key);
  }
- for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
+ for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','sessionCategoryLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
   if(data[key]!==undefined&&(!object(data[key])||Object.entries(data[key]).some(([k,v])=>['__proto__','constructor','prototype'].includes(k)||typeof v!=='string')))invalid(key);
  }
  if(data.analyticsRoles!==undefined&&!object(data.analyticsRoles))invalid('analyticsRoles');
@@ -5688,6 +5708,7 @@ function analyticsSettingsSnapshot(){
    togglePriority:{...togglePriority},
   practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors}},
   userTypeLocum:{...userTypeLocum},
+  sessionCategoryLocum:{...sessionCategoryLocum},
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
@@ -5823,6 +5844,8 @@ async function loadFolder(force=true){
  const entries=iqSources.map(source=>({key:source.source_key,clinicalAt:source.clinical_at,contribution:pendingCache.get(source.source_key)}));
  const effectiveEntries=GPRollingSlots.reconcile(entries);
  const effectiveCache=new Map(effectiveEntries.map(entry=>[entry.key,entry.contribution]));
+ sessionCategoryNames=[...new Set(effectiveEntries.flatMap(entry=>entry.contribution.kind==='slot'&&Array.isArray(entry.contribution.sessionCategories)?entry.contribution.sessionCategories:[]).filter(name=>typeof name==='string'&&name.trim()))].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+ if(!$('sessionSettingsPage')?.classList.contains('hidden'))renderSessionSettings();
  for(const {contribution} of effectiveEntries){
   if(contribution.kind==='signposting'){newSignposting.push(...contribution.events);newSignpostingFiles++;}
   else if(contribution.kind==='slot'){newSlotFiles++;valid+=contribution.valid;skipped+=contribution.skipped;const destinations=[aggregate,availabilityAggregate,bookingTimeAggregate,peopleAggregate,newSlotTypeStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate];for(let m=0;m<8;m++)mergeCSVCounts(destinations[m],contribution.maps[m]);}
