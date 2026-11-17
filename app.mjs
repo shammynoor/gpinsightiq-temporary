@@ -422,7 +422,7 @@ $('signupForm').addEventListener('submit',event=>{
  });
 });
 $('forgotPassword').addEventListener('click',()=>run(async()=>{if(!$('email').value||!$('email').checkValidity())throw Error('Enter your email address first.');await backend.reset($('email').value,location.origin+location.pathname);notice('If this account exists, a password-reset email will be sent.');}));
-$('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{const password=$('newPassword').value,problem=passwordProblem(password);if(problem)throw Error(problem);try{await backend.password(password)}catch(error){throw passwordAuthError(error)}$('newPassword').value='';recovery=false;showAuthForm('login');await loadUser();notice('Your password has been changed.');});});
+$('recoveryForm').addEventListener('submit',event=>{event.preventDefault();run(async()=>{const password=$('newPassword').value;try{await backend.password(password)}catch(error){throw passwordAuthError(error)}$('newPassword').value='';recovery=false;showAuthForm('login');await loadUser();notice('Your password has been changed.');});});
 $('showSignup').addEventListener('click',()=>showAuthForm('signup'));
 $('returnSetupLogin').addEventListener('click',()=>showAuthForm('login'));
 $('returnLogin').addEventListener('click',()=>{
