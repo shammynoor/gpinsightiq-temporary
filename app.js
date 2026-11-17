@@ -1716,6 +1716,7 @@ function parseSlotReportCSV(csv){
 function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,_peopleAggregate,slotStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate){
  const parsed=parseSlotReportCSV(csv);
  const columnPositions=new Map(parsed.columns.map((name,index)=>[name,index]));
+ const sessionCategoryColumn=parsed.columns.find(name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'')==='sessionssessioncategory');
  const dna=columnPositions.has('DNA')?{attended:0,didNotAttend:0,unknown:0}:null;
  let valid=0,skipped=0;
  const sessionCategories=new Set();
@@ -1748,7 +1749,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   const appointmentDay=parseDate(day);
   if(!appointmentDay)continue;
   const date=appointmentDay.toISOString().slice(0,10);
-  const category=String(r["Session's Session Category"]||'').trim();if(category)sessionCategories.add(category);
+  const category=String(r[sessionCategoryColumn]||'').trim();if(category)sessionCategories.add(category);
   const clinician=r[slotUserTypeColumn]||'Unknown clinician';
   // Preserve the aggregate key shape so existing reports can still load.
   const person='';

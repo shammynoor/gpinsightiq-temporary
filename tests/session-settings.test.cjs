@@ -8,3 +8,11 @@ test('session categories are collected from valid appointments without changing 
  const maps=Array.from({length:8},()=>new Map());const result=context.aggregateCSV(csv,...maps);
  assert.equal(result.valid,2);assert.deepEqual(Array.from(result.sessionCategories),['Core clinic','Locum clinic']);assert.equal([...maps[1].values()].reduce((a,b)=>a+b,0),3);
 });
+test('session category heading accepts punctuation and case variations',()=>{
+ for(const heading of ['Sessions Session Category',"Session's Session Category",'SESSION’S SESSION CATEGORY']){
+  const header=['Appointment Date','Appointment Time','Booked Time to Slot Time','User Type of the Session Holder of the Session','Slot Type','Availability',heading];
+  const csv=Papa.unparse([header,['16-Jun-25','09:00','60','GP','Routine','Booked','Locum clinic']]);
+  const maps=Array.from({length:8},()=>new Map());
+  assert.deepEqual(Array.from(context.aggregateCSV(csv,...maps).sessionCategories),['Locum clinic']);
+ }
+});
