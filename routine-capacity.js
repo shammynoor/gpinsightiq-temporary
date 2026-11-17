@@ -78,7 +78,7 @@ function modelData(){
  // Resolve them once per combination, not for every appointment and chart.
  const includedCache=new Map(),modeCache=new Map(),weekCache=new Map();
  const isIncluded=r=>{
-  const key=JSON.stringify([r.slot,r.clinician,r.person]);
+  const key=JSON.stringify([r.slot,r.clinician,r.person,r.sessionCategory]);
   if(!includedCache.has(key))includedCache.set(key,included(r,doctors));
   return includedCache.get(key);
  };

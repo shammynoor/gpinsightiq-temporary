@@ -206,7 +206,7 @@ let sessionCategoryLocum={},sessionCategoryNames=[];
 const locumFilterPages=['chartPage','availabilityPage','routineAvailabilityPage','routineCapacityPage','waitingTimesPage','waitingOverTimePage','dayView2Page','bookingTimesPage','dailyForecastPage','weeklyForecastPage','workforceNeedPage'];
 const locumFilterSelections=new Map();
 function locumCategory(row){
- return Object.hasOwn(userTypeLocum,row.clinician)&&userTypeLocum[row.clinician]==='yes'?'Locum':'Not Locum';
+ return userTypeLocum[row.clinician]==='yes'||sessionCategoryLocum[row.sessionCategory]==='yes'?'Locum':'Not Locum';
 }
 function locumMatches(row,page){
  return locumFilterSelections.get(page)?.[locumCategory(row)]!==false;
@@ -1762,7 +1762,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   if(slotStats){const stat=slotStats.get(slotType)||{count:0,min:date,max:date};stat.count+=quantity;if(date<stat.min)stat.min=date;if(date>stat.max)stat.max=date;slotStats.set(slotType,stat)}
   const slotClock=/^(\d{1,2}):(\d{2})/.exec(time);
   const appointmentMinute=slotClock&&Number(slotClock[1])<24&&Number(slotClock[2])<60?Number(slotClock[1])*60+Number(slotClock[2]):null;
-  const akey=JSON.stringify([date,slotType,availability,clinician,person,appointmentMinute,'slot']);
+  const akey=JSON.stringify([date,slotType,availability,clinician,person,appointmentMinute,'slot',category]);
   availabilityAggregate.set(akey,(availabilityAggregate.get(akey)||0)+quantity);
   if(status!=='booked')continue;
   const lead=Number(leadRaw.replace(/,/g,''));
@@ -1770,9 +1770,9 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
    const dayBin=Math.floor(lead/1440);
    const appointmentMonth=appointmentDay.toISOString().slice(0,7);
    const appointmentDate=appointmentDay.toISOString().slice(0,10);
-   const waitKey=JSON.stringify([slotType,dayBin,clinician,person,appointmentMonth]);
+   const waitKey=JSON.stringify([slotType,dayBin,clinician,person,appointmentMonth,category]);
    waitingAggregate.set(waitKey,(waitingAggregate.get(waitKey)||0)+quantity);
-   const trendKey=JSON.stringify([slotType,clinician,person,appointmentMonth,appointmentDate,lead]);
+   const trendKey=JSON.stringify([slotType,clinician,person,appointmentMonth,appointmentDate,lead,category]);
    waitingTrendAggregate.set(trendKey,(waitingTrendAggregate.get(trendKey)||0)+quantity);
   }
   const tm=/^(\d{1,2}):(\d{2})/.exec(time);
@@ -1786,11 +1786,11 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   // Booking clock time, calculated using the same lead-time arithmetic as the demand charts.
   const bookedMinute=booked.getUTCHours()*60+booked.getUTCMinutes();
   // Day View scheduled workload: appointment DATE is fixed, booking timestamp controls the slider.
-  const scheduledKey=JSON.stringify([date,bookedDay,bookedMinute,slotType,clinician,person,'slot']);
+  const scheduledKey=JSON.stringify([date,bookedDay,bookedMinute,slotType,clinician,person,'slot',category]);
   appointmentTimeAggregate.set(scheduledKey,(appointmentTimeAggregate.get(scheduledKey)||0)+quantity);
-  const timeKey=JSON.stringify([bookedDay,bookedMinute,slotType,clinician,person]);
+  const timeKey=JSON.stringify([bookedDay,bookedMinute,slotType,clinician,person,category]);
   bookingTimeAggregate.set(timeKey,(bookingTimeAggregate.get(timeKey)||0)+quantity);
-  const key=JSON.stringify([bookedDay,slotType,clinician,person]);
+  const key=JSON.stringify([bookedDay,slotType,clinician,person,category]);
   aggregated.set(key,(aggregated.get(key)||0)+quantity);valid+=quantity;
  }
  return {valid,skipped,dna,sessionCategories:[...sessionCategories].sort()};
@@ -2272,14 +2272,14 @@ async function loadFolder(force=true){if(!selectedFolder||busy)return;busy=true;
    }
   }
  }
- waitingTimeRecords=[...waitingAggregate].map(([key,count])=>{const [slot,day,clinician,person,appointmentMonth]=JSON.parse(key);return {slot,day,clinician,person,appointmentMonth,status:'Booked',count}});
- waitingTrendRecords=[...waitingTrendAggregate].map(([key,count])=>{const [slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes]=JSON.parse(key);return {slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,status:'Booked',count}}).sort((a,b)=>a.leadMinutes-b.leadMinutes);
+ waitingTimeRecords=[...waitingAggregate].map(([key,count])=>{const [slot,day,clinician,person,appointmentMonth,sessionCategory]=JSON.parse(key);return {slot,day,clinician,person,appointmentMonth,sessionCategory,status:'Booked',count}});
+ waitingTrendRecords=[...waitingTrendAggregate].map(([key,count])=>{const [slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,sessionCategory]=JSON.parse(key);return {slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,sessionCategory,status:'Booked',count}}).sort((a,b)=>a.leadMinutes-b.leadMinutes);
  waitingTrendDimensionCache=new WeakMap();
  waitingTrendAvailableMonths=[...new Set(waitingTrendRecords.map(r=>r.appointmentMonth).filter(Boolean))].sort();
- appointmentTimeRecords=[...appointmentTimeAggregate].map(([key,count])=>{const [date,bookedDay,bookedMinute,slot,clinician,person,source]=JSON.parse(key);return {date,bookedDay,bookedMinute,slot,clinician,person,source:source||'slot',count}});
- bookingTimeRecords=[...bookingTimeAggregate].map(([key,count])=>{const [bookedDay,minute,slot,clinician,person]=JSON.parse(key);return {bookedDay,minute,slot,clinician,person,count}});
- availabilityRecords=[...availabilityAggregate].map(([key,count])=>{const [date,slot,availability,clinician,person,minute,source]=JSON.parse(key);return {date,slot,availability,clinician,person,minute:Number.isFinite(minute)?minute:null,source:source||'slot',count}});
- records=[...aggregate].map(([key,count])=>{const [bookedDay,slot,clinician,person]=JSON.parse(key);const bookedWeek=mondayOf(bookedDay);return {week:bookedWeek,bookedWeek,bookedDay,slot,clinician,person,status:'Booked',count}});weeks=[...new Set(records.map(r=>r.bookedWeek))].sort();types=[...new Set([...records.map(r=>r.slot),...availabilityRecords.map(r=>r.slot)])].sort();statuses=['Booked'];clinicianTypes=[...new Set([...records.map(r=>r.clinician),...availabilityRecords.map(r=>r.clinician)])].filter(Boolean).sort();
+ appointmentTimeRecords=[...appointmentTimeAggregate].map(([key,count])=>{const [date,bookedDay,bookedMinute,slot,clinician,person,source,sessionCategory]=JSON.parse(key);return {date,bookedDay,bookedMinute,slot,clinician,person,sessionCategory,source:source||'slot',count}});
+ bookingTimeRecords=[...bookingTimeAggregate].map(([key,count])=>{const [bookedDay,minute,slot,clinician,person,sessionCategory]=JSON.parse(key);return {bookedDay,minute,slot,clinician,person,sessionCategory,count}});
+ availabilityRecords=[...availabilityAggregate].map(([key,count])=>{const [date,slot,availability,clinician,person,minute,source,sessionCategory]=JSON.parse(key);return {date,slot,availability,clinician,person,sessionCategory,minute:Number.isFinite(minute)?minute:null,source:source||'slot',count}});
+ records=[...aggregate].map(([key,count])=>{const [bookedDay,slot,clinician,person,sessionCategory]=JSON.parse(key);const bookedWeek=mondayOf(bookedDay);return {week:bookedWeek,bookedWeek,bookedDay,slot,clinician,person,sessionCategory,status:'Booked',count}});weeks=[...new Set(records.map(r=>r.bookedWeek))].sort();types=[...new Set([...records.map(r=>r.slot),...availabilityRecords.map(r=>r.slot)])].sort();statuses=['Booked'];clinicianTypes=[...new Set([...records.map(r=>r.clinician),...availabilityRecords.map(r=>r.clinician)])].filter(Boolean).sort();
  // Assign obvious names on first encounter; retain any existing manual choices.
  // Do not guess assignments: unknown slot types stay Uncategorised until manually assigned.
 
@@ -4435,7 +4435,7 @@ function renderSessionSettings(){
   label.textContent=name;select.className='people-locum-select';select.setAttribute('aria-label','Locum status for '+name);
   for(const [value,text] of [['unknown','Unknown'],['yes','Yes'],['no','No']]){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option)}
   select.value=sessionCategoryLocum[name]||'unknown';select.disabled=!isOwner;
-  select.addEventListener('change',()=>{sessionCategoryLocum={...sessionCategoryLocum,[name]:select.value};markCategoryDirty();$('sessionSettingsSaveStatus').textContent='Changes are saving automatically to practice workspace.'});
+  select.addEventListener('change',()=>{sessionCategoryLocum={...sessionCategoryLocum,[name]:select.value};demandFilterCache=new WeakMap();capacityPaceCache=null;window.refreshForecastCharts?.();markCategoryDirty();$('sessionSettingsSaveStatus').textContent='Changes are saving automatically to practice workspace.'});
   cell.append(select);row.append(label,cell);body.append(row);
  }
 }
@@ -5886,14 +5886,14 @@ async function loadFolder(force=true){
    }
   }
  }
- waitingTimeRecords=[...waitingAggregate].map(([key,count])=>{const [slot,day,clinician,person,appointmentMonth]=JSON.parse(key);return {slot,day,clinician,person,appointmentMonth,status:'Booked',count}});
- waitingTrendRecords=[...waitingTrendAggregate].map(([key,count])=>{const [slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes]=JSON.parse(key);return {slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,status:'Booked',count}}).sort((a,b)=>a.leadMinutes-b.leadMinutes);
+ waitingTimeRecords=[...waitingAggregate].map(([key,count])=>{const [slot,day,clinician,person,appointmentMonth,sessionCategory]=JSON.parse(key);return {slot,day,clinician,person,appointmentMonth,sessionCategory,status:'Booked',count}});
+ waitingTrendRecords=[...waitingTrendAggregate].map(([key,count])=>{const [slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,sessionCategory]=JSON.parse(key);return {slot,clinician,person,appointmentMonth,appointmentDate,leadMinutes,sessionCategory,status:'Booked',count}}).sort((a,b)=>a.leadMinutes-b.leadMinutes);
  waitingTrendDimensionCache=new WeakMap();
  waitingTrendAvailableMonths=[...new Set(waitingTrendRecords.map(r=>r.appointmentMonth).filter(Boolean))].sort();
- appointmentTimeRecords=[...appointmentTimeAggregate].map(([key,count])=>{const [date,bookedDay,bookedMinute,slot,clinician,person,source]=JSON.parse(key);return {date,bookedDay,bookedMinute,slot,clinician,person,source:source||'slot',count}});
- bookingTimeRecords=[...bookingTimeAggregate].map(([key,count])=>{const [bookedDay,minute,slot,clinician,person]=JSON.parse(key);return {bookedDay,minute,slot,clinician,person,count}});
- availabilityRecords=[...availabilityAggregate].map(([key,count])=>{const [date,slot,availability,clinician,person,minute,source]=JSON.parse(key);return {date,slot,availability,clinician,person,minute:Number.isFinite(minute)?minute:null,source:source||'slot',count}});
- records=[...aggregate].map(([key,count])=>{const [bookedDay,slot,clinician,person]=JSON.parse(key);const bookedWeek=mondayOf(bookedDay);return {week:bookedWeek,bookedWeek,bookedDay,slot,clinician,person,status:'Booked',count}});weeks=[...new Set(records.map(r=>r.bookedWeek))].sort();types=[...new Set([...records.map(r=>r.slot),...availabilityRecords.map(r=>r.slot)])].sort();statuses=['Booked'];clinicianTypes=[...new Set([...records.map(r=>r.clinician),...availabilityRecords.map(r=>r.clinician)])].filter(Boolean).sort();
+ appointmentTimeRecords=[...appointmentTimeAggregate].map(([key,count])=>{const [date,bookedDay,bookedMinute,slot,clinician,person,source,sessionCategory]=JSON.parse(key);return {date,bookedDay,bookedMinute,slot,clinician,person,sessionCategory,source:source||'slot',count}});
+ bookingTimeRecords=[...bookingTimeAggregate].map(([key,count])=>{const [bookedDay,minute,slot,clinician,person,sessionCategory]=JSON.parse(key);return {bookedDay,minute,slot,clinician,person,sessionCategory,count}});
+ availabilityRecords=[...availabilityAggregate].map(([key,count])=>{const [date,slot,availability,clinician,person,minute,source,sessionCategory]=JSON.parse(key);return {date,slot,availability,clinician,person,sessionCategory,minute:Number.isFinite(minute)?minute:null,source:source||'slot',count}});
+ records=[...aggregate].map(([key,count])=>{const [bookedDay,slot,clinician,person,sessionCategory]=JSON.parse(key);const bookedWeek=mondayOf(bookedDay);return {week:bookedWeek,bookedWeek,bookedDay,slot,clinician,person,sessionCategory,status:'Booked',count}});weeks=[...new Set(records.map(r=>r.bookedWeek))].sort();types=[...new Set([...records.map(r=>r.slot),...availabilityRecords.map(r=>r.slot)])].sort();statuses=['Booked'];clinicianTypes=[...new Set([...records.map(r=>r.clinician),...availabilityRecords.map(r=>r.clinician)])].filter(Boolean).sort();
  // Assign obvious names on first encounter; retain any existing manual choices.
  // Do not guess assignments: unknown slot types stay Uncategorised until manually assigned.
 

@@ -19,15 +19,15 @@ function rebuild(contribution,keep){
   stat.count+=count;if(date<stat.min)stat.min=date;if(date>stat.max)stat.max=date;maps[4].set(slot,stat);
  }
  for(const [key,count] of contribution.maps[7]){
-  const [date,bookedDay,minute,slot,clinician,person]=JSON.parse(key);if(!keep(date))continue;
+  const [date,bookedDay,minute,slot,clinician,person,source,sessionCategory]=JSON.parse(key);if(!keep(date))continue;
   maps[7].set(key,count);
-  add(maps[0],JSON.stringify([bookedDay,slot,clinician,person]),count);
-  add(maps[2],JSON.stringify([bookedDay,minute,slot,clinician,person]),count);
+  add(maps[0],JSON.stringify(sessionCategory===undefined?[bookedDay,slot,clinician,person]:[bookedDay,slot,clinician,person,sessionCategory]),count);
+  add(maps[2],JSON.stringify(sessionCategory===undefined?[bookedDay,minute,slot,clinician,person]:[bookedDay,minute,slot,clinician,person,sessionCategory]),count);
  }
  for(const [key,count] of contribution.maps[6]){
-  const [slot,clinician,person,month,date,lead]=JSON.parse(key);if(!keep(date))continue;
+  const [slot,clinician,person,month,date,lead,sessionCategory]=JSON.parse(key);if(!keep(date))continue;
   maps[6].set(key,count);
-  add(maps[5],JSON.stringify([slot,Math.floor(lead/1440),clinician,person,month]),count);
+  add(maps[5],JSON.stringify(sessionCategory===undefined?[slot,Math.floor(lead/1440),clinician,person,month]:[slot,Math.floor(lead/1440),clinician,person,month,sessionCategory]),count);
  }
  return maps;
 }
