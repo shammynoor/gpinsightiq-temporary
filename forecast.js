@@ -391,6 +391,12 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
    specialErrors.set(type,[quantileNeeds(errors,.15),quantileNeeds(errors,.85)]);
   }
   const predict=(name,dow,day)=>{const type=adjacentTypes.get(day);return type?(specialForecasts.get(type)?.get(name)?.(day)??undefined):forecasts.get(name)?.get(dow)?.(day)};
+  const predictWeekly=(name,dow,day)=>{
+   const normal=forecasts.get(name)?.get(dow)?.(day);
+   const type=adjacentTypes.get(day);
+   const holiday=type?specialForecasts.get(type)?.get(name)?.(day):undefined;
+   return GPCorrectness.weeklyAllocationDay(normal,holiday,monday(day));
+  };
   if(capacityGroups){
    const capacityPrediction=(bucket,weekly)=>{
     let total=0,hasWorkingDay=false;
@@ -560,7 +566,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
     const day=shift(weekStart,dow-1);
     if(bankHolidayDates.has(day))continue;
     for(const name of weeklyGroups){
-     const estimate=predict(name,dow,day);
+     const estimate=predictWeekly(name,dow,day);
      if(estimate===undefined)return null;
      total+=estimate;
     }
@@ -576,7 +582,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
    for(let dow=1;dow<=5;dow++){
     const day=shift(weekStart,dow-1);
     if(day<currentDate||bankHolidayDates.has(day))continue;
-    const estimates=weeklyGroups.map(name=>predict(name,dow,day));
+    const estimates=weeklyGroups.map(name=>predictWeekly(name,dow,day));
     if(estimates.some(value=>value===undefined))return null;
     const prediction=estimates.reduce((total,value)=>total+value,0);
     if(day!==currentDate){remaining+=prediction;continue;}

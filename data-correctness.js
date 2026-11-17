@@ -28,6 +28,16 @@ function coverageFromEntries(entries){
 function firstAppointmentDate(ranges){
  return ranges.reduce((first,{start})=>validDate(start)&&(!first||start<first)?start:first,'');
 }
+// Phase in the increase for three specified weeks only, to give practices time
+// to organise capacity; all later bank holidays receive the full correction.
+function weeklyAllocationDay(normal,holiday,weekStart){
+ if(Number.isFinite(normal)&&Number.isFinite(holiday)&&normal>holiday&&
+    ['2026-12-21','2026-12-28','2027-01-04'].includes(weekStart)){
+  return holiday+(normal-holiday)*0.75;
+ }
+ const values=[normal,holiday].filter(Number.isFinite);
+ return values.length?Math.max(...values):undefined;
+}
 function currentWeekForecastBounds(nowcast,seasonal){
  if(!seasonal||![seasonal.estimate,seasonal.low,seasonal.high].every(Number.isFinite))return {low:nowcast.low,high:nowcast.high};
  // Apply the same full-week error scale to the unobserved share of this week.
@@ -181,7 +191,7 @@ function averageCapsuleLayout(labels,width,height){
  return placed;
 }
 
-const api={averageCapsuleLayout,currentPeriodNowcast,periodBounds,smoothDemandSeries,shift,monday,londonDate,dateContext,validDate,coverageFromEntries,firstAppointmentDate,currentWeekForecastBounds,completeWeeks,roles,renameRole};
+const api={averageCapsuleLayout,currentPeriodNowcast,periodBounds,smoothDemandSeries,shift,monday,londonDate,dateContext,validDate,coverageFromEntries,firstAppointmentDate,weeklyAllocationDay,currentWeekForecastBounds,completeWeeks,roles,renameRole};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 else root.GPCorrectness=api;
 })(typeof window!=='undefined'?window:globalThis);
