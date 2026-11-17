@@ -5660,6 +5660,8 @@ function analyticsSettingsSnapshot(){
 }
 // Integration boundary for the existing analytics engine. Definitions hoist above startup.
 let iqSources=[],iqContributions=new Map(),iqSettingsRevision=0,iqUploading=false;
+let iqReportCache=null;
+window.clearPracticeReportCache=async()=>{if(iqReportCache){try{await iqReportCache.clear()}catch(_){}}};
 function initAuth(){
  window.addEventListener('load',()=>void iqStart(),{once:true});
  window.addEventListener('message',event=>{if(event.source===window.parent&&event.origin===location.origin&&event.data?.type==='iq-refresh')void refreshDashboardData(true);});
@@ -5669,6 +5671,7 @@ async function iqStart(){
  document.body.classList.toggle('iq-viewer-workspace',!!iqBridge.viewerWorkspace);
  try{
   await iqBridge.ensure();
+  iqReportCache=GPReportCache.createCache(iqBridge.user.id,iqBridge.practice.id);
   activeAccount={homeAccountId:iqBridge.user.id+':'+iqBridge.practice.id,username:iqBridge.user.email,name:iqBridge.user.name||iqBridge.user.email};
   await loadSyncedChartPreferences();
   installLocumFilters();
@@ -5761,9 +5764,12 @@ async function loadFolder(force=true){
  let valid=0,skipped=0,newSlotFiles=0,newSignpostingFiles=0,downloaded=0,reused=0;
  const newSignposting=[],pendingCache=new Map();
  const newRapidHealth=await iqBridge.rapidSummary();
- for(const source of iqSources){
-  let entry=iqContributions.get(source.source_key);
-  if(!entry||entry.revision!==source.revision){entry={revision:source.revision,value:await iqBridge.read(source.source_key)};downloaded++;}else reused++;
+ const loaded=await GPReportCache.loadReports(iqSources,iqContributions,iqReportCache,key=>iqBridge.read(key));
+ await iqBridge.ensure(); // Recheck access before using cached reports.
+ try{await iqReportCache?.prune(iqSources.map(source=>source.source_key))}catch(_){}
+ downloaded=loaded.downloaded;reused=loaded.reused;
+ for(let i=0;i<iqSources.length;i++){
+  const source=iqSources[i],entry=loaded.entries[i];
   iqContributions.set(source.source_key,entry);
   const contribution={...entry.value,version:JSON.stringify([source.source_key,source.source_name,source.clinical_at,0])};pendingCache.set(source.source_key,contribution);
  }

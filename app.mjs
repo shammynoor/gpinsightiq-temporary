@@ -115,9 +115,9 @@ function renderAnalytics(){
   rapidDate:()=>report?.state?.latest_request?formatDate(report.state.latest_request+'Z'):null,
   importRapid:file=>checked(()=>prepareUpload(file),true),
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
-  signOut:()=>run(async()=>{await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
+  signOut:()=>run(async()=>{await analyticsFrame?.contentWindow?.clearPracticeReportCache?.();await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=additional-beta-labels-v1';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=fast-workspace-start-v1';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');
@@ -450,7 +450,7 @@ async function initialise(){
  try{
   const {createClient}=await import('https://esm.sh/@supabase/supabase-js@2.49.8');
   const client=createClient(window.DARWIN_CONFIG.supabaseUrl,window.DARWIN_CONFIG.publishableKey,{auth:{flowType:'pkce',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});backend=new SupabaseBackend(client);
-  client.auth.onAuthStateChange((event)=>{if(event==='PASSWORD_RECOVERY'){recovery=true;showAuthForm('recovery');render();}if(event==='SIGNED_OUT'){++loadVersion;user=null;context=null;practice=null;report=null;members=[];render();}});
+  client.auth.onAuthStateChange((event)=>{if(event==='PASSWORD_RECOVERY'){recovery=true;showAuthForm('recovery');render();}if(event==='SIGNED_OUT'){void analyticsFrame?.contentWindow?.clearPracticeReportCache?.();++loadVersion;user=null;context=null;practice=null;report=null;members=[];render();}});
   await loadUser();
   if(user&&!recovery&&ownerSetup){await backend.claimPlatformAdmin();history.replaceState({},'',location.pathname);await reload();}
   else if(user&&!recovery&&invitation){await acceptInvitation(invitation);}
