@@ -664,7 +664,7 @@ function renderSlotTable(){
  const body=$('slotTableBody');if(!body)return;
  renderSlotTableGroupFilter();
  const query=String($('slotTableSearch')?.value||'').trim().toLowerCase();
- const filters=[['slotGroupFilter',assignments],['slotModeFilter',consultAssignments],['slotPurposeFilter',purposeAssignments],['slotCapacityFilter',capacityAssignments]];
+ const filters=[['slotGroupFilter',assignments],['slotModeFilter',consultAssignments]];
  const unassignedTypeOnly=!!$('slotUnassignedOnly')?.checked;
  const unassignedModeOnly=!!$('slotModeUnassignedOnly')?.checked;
  const unassignedPurposeOnly=!!$('slotPurposeUnassignedOnly')?.checked;
@@ -745,19 +745,7 @@ function renderSlotTable(){
    const status=$('slotGroupSaveStatus');if(status)status.textContent='Changes are saving automatically to practice workspace.';
   });
   modeCell.prepend(modeSelect);attachInlineSuggestion(slot,'mode',modeCell,modeSelect);
-  const purposeCell=document.createElement('td');purposeCell.className='people-assigned-cell';
-  const purposeSelect=document.createElement('select');purposeSelect.className='people-clinician-select';purposeSelect.setAttribute('aria-label','Slot purpose for '+slot);
-  for(const name of ['',...purposeCategoryNames]){const option=document.createElement('option');option.value=name;option.textContent=name||'Unassigned';purposeSelect.append(option)}
-  purposeSelect.value=purposeCategoryNames.includes(purposeAssignments[slot])?purposeAssignments[slot]:'';
-  purposeSelect.addEventListener('change',()=>{purposeAssignments[slot]=purposeSelect.value||'Uncategorised';saveCategories();renderSlotTable();const status=$('slotGroupSaveStatus');if(status)status.textContent='Changes are saving automatically to practice workspace.'});
-  purposeCell.append(purposeSelect);attachInlineSuggestion(slot,'purpose',purposeCell,purposeSelect);
-  const capacityCell=document.createElement('td');capacityCell.className='people-assigned-cell';
-  const capacitySelect=document.createElement('select');capacitySelect.className='people-clinician-select';capacitySelect.setAttribute('aria-label','Capacity status for '+slot);
-  for(const name of ['',...capacityCategoryNames]){const option=document.createElement('option');option.value=name;option.textContent=name||'Unassigned';capacitySelect.append(option)}
-  capacitySelect.value=capacityCategoryNames.includes(capacityAssignments[slot])?capacityAssignments[slot]:'';
-  capacitySelect.addEventListener('change',()=>{capacityAssignments[slot]=capacitySelect.value||'Uncategorised';saveCategories();const status=$('slotGroupSaveStatus');if(status)status.textContent='Changes are saving automatically to practice workspace.'});
-  capacityCell.append(capacitySelect);attachInlineSuggestion(slot,'capacity',capacityCell,capacitySelect);
-  tr.append(slotCell,countCell,urgencyCell,modeCell,purposeCell,capacityCell);body.append(tr);
+  tr.append(slotCell,countCell,urgencyCell,modeCell);body.append(tr);
  }
  const count=$('slotTableCount');if(count)count.textContent=rows.length+' of '+types.length+' slot types shown';
 }
@@ -767,9 +755,7 @@ function renderSlotTable(){
 let smartSlotSuggestions=[];
 const smartDimensions=()=>[
  {key:'urgency',label:'Appointment Types',names:groupUrgencyNames,map:assignments},
- {key:'mode',label:'Consult Mode',names:consultCategoryNames,map:consultAssignments},
- {key:'purpose',label:'Slot Purpose',names:purposeCategoryNames,map:purposeAssignments},
- {key:'capacity',label:'Capacity Status',names:capacityCategoryNames,map:capacityAssignments}
+ {key:'mode',label:'Consult Mode',names:consultCategoryNames,map:consultAssignments}
 ];
 function smartWords(value){return String(value||'').toLocaleLowerCase('en-GB').replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(Boolean)}
 function smartSuggestion(slot,dim){
@@ -2477,7 +2463,7 @@ function historicAvailabilityDates(){
 function historicBookingFilterCounts(){
  // Count only bookings eligible for the currently displayed chart, while
  // ignoring each option's own on/off state so it can be switched back on.
- const result={capacity:new Map(),consult:new Map(),clinician:new Map()};
+ const result={consult:new Map(),clinician:new Map()};
  const {first:firstAppointment,last:lastAppointment}=historicAvailabilityDates();
  const firstPeriod=firstAppointment?(monthlyMode?firstAppointment.slice(0,7):mondayOf(firstAppointment)):'';
  const lastPeriod=lastAppointment?(monthlyMode?lastAppointment.slice(0,7):mondayOf(lastAppointment)):'';
@@ -2493,11 +2479,10 @@ function historicBookingFilterCounts(){
   const urgency=capacityUrgencyCategory(r.slot);
   if(!urgency||disabledDemandUrgencyGroups.has(urgency))continue;
   const group=clinicianGroupAssignments[effectiveClinicianType(r.clinician,r.person)];
-  const values={capacity:capacityAssignments[r.slot],consult:consultCategoryNames.includes(consultAssignments[r.slot])?consultAssignments[r.slot]:(suggestConsultMode(r.slot)||''),clinician:group};
+  const values={consult:consultCategoryNames.includes(consultAssignments[r.slot])?consultAssignments[r.slot]:(suggestConsultMode(r.slot)||''),clinician:group};
   for(const kind of Object.keys(result)){
    const value=values[kind];if(!isDashboardToggleOption(value))continue;
    // Match the chart's other active filters, but not this dimension's filter.
-   if(kind!=='capacity'&&!demandCategoryAllowed(r.slot,capacityCategoryNames,capacityAssignments,disabledDemandCapacities))continue;
    if(kind!=='consult'&&!consultMatches(r.slot))continue;
    if(kind==='consult'&&(!consultCategoryNames.includes(value)||!group||!clinicianGroupNames.includes(group)||disabledClinicianTypes.has(group)))continue;
    if(kind!=='clinician'&&(!clinicianGroupNames.includes(group)||disabledClinicianTypes.has(group)))continue;
@@ -2534,7 +2519,7 @@ function changeHistoricBookingToggle(disabled,name,checked,input){
 }
 function hideEmptyHistoricBookingFilters(){
  const counts=historicBookingFilterCounts();
- for(const [id,kind] of [['demandCapacityToggles','capacity'],['consultChartFilters','consult'],['clinicianChartFilters','clinician']]){
+ for(const [id,kind] of [['consultChartFilters','consult'],['clinicianChartFilters','clinician']]){
   const root=$(id);if(!root)continue;
   let visible=0;
   for(const input of root.querySelectorAll('input')){
@@ -2596,7 +2581,7 @@ function renderDemandClassificationToggles(rootId,names,mapping,disabled,colourM
 }
 function includedRecord(r){
  if(demandFilterCache&&demandFilterCache.has(r))return demandFilterCache.get(r);
- const result=!excludedSlotTypes.has(r.slot)&&r.status==='Booked'&&clinicianMatches(r.clinician,r.person)&&consultMatches(r.slot)&&locumMatches(r,'chartPage')&&demandCategoryAllowed(r.slot,capacityCategoryNames,capacityAssignments,disabledDemandCapacities)&&(monthlyMode||!excludeBankHolidays||!bankHolidayWeeks.has(r.bookedWeek));
+ const result=!excludedSlotTypes.has(r.slot)&&r.status==='Booked'&&clinicianMatches(r.clinician,r.person)&&consultMatches(r.slot)&&locumMatches(r,'chartPage')&&(monthlyMode||!excludeBankHolidays||!bankHolidayWeeks.has(r.bookedWeek));
  if(demandFilterCache)demandFilterCache.set(r,result);
  return result;
 }
@@ -2930,7 +2915,6 @@ function historicInsightPresets(firstAppointment,lastAppointment,selected){
 function drawCombinedDemandChart(){
  if(typeof restoreChartShadowControls==='function')restoreChartShadowControls();
  const adjustmentStatus=$('demandAdjustmentStatus');if(adjustmentStatus)adjustmentStatus.textContent=adjustDemandForListSize?'Adjusted for list size':'Not adjusted for list size';
- renderDemandClassificationToggles('demandCapacityToggles',capacityCategoryNames,capacityAssignments,disabledDemandCapacities,capacityColours);
  setupDemandMonthSlider();
  hideEmptyHistoricBookingFilters();
  const adjustedCount=createListSizeAdjuster(adjustDemandForListSize);
@@ -3576,7 +3560,7 @@ function waitingMatches(r,ignore){
  const d=waitingRowDimensions(r);
  if(!isDashboardToggleOption(d.urgency))return false;
  if(ignore!=='urgency'&&waitingDisabledUrgency.has(d.urgency))return false;
- for(const kind of ['consult','purpose','capacity','clinician']){
+ for(const kind of ['consult','clinician']){
   if(ignore!==kind&&waitingFilterDisabled[kind].has(d[kind]))return false;
  }
  return true;
@@ -3620,7 +3604,7 @@ function renderWaitingTimesChart(){
  const chart=$('waitingTimesChart'),root=$('waitingUrgencyToggles');
  if(!chart||!root||$('waitingTimesPage')?.classList.contains('hidden')||!window.Plotly)return;
  setupWaitingAppointmentSlider();
- const kinds=['urgency','consult','capacity','clinician'];
+ const kinds=['urgency','consult','clinician'];
  const optionsByKind=Object.fromEntries(kinds.map(k=>[k,new Set()]));
  const bins=new Map(),bySlot=new Map();
  const dimensionsFor=chartDimensionLookup(waitingRowDimensions);
@@ -3636,7 +3620,6 @@ function renderWaitingTimesChart(){
   const enabled={
    urgency:!waitingDisabledUrgency.has(d.urgency),
    consult:!waitingFilterDisabled.consult.has(d.consult),
-   capacity:!waitingFilterDisabled.capacity.has(d.capacity),
    clinician:!waitingFilterDisabled.clinician.has(d.clinician)
   };
   let disabledCount=0,disabledKind='';
@@ -3659,7 +3642,7 @@ function renderWaitingTimesChart(){
  root.replaceChildren();
  for(const name of groupUrgencyNames.filter(n=>isDashboardToggleOption(n)&&(!optionsByKind.urgency.size||optionsByKind.urgency.has(n))))
   makeToggle(root,name,!waitingDisabledUrgency.has(name),urgencyGroupColour(name),checked=>{if(checked)waitingDisabledUrgency.delete(name);else waitingDisabledUrgency.add(name)});
- const dimensions=[['consult','waitingConsultToggles',consultCategoryNames,consultModeColours],['capacity','waitingCapacityToggles',capacityCategoryNames,capacityColours],['clinician','waitingClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
+ const dimensions=[['consult','waitingConsultToggles',consultCategoryNames,consultModeColours],['clinician','waitingClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
  for(const [kind,id,allNames,colours] of dimensions){
   const container=$(id);if(!container)continue;
   const options=allNames.filter(n=>isDashboardToggleOption(n)&&optionsByKind[kind].has(n));
@@ -3742,7 +3725,7 @@ function renderWaitingTrendChart(){
  const chart=$('waitingTrendChart'),root=$('waitingTrendUrgencyToggles');
  if(!chart||!root||$('waitingOverTimePage')?.classList.contains('hidden')||!window.Plotly)return;
  setupWaitingTrendSlider();
- const kinds=['urgency','consult','capacity','clinician'];
+ const kinds=['urgency','consult','clinician'];
  const optionsByKind=Object.fromEntries(kinds.map(k=>[k,new Set()]));
  const byGroup=new Map();
  const suppressSmall=$('waitingTrendSuppressSmall')?.checked??true;
@@ -3779,7 +3762,7 @@ function renderWaitingTrendChart(){
  root.replaceChildren();
  for(const name of groupUrgencyNames.filter(n=>isDashboardToggleOption(n)&&(!optionsByKind.urgency.size||optionsByKind.urgency.has(n))))
   toggle(root,name,!waitingTrendDisabledUrgency.has(name),urgencyGroupColour(name),on=>{if(on)waitingTrendDisabledUrgency.delete(name);else waitingTrendDisabledUrgency.add(name)});
- const dimensions=[['consult','waitingTrendConsultToggles',consultCategoryNames,consultModeColours],['capacity','waitingTrendCapacityToggles',capacityCategoryNames,capacityColours],['clinician','waitingTrendClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
+ const dimensions=[['consult','waitingTrendConsultToggles',consultCategoryNames,consultModeColours],['clinician','waitingTrendClinicianToggles',clinicianGroupNames,clinicianGroupColours]];
  for(const [kind,id,names,colours] of dimensions){
   const container=$(id);if(!container)continue;container.replaceChildren();
   const options=names.filter(n=>isDashboardToggleOption(n)&&optionsByKind[kind].has(n));
@@ -4434,7 +4417,7 @@ $('historicBreakdown').addEventListener('click',event=>{
 });
 $('navWorkforcePlanning').onclick=()=>showPage('workforcePlanning');
 document.getElementById('navWorkforceNeed').onclick=()=>showPage('workforceNeed');document.getElementById('navHome').onclick=()=>showPage('home');document.getElementById('navRoutineCapacity').onclick=()=>showPage('routineCapacity');document.getElementById('navChart').onclick=()=>showPage('chart');document.getElementById('navWaitingTimes').onclick=()=>showPage('waitingTimes');document.getElementById('navWaitingTrend').onclick=()=>showPage('waitingTrend');document.getElementById('navCategories').onclick=()=>showPage('categories');document.getElementById('navAvailability').onclick=()=>showPage('availability');document.getElementById('navRoutineAvailability').onclick=()=>showPage('routineAvailability');
-document.getElementById('navDayView2').onclick=()=>showPage('dayView');document.getElementById('navBookingTimes').onclick=()=>showPage('bookingTimes');document.getElementById('navSignposting').onclick=()=>showPage('signposting');document.getElementById('navRapidHealth').onclick=()=>showPage('rapidHealth');document.getElementById('navPeople').onclick=()=>showPage('people');document.getElementById('navPracticeSettings').onclick=()=>showPage('practiceSettings');document.getElementById('navPersonalSettings').onclick=()=>showPage('personalSettings');$('personalSettingsForm').addEventListener('submit',savePersonalSettings);$('historicStackedArea')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('demandCombineLines')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('slotTableSearch').addEventListener('input',renderSlotTable);for(const id of ['slotGroupFilter','slotModeFilter','slotPurposeFilter','slotCapacityFilter'])$(id)?.addEventListener('change',renderSlotTable);$('slotUnassignedOnly').addEventListener('change',renderSlotTable);$('slotModeUnassignedOnly').addEventListener('change',renderSlotTable);$('slotPurposeUnassignedOnly').addEventListener('change',renderSlotTable);$('slotCapacityUnassignedOnly').addEventListener('change',renderSlotTable);$('peopleSearch').addEventListener('input',renderPeople);$('peopleGroupFilter').addEventListener('change',renderPeople);$('peopleUnassignedOnly').addEventListener('change',()=>{const only=$('peopleUnassignedOnly').checked;$('peopleGroupFilter').disabled=only;renderPeople()});
+document.getElementById('navDayView2').onclick=()=>showPage('dayView');document.getElementById('navBookingTimes').onclick=()=>showPage('bookingTimes');document.getElementById('navSignposting').onclick=()=>showPage('signposting');document.getElementById('navRapidHealth').onclick=()=>showPage('rapidHealth');document.getElementById('navPeople').onclick=()=>showPage('people');document.getElementById('navPracticeSettings').onclick=()=>showPage('practiceSettings');document.getElementById('navPersonalSettings').onclick=()=>showPage('personalSettings');$('personalSettingsForm').addEventListener('submit',savePersonalSettings);$('historicStackedArea')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('demandCombineLines')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('slotTableSearch').addEventListener('input',renderSlotTable);for(const id of ['slotGroupFilter','slotModeFilter','slotPurposeFilter','slotCapacityFilter'])$(id)?.addEventListener('change',renderSlotTable);$('slotUnassignedOnly').addEventListener('change',renderSlotTable);$('slotModeUnassignedOnly').addEventListener('change',renderSlotTable);$('slotPurposeUnassignedOnly')?.addEventListener('change',renderSlotTable);$('slotCapacityUnassignedOnly')?.addEventListener('change',renderSlotTable);$('peopleSearch').addEventListener('input',renderPeople);$('peopleGroupFilter').addEventListener('change',renderPeople);$('peopleUnassignedOnly').addEventListener('change',()=>{const only=$('peopleUnassignedOnly').checked;$('peopleGroupFilter').disabled=only;renderPeople()});
 function renderClinicianEditor(){renderDropEditor('clinician');updateClinicianChartFilter()}
 function renderClinicianGroupEditor(){renderDropEditor('clinicianGroup');if(!$('peoplePage')?.classList.contains('hidden'))renderPeopleGroups()}
 $('addClinicianCategory').onclick=()=>{const el=$('newClinicianCategory');const c=el.value.trim();if(!c)return;if(c.toLowerCase()==='uncategorised'||clinicianCategoryNames.some(x=>x.toLowerCase()===c.toLowerCase())){alert('This clinician category name already exists or is reserved.');return}clinicianCategoryNames.push(c);el.value='';saveCategories();renderClinicianEditor();renderClinicianGroupEditor()};
@@ -5003,16 +4986,12 @@ function renderAvailabilityChart(){
  const selectedNames=new Set(names);
  for(const r of availabilityRecords){
   if(!weekdays.has(r.date)||!locumMatches(r,'availabilityPage'))continue;
-  const capacityStatus=String(capacityAssignments[r.slot]||'').trim().toLowerCase();
   const referral=capacityUrgencyCategory(r.slot).trim().toLowerCase()==='111 referral';
-  // Referral slots can be recorded as Sent External; retain them in their
-  // configured urgency group instead of hiding them with the retired toggle.
-  if(capacityStatus==='sent external'&&!referral)continue;
   if(excludedSlotTypes.has(r.slot))continue;
   if(!selectedNames.has(capacityUrgencyCategory(r.slot))||(!referral&&!urgentClinicianMatches(r.clinician,r.person))||(!referral&&!urgentConsultMatches(r.slot)))continue;
   const urgency=capacityUrgencyCategory(r.slot);
   const group=urgency;
-  const label=capacityChartStatus(r,urgentGroupWithheld,clock)||(referral&&capacityStatus==='sent external'?'Booked':null);
+  const label=capacityChartStatus(r,urgentGroupWithheld,clock);
   if(!label)continue;
   const key=JSON.stringify([r.date,group,label]);counts.set(key,(counts.get(key)||0)+r.count);
  }
