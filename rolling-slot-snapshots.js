@@ -59,5 +59,13 @@ function reconcile(entries){
   return {...entry,contribution:{...c,maps,valid,skipped:0}};
  });
 }
-const api={reconcile};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPRollingSlots=api;
+function validateHistoricalReplacement(original,replacement){
+ if(original?.kind!=='slot'||original.snapshotType==='rolling-weekly')throw Error('Only an existing historical Slot Report can be replaced this way.');
+ if(replacement?.kind!=='slot'||!isMap(original.maps?.[1])||!isMap(replacement.maps?.[1]))throw Error('The report cannot be checked safely.');
+ const bounds=c=>{let first='',last='';for(const key of c.maps[1].keys()){const date=JSON.parse(key)[0];if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw Error('The report has an invalid appointment date.');if(!first||date<first)first=date;if(date>last)last=date;}return [first,last]};
+ const [first,last]=bounds(original),[newFirst,newLast]=bounds(replacement);
+ if(!first||!newFirst||newFirst<first||newLast>last)throw Error('The replacement contains dates outside the original report. Existing reports are unchanged.');
+ return {first,last,newFirst,newLast};
+}
+const api={reconcile,validateHistoricalReplacement};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPRollingSlots=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -6003,7 +6003,28 @@ async function replaceExistingCSV(file){
   let existing=iqSources.find(row=>row.kind===kind&&row.source_name.toLowerCase()===file.name.toLowerCase());
   let sourceName=existing?.source_name||file.name;
   const hasSlotHistory=iqSources.some(row=>row.kind==='slot');
-  if(kind==='slot'&&hasSlotHistory){
+  let reportClinicalAt=clinical.toISOString();
+  let historicalReplacement=null;
+  if(kind==='slot'&&existing){
+   let entry=iqContributions.get(existing.source_key);
+   if(!entry||entry.revision!==existing.revision)entry={revision:existing.revision,value:await iqBridge.read(existing.source_key)};
+   if(entry.value.snapshotType!=='rolling-weekly')historicalReplacement=entry.value;
+  }
+  if(historicalReplacement){
+   const bounds=GPRollingSlots.validateHistoricalReplacement(historicalReplacement,contribution);
+   // Keep the original report's position in snapshot ordering, so later weekly
+   // snapshots continue to override its overlapping appointment dates.
+   reportClinicalAt=existing.clinical_at;
+   const entries=[];
+   for(const source of iqSources){
+    if(source.source_key===existing.source_key){entries.push({key:source.source_key,clinicalAt:source.clinical_at,contribution});continue;}
+    let entry=iqContributions.get(source.source_key);
+    if(!entry||entry.revision!==source.revision)entry={revision:source.revision,value:await iqBridge.read(source.source_key)};
+    entries.push({key:source.source_key,clinicalAt:source.clinical_at,contribution:entry.value});
+   }
+   GPRollingSlots.reconcile(entries);
+   if(!confirm('Replace the historical report '+existing.source_name+'? The new file must be a complete replacement for '+bounds.first+' to '+bounds.last+'. Existing records in this report will be replaced; later weekly snapshots remain authoritative where they overlap.'))return;
+  }else if(kind==='slot'&&hasSlotHistory){
    const reportDate=GPCorrectness.londonDate(clinical),from=GPCorrectness.shift(reportDate,-7);
    const dates=[...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]).sort();
    if(dates[0]<from)throw Error('This file contains appointments before '+from+'. A weekly snapshot must contain only appointments from seven days before its report date onwards. Check the file date or choose the correct report.');
@@ -6028,7 +6049,7 @@ async function replaceExistingCSV(file){
   }
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
   csvDropStatus(iqUploadStatus.textContent);
-  await iqBridge.save({existing,kind,name:sourceName,clinical_at:clinical.toISOString(),count,contribution});
+  await iqBridge.save({existing,kind,name:sourceName,clinical_at:reportClinicalAt,count,contribution});
   const refreshed=await loadFolder(true);
   iqUploadStatus.textContent=refreshed?'Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.':'Report saved, but the dashboard could not refresh. Refresh the page; do not upload the report again.';
   csvDropStatus(iqUploadStatus.textContent,!refreshed,false);

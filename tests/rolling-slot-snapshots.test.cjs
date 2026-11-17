@@ -24,6 +24,12 @@ const combined=es=>{const counts=new Map();for(const e of reconcile(es))for(cons
 assert.deepEqual(combined([baseline,w1]),{'2026-11-01 Booked':3,'2026-11-10 Booked':2,'2026-11-17 Blocked':3,'2026-11-22 Available':4});
 assert.deepEqual(combined([w2,baseline,w1]),{'2026-11-17 Booked':5,'2026-11-23 Available':1,'2026-11-01 Booked':3,'2026-11-10 Booked':2});
 const effective=reconcile([baseline,w1,w2]);assert.equal([...effective[0].contribution.maps[0].values()].reduce((a,b)=>a+b,0),3);assert.equal([...effective[1].contribution.maps[0].values()].reduce((a,b)=>a+b,0),2);assert.equal([...effective[2].contribution.maps[0].values()].reduce((a,b)=>a+b,0),5);
+const {validateHistoricalReplacement}=require('../rolling-slot-snapshots.js');
+const historicalReplacement=contribution([{date:'2026-11-01',status:'Booked',count:7},{date:'2026-11-10',status:'Blocked',count:3},{date:'2026-11-17',status:'Booked',count:99}]);
+validateHistoricalReplacement(baseline.contribution,historicalReplacement);
+assert.deepEqual(combined([{...baseline,contribution:historicalReplacement},w1,w2]),{'2026-11-01 Booked':7,'2026-11-10 Booked':2,'2026-11-17 Booked':5,'2026-11-23 Available':1});
+assert.throws(()=>validateHistoricalReplacement(baseline.contribution,contribution([{date:'2026-10-31',status:'Booked',count:1}])),/outside the original report/);
+assert.throws(()=>validateHistoricalReplacement(w1.contribution,historicalReplacement),/historical Slot Report/);
 for(const idx of [2,5,6,7]){assert.equal([...effective[0].contribution.maps[idx].values()].reduce((a,b)=>a+b,0),3);assert.equal([...effective[1].contribution.maps[idx].values()].reduce((a,b)=>a+b,0),2);assert.equal([...effective[2].contribution.maps[idx].values()].reduce((a,b)=>a+b,0),5);}
 assert.equal([...effective[0].contribution.maps[4].values()][0].max,'2026-11-01');
 const broken=entry('broken','2026-11-08',contribution([{date:'2026-11-17',status:'Booked'}]));broken.contribution.maps[0].clear();assert.throws(()=>reconcile([broken,w1]),/lacks the date detail/);
