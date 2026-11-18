@@ -85,22 +85,38 @@
 .iq-overview .iq-home-routine{--care-accent:#0b9c7f;--care-pale:#dcf8ed}
 .iq-overview .iq-home-insights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;background:linear-gradient(180deg,var(--care-pale) 0,#fff 76px);border:1px solid #dce7f0;padding:8px 12px 12px}
 .iq-overview .iq-home-insights h3{grid-column:1/-1;margin:0;padding:4px 5px;color:#14284e;font-size:17px;line-height:1.2;font-weight:600}
-.iq-overview .iq-home-insight{min-width:0;width:100%!important;border:1px solid #dde6f0!important;border-radius:12px!important;background:#fff!important;padding:10px!important;display:flex;gap:8px;align-items:flex-start;text-align:left;color:#203b55!important;box-shadow:3px 5px 14px rgba(24,59,105,.17)!important;cursor:pointer;overflow-wrap:anywhere}
-.iq-overview .iq-home-insight-copy b{font-weight:750;color:#14284e}
-.iq-overview .iq-home-insight:hover,.iq-overview .iq-home-insight:focus-visible{background:#f3f9ff!important}
+.iq-overview .iq-home-insight{min-width:0;width:100%;box-sizing:border-box;border:1px solid #dde6f0;border-radius:12px;background:#fff;color:#203b55;box-shadow:3px 5px 14px rgba(24,59,105,.17);overflow:hidden;overflow-wrap:anywhere}
+.iq-overview .iq-home-insight-title{margin:0}
+#homePage .iq-home-insight-title button{display:flex;align-items:center;gap:8px;margin:0;padding:9px 10px 3px;width:100%;border:0;border-radius:0;background:transparent;color:#14284e;box-shadow:none;text-align:left;font:inherit;cursor:pointer}
+#homePage .iq-home-insight-title button:hover{color:#245d8f;background:#f3f9ff}
+#homePage .iq-home-insight :is(button,summary):focus-visible{outline:2px solid #2468a1;outline-offset:-2px}
 .iq-overview .iq-home-insight .iq-home-insight-icon{flex:0 0 30px;width:30px;height:30px;display:block;object-fit:contain}
-.iq-overview .iq-home-insight-copy{flex:1;min-width:0}
-.iq-overview .iq-home-insight-copy [role=list]{display:grid;gap:4px}
-.iq-overview .iq-home-insight-copy [role=listitem]{display:block;position:relative;padding-left:12px}
-.iq-overview .iq-home-insight-copy [role=listitem]::before{content:"•";position:absolute;left:0;color:#47647e}
-.iq-overview .iq-home-insight-copy strong{display:block;color:#14284e;font-size:16px;font-weight:600;margin-bottom:3px}
-.iq-overview .iq-home-insight-copy small{display:block;color:#243951;font-size:13px;line-height:1.48;font-weight:450}
-.iq-overview .iq-home-go{font-size:28px;line-height:1;color:#17395b}
+.iq-overview .iq-home-insight-title strong{font-size:15px;font-weight:650;line-height:1.25}
+.iq-overview .iq-home-insight-go{margin-inline-start:auto;font-size:20px;line-height:1}
+.iq-overview .iq-home-insight-copy{padding:0 10px 8px;font-size:13px;line-height:1.45}
+.iq-overview .iq-home-insight-copy b{font-weight:750;color:#14284e}
+.iq-overview .iq-home-insight-summary{margin:0;color:#243951}
+.iq-overview .iq-home-insight-details{margin-top:4px}
+.iq-overview .iq-home-insight-details summary{display:inline-flex;align-items:center;gap:7px;min-height:26px;padding:0 3px;margin-inline-start:-3px;border-radius:3px;cursor:pointer;list-style:none;font-size:12px;font-weight:650;color:#26598b}
+.iq-overview .iq-home-insight-details summary::-webkit-details-marker{display:none}
+.iq-overview .iq-home-sr-only{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden;white-space:nowrap}
+.iq-overview .iq-home-insight-details summary::after{content:"";width:5px;height:5px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:translateY(-1px) rotate(45deg)}
+.iq-overview .iq-home-insight-details[open] summary::after{transform:translateY(2px) rotate(225deg)}
+.iq-overview .iq-home-insight-details summary:hover span{text-decoration:underline}
+.iq-overview .iq-home-insight-details:not([open]) .iq-home-less,.iq-overview .iq-home-insight-details[open] .iq-home-more{display:none}
+.iq-overview .iq-home-insight-details ul{margin:4px 0 0;padding:7px 0 0 17px;border-top:1px solid #dde6f0}
+.iq-overview .iq-home-insight-details li+li{margin-top:4px}
+.iq-overview .iq-home-priority{border-top:3px solid #2b6194;padding:3px 10px 0;font-size:12px;font-weight:700;color:#245987}
+.iq-overview .iq-home-priority[data-priority="Review this week"]{border-color:#a56b15;color:#80500b}
+.iq-overview .iq-home-insight-urgent .iq-home-priority{display:flex;align-items:center;gap:6px;background:#a62643;color:#fff;padding:6px 10px;border:0;font-size:13px}
+.iq-overview .iq-home-priority svg{width:16px;height:16px;flex:0 0 16px}
+#homePage .iq-home-insight [hidden]{display:none!important}
+@media(pointer:coarse){.iq-overview .iq-home-insight-details summary{min-height:44px}}
 .iq-overview .iq-home-ai-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:12px 5px 0;color:#415b71;font-size:12px}
 .iq-overview .iq-home-ai-controls:has(button[hidden] + span:empty){display:none}
 .iq-overview .iq-home-ai-controls button{width:auto;padding:6px 12px}
 @media(max-width:1050px){.iq-overview .iq-home-hero{grid-template-columns:125px minmax(0,1fr) auto;gap:12px}.iq-overview .iq-home-updated{justify-self:end}.iq-overview .iq-home-panes{grid-template-columns:1fr}.iq-overview .iq-home-illustration img{max-width:120px}}
-@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:76px minmax(0,1fr);gap:6px 10px}.iq-overview .iq-home-welcome h2{font-size:22px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{grid-column:1/-1;flex-direction:row;align-items:center;justify-self:end;max-width:none;gap:6px;padding:4px 7px}.iq-overview .iq-home-card-heading{padding:5px 7px;gap:6px}.iq-overview .iq-home-symbol{width:26px;height:26px;flex-basis:26px}.iq-overview .iq-home-symbol svg{width:15px;height:15px}.iq-overview .iq-home-heading-text h3{font-size:15px}.iq-overview .iq-home-outlook{max-width:116px;padding:3px 5px}.iq-overview .iq-home-outlook strong{font-size:17px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:16px}.iq-overview .iq-home-insight{gap:8px;min-height:85px!important}.iq-overview .iq-home-insight .iq-home-insight-icon{flex-basis:24px;width:24px;height:24px}.iq-overview .iq-home-insight-copy small{font-size:12px}.iq-overview .iq-home-insight-copy strong{font-size:14px}}
+@media(max-width:640px){.iq-overview .iq-home-hero{grid-template-columns:76px minmax(0,1fr);gap:6px 10px}.iq-overview .iq-home-welcome h2{font-size:22px}.iq-overview .iq-home-welcome p{font-size:13px}.iq-overview .iq-home-updated{grid-column:1/-1;flex-direction:row;align-items:center;justify-self:end;max-width:none;gap:6px;padding:4px 7px}.iq-overview .iq-home-card-heading{padding:5px 7px;gap:6px}.iq-overview .iq-home-symbol{width:26px;height:26px;flex-basis:26px}.iq-overview .iq-home-symbol svg{width:15px;height:15px}.iq-overview .iq-home-heading-text h3{font-size:15px}.iq-overview .iq-home-outlook{max-width:116px;padding:3px 5px}.iq-overview .iq-home-outlook strong{font-size:17px}.iq-overview .iq-home-insights{padding:0 10px 5px}.iq-overview .iq-home-insights h3{font-size:16px}.iq-overview .iq-home-insight .iq-home-insight-icon{flex-basis:24px;width:24px;height:24px}.iq-overview .iq-home-insight-copy{font-size:12px}.iq-overview .iq-home-insight-title strong{font-size:14px}}
 
 /* Keep the mobile menu visible on the refreshed white navigation bar. */
 #dashboardShell .header-menu-toggle{background:#eaf4fd!important;color:#1e476d!important;border:1px solid #d7e7f6!important;border-radius:10px!important}
@@ -114,14 +130,8 @@
 
 /* Real-data loading and diagnostic states for the homepage plots. */
 #homePage .iq-home-chart-empty{display:flex;align-items:center;justify-content:center;box-sizing:border-box;height:var(--overview-chart-height,180px);font-size:13px;color:#58718a;text-align:center;padding:16px;margin:0;line-height:1.5}
-#homePage .iq-home-insight-copy small{font-weight:400}
 
 @media(max-width:470px){.iq-overview .iq-home-insights{grid-template-columns:minmax(0,1fr)}}
-
-/* Urgent insights retain the existing card layout but stand out at a glance. */
-#homePage .iq-home-insight.iq-home-insight-urgent{border:2px solid #d64a5f!important;background:#fff6f7!important;box-shadow:3px 5px 14px rgba(164,43,62,.2)!important}
-#homePage .iq-home-insight-urgent .iq-home-insight-copy strong{font-weight:750;color:#8b2033}
-#homePage .iq-home-urgent-symbol{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;border-radius:50%;background:#b92f48;color:white;font-weight:800;font-size:16px;line-height:1}
 
 /* Home graph time range */
 #homePage .iq-home-view-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin:0 0 12px;flex-wrap:wrap}

@@ -59,31 +59,50 @@ function appendEmphasis(node,text,terms){
   offset=start+match.length;
  }
 }
-function setInsight(section,index,title,bullets,emphasis=[],labels={},urgent=false){
- const card=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-insights');
- const item=card?.querySelectorAll('.iq-home-insight')[index];
+function setInsight(section,index,title,bullets,emphasis=[],labels={},options={}){
+ const item=$('homePage')?.querySelectorAll('.iq-home-'+section+' .iq-home-insight')[index];
  if(!item)return;
  item.querySelector('strong').textContent=title;
- item.classList.toggle('iq-home-insight-urgent',urgent);
- let warning=item.querySelector('.iq-home-urgent-symbol');
- if(urgent&&!warning){warning=document.createElement('span');warning.className='iq-home-urgent-symbol';warning.textContent='!';warning.setAttribute('aria-label','Urgent');item.prepend(warning);}
- if(!urgent)warning?.remove();
- const details={key:insightCards[section][index],bullets:bullets.filter(Boolean),emphasis:emphasis.filter(Boolean),labels,urgent};
+ const details={key:insightCards[section][index],bullets:bullets.filter(Boolean),emphasis:emphasis.filter(Boolean),labels,...options};
  insightCopy.set(item,details);
  paintInsight(item,details);
 }
-function paintInsight(item,{bullets,emphasis,labels,urgent},generated){
+function paintInsight(item,{bullets,emphasis,labels,priority,summary},generated){
+ const urgent=priority==='Check today';
  if(urgent)generated=null;
- const list=document.createElement('span');
- list.setAttribute('role','list');
+ item.classList.toggle('iq-home-insight-urgent',urgent);
+ const badge=item.querySelector('.iq-home-priority');
+ badge.hidden=!priority;
+ badge.dataset.priority=priority||'';
+ badge.querySelector('svg').hidden=!urgent;
+ badge.lastElementChild.textContent=priority||'';
+
+ const caption=item.querySelector('.iq-home-insight-summary');
+ caption.replaceChildren();
+ appendEmphasis(caption,summary||bullets[0]||'',emphasis);
+ const list=item.querySelector('.iq-home-insight-details ul');
+ list.replaceChildren();
  for(const bullet of generated?.length?generated:bullets){
-  const line=document.createElement('span');
-  line.setAttribute('role','listitem');
+  const line=document.createElement('li');
   const text=generated?.length?bullet.replace(/\{([A-Za-z]+)\}/g,(_,key)=>labels[key]||''):bullet;
   appendEmphasis(line,text,emphasis);
   list.append(line);
  }
- item.querySelector('small').replaceChildren(list);
+ const disclosure=item.querySelector('details');
+ disclosure.hidden=!list.childElementCount;
+ if(disclosure.hidden)disclosure.open=false;
+}
+function bookingChangeCopy(change,care,forecast=false){
+ if(change===null)return 'There’s too little data for a four-week comparison.';
+ if(change===0)return forecast?'Forecast bookings are close to the recent weekly average.':'Average weekly bookings held steady.';
+ const amount=describeChange(change);
+ return forecast?amount+' '+care+' bookings forecast over the next four weeks than the recent average.':
+  amount+' '+care+' bookings per week than in the preceding four weeks.';
+}
+function weeklyVariationCopy(variation){
+ if(variation===null)return 'There’s too little data to compare recent weeks.';
+ if(variation===0)return 'Weekly bookings were broadly steady across the recent weeks with data.';
+ return 'The busiest recent week had '+variation+'% more bookings than the quietest.';
 }
 const setOutlook=(section,text,detail)=>{
  const badge=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-outlook');
@@ -323,7 +342,7 @@ function renderSavedInsights(state,row=state.saved){
   row.bullets[key].length<=3&&row.bullets[key].every(line=>typeof line==='string')))return false;
  for(const item of document.querySelectorAll('#homePage .iq-home-insight')){
   const details=insightCopy.get(item);
-  if(details)paintInsight(item,details,row.bullets[details.key]);
+  if(details?.key)paintInsight(item,details,row.bullets[details.key]);
  }
  return true;
 }
@@ -350,7 +369,7 @@ function showAiInsights(home,period,metrics){
    ? ' · '+new Intl.DateTimeFormat('en-GB',{dateStyle:'medium',timeStyle:'medium',timeZone:'Europe/London'}).format(time)
    : '';
  };
- const visibleCopy=()=>Array.from(home.querySelectorAll('.iq-home-insight-copy [role=listitem]'),node=>node.textContent).join('\n');
+ const visibleCopy=()=>Array.from(home.querySelectorAll('.iq-home-insight-details li'),node=>node.textContent).join('\n');
  void (async()=>{
   try{
    const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(signature));
@@ -564,7 +583,15 @@ function renderCare(section,options,metrics){
    'We expect to see about '+integer(metrics.peak)+' urgent bookings that week.',
    metrics.peakChange?'That’s '+describeChange(metrics.peakChange)+' than a recent week on average.':
     metrics.peakChange===0?'That’s close to the recent weekly average.':''
-  ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent bookings',metrics.peakChange?describeChange(metrics.peakChange):''],{peakWeek:peakDate});
+  ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent bookings',metrics.peakChange?describeChange(metrics.peakChange):''],{peakWeek:peakDate},{
+   priority:metrics.peakChange>=10?'Plan ahead':'',
+   summary:metrics.peak===null?'':integer(metrics.peak)+' urgent bookings forecast for the week of '+peakDate+'.'
+  });
+  setInsight('acute',4,'Booking trend',[bookingChangeCopy(metrics.acuteTrend,'urgent'),seasonalComparison],
+   [metrics.acuteTrend?describeChange(metrics.acuteTrend):'']);
+  setInsight('acute',5,'Weekly variation',[weeklyVariationCopy(variation),
+   variation===null?'':'Based on the last eight completed weeks, using weeks with booking data.'],
+   [variation?variation+'% more':'']);
  }else{
   metrics.routineTrend=reportableChange(previous,recentTotal,sumWeeks(previousWeeks));
   metrics.routineYear=yearChange;
@@ -634,7 +661,10 @@ function renderCare(section,options,metrics){
   metrics.waitGap=hasWaitRange?Math.round((longest.days-shortest.days)*10)/10:null;
   metrics.middleWait=middle?.days??null;
   setInsight('routine',1,'Waiting times',waitBullets,waitEmphasis,
-   {longestGroup:hasWaitRange?longest.label:'',shortestGroup:hasWaitRange?shortest.label:'',middleGroup:middle?.label||''});
+   {longestGroup:hasWaitRange?longest.label:'',shortestGroup:hasWaitRange?shortest.label:'',middleGroup:middle?.label||''},{
+    priority:latest!==null&&older!==null&&latest-older>=1?'Review this week':'',
+    summary:hasWaitRange?waitDays(longest.days)+' median wait for '+longest.label+'.':''
+   });
   for(const row of records){
    if(!allowed(row)||careFor(row.slot)!=='routine'||!row.bookedDay||row.bookedDay<start||row.bookedDay>end)continue;
    const segment=routineSegment(row);
@@ -662,7 +692,10 @@ function renderCare(section,options,metrics){
   ]:[segmentLabel+' has the least cover, with '+integer(risk.slots)+' slots open.',
    'That’s about '+coverLabel+' at the recent booking pace if no more slots are released.'];
   setInsight('routine',2,'Forward availability',riskBullets,
-   risk?[segmentLabel,coverLabel,risk.slots>=10?integer(risk.slots)+' slots':'fewer than 10']:[],{riskGroup:segmentLabel},urgent);
+   risk?[segmentLabel,coverLabel,risk.slots>=10?integer(risk.slots)+' slots':'fewer than 10']:[],{riskGroup:segmentLabel},{
+    priority:urgent?'Check today':'',
+    summary:risk&&risk.slots>=10?segmentLabel+' has about '+coverLabel+' of cover ('+integer(risk.slots)+' slots open).':''
+   });
   metrics.routineUnused=unused;
   metrics.routineUnusedShare=unusedShare;
   metrics.routineUnusedYear=unusedComparison.year;
@@ -670,6 +703,12 @@ function renderCare(section,options,metrics){
   metrics.routineUnusedPrevious=unusedComparison.previous;
   metrics.routineUnusedGroupCount=hotspot?Math.round(topCount):null;
   setInsight('routine',3,'Unused capacity',unusedBullets,unusedEmphasis,{routineUnusedGroup:hotspot?topMissed:''});
+  setInsight('routine',4,'Near-term outlook',[bookingChangeCopy(metrics.routineForecast,'routine',true),
+   metrics.routineForecast===null?'':'Compares the next four weeks with the most recent completed weeks.'],
+   [metrics.routineForecast?describeChange(metrics.routineForecast):'']);
+  setInsight('routine',5,'Weekly variation',[weeklyVariationCopy(variation),
+   variation===null?'':'Based on the last eight completed weeks, using weeks with booking data.'],
+   [variation?variation+'% more':'']);
  }
 }
 function currentCareWeek(care,date,weekStart,slots,adjustCount,holidayWeeks,coverage,firstAppointment){
@@ -724,7 +763,10 @@ function update(){
    for(const care of ['acute','routine']){
     setOutlook(care,'—','No appointment data');
     renderChart(care,[],[],care==='acute'?'#f03265':'#0b9c7f');
-    for(const card of home.querySelectorAll('.iq-home-'+care+' .iq-home-insight'))card.querySelector('small').textContent='Upload appointment reports to see this insight.';
+    for(const card of home.querySelectorAll('.iq-home-'+care+' .iq-home-insight')){
+     insightCopy.delete(card);
+     paintInsight(card,{bullets:[],emphasis:[],summary:'Upload appointment reports to see this insight.'});
+    }
    }
    return;
   }
