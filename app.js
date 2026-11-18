@@ -1173,7 +1173,8 @@ function chartControlKey(el){
  // Month sliders restore both handles together after their data bounds are ready.
  if(/^(demandRange|waitingRange|waitingTrendRange)(Start|End)$/.test(el.id))return null;
  const page=el.closest('[id$="Page"]');
- if(!page||page.id==='personalSettingsPage')return null;
+ // Session Locum values are shared practice settings, not personal chart preferences.
+ if(!page||page.id==='personalSettingsPage'||page.id==='sessionSettingsPage')return null;
  if(['categoryPage','practiceSettingsPage','peoplePage'].includes(page.id)&&!/(Search|Filter|UnassignedOnly)$/.test(el.id))return null;
  const type=el.tagName==='SELECT'?'select':el.type;
  if(!['checkbox','radio','select','range','date','month','number','search','text'].includes(type))return null;
