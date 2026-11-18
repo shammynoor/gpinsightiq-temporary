@@ -4524,7 +4524,7 @@ document.addEventListener('click',event=>{
 
 function updateAvailabilityUrgencyFilter(){
  const select=$('availabilityUrgencyFilter');if(!select)return;
- const names=[...groupUrgencyNames];
+ const names=urgentCategoryNames();
  if(!names.includes(selectedAvailabilityUrgency))selectedAvailabilityUrgency=names[0]||'';
  const same=select.options.length===names.length&&names.every((name,i)=>select.options[i].value===name);
  if(!same){select.replaceChildren();for(const name of names){const opt=document.createElement('option');opt.value=name;opt.textContent=name;select.append(opt)}}
@@ -4541,13 +4541,13 @@ function availabilityRecordsInRange(page){
  const start=new Date(thisWeek+'T12:00:00Z');start.setUTCDate(start.getUTCDate()+from*7);
  const finish=new Date(thisWeek+'T12:00:00Z');finish.setUTCDate(finish.getUTCDate()+(to+1)*7);
  const first=start.toISOString().slice(0,10),last=finish.toISOString().slice(0,10);
- const urgentNames=urgent?new Set(urgentCategoryNames()):null;
+ const allowedTypes=page==='planned'?null:new Set(urgent?urgentCategoryNames():routineDetailedTypes());
  const weekdayByDate=new Map();
  return availabilityRecords.filter(r=>{
   if(excludedSlotTypes.has(r.slot))return false;
   if(!(r.count>0)||r.date<first||r.date>=last)return false;
-  const category=String(assignments[r.slot]||'').trim();
-  if(!isDashboardToggleOption(capacityUrgencyCategory(r.slot))||(urgent&&!urgentNames.has(capacityUrgencyCategory(r.slot))))return false;
+  const type=capacityUrgencyCategory(r.slot);
+  if(allowedTypes?!allowedTypes.has(type):!isDashboardToggleOption(type))return false;
   if(urgent){
    if(!weekdayByDate.has(r.date))weekdayByDate.set(r.date,new Date(r.date+'T12:00:00Z').getUTCDay());
    const day=weekdayByDate.get(r.date);if(day===0||day===6)return false;
@@ -4573,7 +4573,7 @@ function availabilityHasVisibleRecords(page,range=availabilityRecordsInRange(pag
   const clinician=clinicianGroupAssignments[effectiveClinicianType(r.clinician,r.person)];
   const consult=consultAssignments[r.slot];
   return page==='urgent'?
-   !urgentCategoryDisabled.has(capacityUrgencyCategory(r.slot))&&urgentCategoryNames().includes(capacityUrgencyCategory(r.slot))&&
+   !urgentCategoryDisabled.has(capacityUrgencyCategory(r.slot))&&
    clinicianGroupNames.includes(clinician)&&!urgentClinicianDisabled.has(clinician)&&
    consultCategoryNames.includes(consult)&&!urgentConsultDisabled.has(consult):
    clinicianGroupNames.includes(clinician)&&!(page==='planned'?plannedDisabledClinicianGroups:routineDisabledClinicianGroups).has(clinician)&&
@@ -4829,9 +4829,12 @@ function setupUrgentRangeControls(){
  update();
  redraw();
 }
+function capacityAppointmentTypes(categories){
+ return groupUrgencyNames.filter(name=>
+  isDashboardToggleOption(name)&&categories.includes(appointmentCategoryFor(name).trim().toLowerCase()));
+}
 function urgentCategoryNames(){
- // The capacity chart uses the configured urgency category list, not a legacy "Urgent" group.
- return groupUrgencyNames.filter(isDashboardToggleOption);
+ return capacityAppointmentTypes(['urgent care','home visiting']);
 }
 function capacityUrgencyCategory(slot){
  const detailed=assignments[slot]||'';
@@ -5097,7 +5100,7 @@ function applyRoutineUrgencyDefaults(){
  routineUrgencyDefaultsApplied=true;
 }
 function routineDetailedTypes(){
- return groupUrgencyNames.filter(isDashboardToggleOption);
+ return capacityAppointmentTypes(['routine care','planned care']);
 }
 function renderRoutineCategoryToggles(){
  const root=$('routineCategoryToggles');if(!root)return;
