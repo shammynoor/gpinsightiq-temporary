@@ -84,10 +84,34 @@ function renameRole(metadata,dimension,oldName,newName){
  const map=metadata[dimension];if(!map||!Object.hasOwn(map,oldName))return;
  Object.defineProperty(map,newName,{value:map[oldName],writable:true,enumerable:true,configurable:true});if(oldName!==newName)delete map[oldName];
 }
-function smoothDemandSeries(points,{level=0,continuous=true,currentPeriod=''}={}){
+function consecutiveBookingPeriods(previous,next,mode,excludedPeriods){
+ if(mode==='month')return periodBounds(previous,mode).end===shift(next+'-01',-1);
+ let expected=shift(previous,7);
+ while(excludedPeriods?.has(expected))expected=shift(expected,7);
+ return expected===next;
+}
+function smoothDemandSeries(points,{level=0,continuous=true,currentPeriod='',periodMode,excludedPeriods}={}){
+ if(periodMode){
+  // Assign a run before averaging so missing dates and zero bookings cannot bleed into nearby periods.
+  let previous,run=0;
+  points=[...points].sort((a,b)=>a.date.localeCompare(b.date)).map(point=>{
+   if(previous&&!consecutiveBookingPeriods(previous.date,point.date,periodMode,excludedPeriods))run++;
+   previous=point;
+   return {...point,run};
+  });
+ }
  const kernels=[[1],[0.5,1,0.5],[1,1,1],[0.5,1,1,1,0.5]],kernel=kernels[Number(level)]||kernels[0],radius=(kernel.length-1)/2;
  const groups=new Map();
- for(const point of points){const key=continuous?'all':point.year;if(!groups.has(key))groups.set(key,[]);if(point.date!==currentPeriod)groups.get(key).push(point)}
+ let previous,segment=0;
+ for(const point of points){
+  if(periodMode&&previous&&(point.run!==previous.run||(point.count===0)!==(previous.count===0)))segment++;
+  const key=(continuous?'all':point.year)+':'+segment;
+  if(point.date!==currentPeriod){
+   if(!groups.has(key))groups.set(key,[]);
+   groups.get(key).push(point);
+  }
+  previous=point;
+ }
  const values=new Map();
  for(const group of groups.values())for(let i=0;i<group.length;i++){
   let sum=0,weight=0;for(let offset=-radius;offset<=radius;offset++){const count=group[i+offset]?.count,w=kernel[offset+radius];if(Number.isFinite(count)){sum+=count*w;weight+=w}}

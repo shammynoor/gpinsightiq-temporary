@@ -2985,6 +2985,15 @@ function drawCombinedDemandChart(){
   }
  }
 
+ const smoothingOptions={
+  level:demandSmoothingLevel(),continuous:continuousMode,currentPeriod:showCurrentWeek?currentKey:'',
+  periodMode:monthlyMode?'month':'week',
+  excludedPeriods:!monthlyMode&&excludeBankHolidays?bankHolidayWeeks:undefined
+ };
+ const bookingPoints=category=>GPCorrectness.smoothDemandSeries(visibleWeeks.map(date=>{
+  const count=totalsFor(category).get(date)||0;
+  return {date,rawCount:count,count:adjustedCount(date,count),year:Number(date.slice(0,4))};
+ }),smoothingOptions);
  let stackProjectionUnavailable=false;
  if(stacked){
   const stackedTotals=new Map(),stackedRunning=new Map(),projections=new Map();
@@ -2996,7 +3005,7 @@ function drawCombinedDemandChart(){
    stackProjectionUnavailable=series.some(category=>{const p=projections.get(category);return !p||p.error||!Number.isFinite(p.estimate)});
   }
   for(const category of series){
-   const points=GPCorrectness.smoothDemandSeries([...totalsFor(category)].filter(([date])=>visibleWeeks.includes(date)).map(([date,count])=>({date,rawCount:count,count:adjustedCount(date,count),year:Number(date.slice(0,4))})),{level:demandSmoothingLevel(),continuous:continuousMode,currentPeriod:showCurrentWeek?(monthlyMode?thisMonth:thisWeek):''});
+   const points=bookingPoints(category);
    const projected=currentInView&&!stackProjectionUnavailable;
    for(const point of points){
     if(projected&&point.date===currentKey)point.smoothed=projections.get(category).estimate;
@@ -3004,18 +3013,28 @@ function drawCombinedDemandChart(){
     const cumulative=(stackedRunning.get(point.date)||0)+(Number(point.smoothed)||0);
     stackedRunning.set(point.date,cumulative);point.stackBoundary=cumulative;
    }
-   for(const year of continuousMode?[null]:years){
-    const data=points.filter(p=>year===null||p.year===year).sort((a,b)=>a.date.localeCompare(b.date));
-    if(!data.length)continue;
+   const stacks=new Map();
+   for(const point of points){
+    const key=(continuousMode?'all':point.year)+'-'+point.run;
+    if(!stacks.has(key))stacks.set(key,[]);
+    stacks.get(key).push(point);
+   }
+   for(const [key,data] of stacks){
+    const year=continuousMode?null:data[0].year;
     const colour=seriesColour(category),rgb=/^#[0-9a-f]{6}$/i.test(colour)?[1,3,5].map(i=>parseInt(colour.slice(i,i+2),16)):[38,120,173];
     const hasEstimate=projected&&data.at(-1).date===currentKey;
     const historical=hasEstimate?data.slice(0,-1):data;
     traces.push({name:category+(year===null?'':' '+year),showlegend:false,type:'scatter',mode:'lines',
      x:data.map(x),y:data.map(p=>p.smoothed),customdata:data.map(p=>[p.date,p.rawCount,p.count,p.smoothed,showCurrentWeek&&periodIsCurrent(p.date),hasEstimate&&p.date===currentKey]),
-     stackgroup:year===null?'historic-all':'historic-'+year,fillcolor:'rgba('+rgb.join(',')+',0.55)',
+     stackgroup:'historic-'+key,fillcolor:'rgba('+rgb.join(',')+',0.55)',
      line:{color:colour,width:hasEstimate?0:1.5,shape:'linear'},hoverinfo:'text',text:data.map(p=>p.date)});
     if(hasEstimate){
-     if(historical.length)traces.push({name:category+' historical boundary',showlegend:false,type:'scatter',mode:'lines',x:historical.map(x),y:historical.map(p=>p.stackBoundary),line:{color:colour,width:1.5},hoverinfo:'skip',meta:{estimateConnector:true}});
+     if(historical.length){
+      // Match the vertical step in the stacked fill when this category starts booking.
+      const boundary=historical.flatMap((point,i)=>i&&historical[i-1].smoothed===0&&point.smoothed>0
+       ?[{...point,stackBoundary:point.stackBoundary-point.smoothed},point]:[point]);
+      traces.push({name:category+' historical boundary',showlegend:false,type:'scatter',mode:'lines',x:boundary.map(x),y:boundary.map(p=>p.stackBoundary),line:{color:colour,width:1.5},hoverinfo:'skip',meta:{estimateConnector:true}});
+     }
      const bridge=historical.at(-1),estimate=data.at(-1);
      traces.push({name:category+' estimated finish',showlegend:false,type:'scatter',mode:bridge?'lines':'markers',
       x:bridge?[x(bridge),x(estimate)]:[x(estimate)],y:bridge?[bridge.stackBoundary,estimate.stackBoundary]:[estimate.stackBoundary],
@@ -3026,8 +3045,7 @@ function drawCombinedDemandChart(){
   for(const value of stackedTotals.values())maxCount=Math.max(maxCount,value);
  }
  if(!stacked)for(const category of series){
-  const totals=totalsFor(category);
-  const points=GPCorrectness.smoothDemandSeries([...totals].filter(([date])=>(!demandMonthStart||date.slice(0,7)>=demandMonthStart)&&(!demandMonthEnd||date.slice(0,7)<=demandMonthEnd)).map(([date,count])=>({date,rawCount:count,count:adjustedCount(date,count),year:Number(date.slice(0,4))})),{level:demandSmoothingLevel(),continuous:continuousMode,currentPeriod:showCurrentWeek?(monthlyMode?thisMonth:thisWeek):''});
+  const points=bookingPoints(category);
   for(const [i,year] of years.entries()){
    const data=points.filter(p=>p.year===year&&(!demandMonthStart||p.date.slice(0,7)>=demandMonthStart)&&(!demandMonthEnd||p.date.slice(0,7)<=demandMonthEnd)).sort((a,b)=>a.date.localeCompare(b.date));
    if(!data.length)continue;
@@ -3037,7 +3055,9 @@ function drawCombinedDemandChart(){
    // Continuous mode must join December to January, even though the year traces
    // use different widths. Include the previous year's final point as a bridge.
    const previousPoint=continuousMode?points.filter(p=>p.year===year-1&&(!demandMonthStart||p.date.slice(0,7)>=demandMonthStart)&&(!demandMonthEnd||p.date.slice(0,7)<=demandMonthEnd)).sort((a,b)=>a.date.localeCompare(b.date)).at(-1):null;
-   const plotPoints=previousPoint&&complete.length?[previousPoint,...complete]:complete;
+   const history=previousPoint&&previousPoint.run===complete[0]?.run?[previousPoint,...complete]:complete;
+   const plotPoints=history.flatMap((point,i)=>i&&history[i-1].run!==point.run
+    ?[{...point,smoothed:null,rawCount:null,count:null},point]:[point]);
    const width=yearWidth(year);
    const opacity=year===latestYear?1:Math.max(0.25,0.62-(latestYear-year)*0.08);
    for(const p of data)maxCount=Math.max(maxCount,p.count);
@@ -3065,7 +3085,8 @@ function drawCombinedDemandChart(){
     traces.push({name:category+' range caps',showlegend:false,type:'scatter',mode:'markers',x:[markerX],y:[centre],marker:{size:0,opacity:0},
      error_y:{type:'data',symmetric:false,array:[projection.high-centre],arrayminus:[centre-projection.low],color:whiskerColour,thickness:1.1,width:3},hoverinfo:'skip',meta:{rangeCaps:true}});
     // Keep the finishing estimate and its range at the current-period date, joined to history.
-    const bridge=complete.at(-1)||previousPoint;
+    const lastComplete=complete.at(-1)||previousPoint;
+    const bridge=lastComplete?.run===last.run?lastComplete:null;
     traces.push({name:category+' '+year+' estimated finish',legendgroup:String(year),showlegend:false,type:'scatter',mode:'lines',
      x:bridge?[x(bridge),markerX]:[markerX],y:bridge?[bridge.smoothed,projection.estimate]:[projection.estimate],
      line:{color:colour,width:1.35,dash:'1px,3px'},hoverinfo:'skip',meta:{estimateConnector:true}});
