@@ -33,7 +33,6 @@ const median=pairs=>{
  return pairs.at(-1)[0];
 };
 const roundWeeks=value=>value.toFixed(1)+' weeks';
-const peakForecastWeeks=9;
 const waitDays=value=>value.toLocaleString('en-GB',{maximumFractionDigits:1})+(value===1?' day':' days');
 const insightCopy=new WeakMap();
 const insightCards={
@@ -91,18 +90,6 @@ function paintInsight(item,{bullets,emphasis,labels,priority,summary},generated)
  const disclosure=item.querySelector('details');
  disclosure.hidden=!list.childElementCount;
  if(disclosure.hidden)disclosure.open=false;
-}
-function bookingChangeCopy(change,care,forecast=false){
- if(change===null)return 'There’s too little data for a four-week comparison.';
- if(change===0)return forecast?'Forecast bookings are close to the recent weekly average.':'Average weekly bookings held steady.';
- const amount=describeChange(change);
- return forecast?amount+' '+care+' bookings forecast over the next four weeks than the recent average.':
-  amount+' '+care+' bookings per week than in the preceding four weeks.';
-}
-function weeklyVariationCopy(variation){
- if(variation===null)return 'There’s too little data to compare recent weeks.';
- if(variation===0)return 'Weekly bookings were broadly steady across the recent weeks with data.';
- return 'The busiest recent week had '+variation+'% more bookings than the quietest.';
 }
 const setOutlook=(section,text,detail)=>{
  const badge=$('homePage')?.querySelector('.iq-home-'+section+' .iq-home-outlook');
@@ -226,8 +213,9 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  const observed=adjustedHistory.filter(Number.isFinite);
  const average=observed.length?observed.reduce((sum,value)=>sum+value,0)/observed.length:null;
  const hasBand=row=>Number.isFinite(row?.estimate)&&Number.isFinite(row.low)&&Number.isFinite(row.high);
- const averageLabel=average===null?'':' Historical weekly average: '+integer(average)+' list-size-adjusted bookings.';
- const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks, this week and four weeks ahead. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+(forecast[0]?.nowcast?' This week uses bookings so far.':'')+(forecast.some(hasBand)?' Shading shows the estimated 85% prediction interval.':'')});
+ const averageLabel=average===null?'':' Historical weekly average: '+integer(average)+' bookings.';
+ const forecastLabel=section==='acute'?' Forecast values are recommended urgent slots.':'';
+ const svg=svgElement('svg',{class:'iq-home-chart-svg',role:'img','aria-label':(section==='acute'?'Acute':'Routine')+' weekly appointments. '+history.length+' complete weeks, this week and four weeks ahead. Shared scale from zero to '+integer(axis.top)+' appointments.'+averageLabel+forecastLabel+(forecast[0]?.nowcast?' This week uses bookings so far.':'')+(forecast.some(hasBand)?' Shading shows the estimated 85% prediction interval.':'')});
  const averagePill=average===null?null:document.createElement('span');
  if(averagePill){
   averagePill.className='demand-average-pill';
@@ -262,7 +250,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  if(average!==null){
   const y=ypos(average);
   const line=svgElement('line',{class:'iq-home-average-line',x1:left,y1:y,x2:right,y2:y,stroke:'color-mix(in srgb, '+colour+' 55%, white)','stroke-width':1.5,'stroke-dasharray':'1 5','stroke-linecap':'round'});
-  line.append(svgElement('title',{},'Historical weekly average: '+integer(average)+' adjusted bookings'));
+  line.append(svgElement('title',{},'Historical weekly average: '+integer(average)+' bookings'));
   svg.append(line);
   const plotBounds=root.getBoundingClientRect(),chartBounds=svg.getBoundingClientRect();
   averagePill.style.left=(chartBounds.left-plotBounds.left-root.clientLeft+left+10)+'px';
@@ -286,9 +274,12 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  const historyPoints=history.flatMap((value,i)=>Number.isFinite(value)?[[xpos(i),ypos(value)]]:[]);
  const current=Number.isFinite(forecast[0]?.estimate)?[xpos(firstForecast),ypos(forecast[0].estimate)]:null;
  const lastActual=historyPoints.slice(-1);
- drawTrend(current?historyPoints.concat([current]):historyPoints);
+ drawTrend(current&&section!=='acute'?historyPoints.concat([current]):historyPoints);
  const future=forecast.slice(1).flatMap((row,i)=>Number.isFinite(row?.estimate)?[[xpos(firstForecast+i+1),ypos(row.estimate)]]:[]);
- if(future.length)drawTrend((current?[current]:lastActual).concat(future),{projection:true});
+ if(future.length||section==='acute'&&current){
+  const start=section==='acute'&&current?lastActual.concat([current]):current?[current]:lastActual;
+  drawTrend(start.concat(future),{projection:true});
+ }
  const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
  const label=(x,y,text)=>svg.append(svgElement('text',{x,y,'text-anchor':'middle',fill:'#2f526e','font-size':11,'font-family':'Arial, sans-serif'},text));
  const years=new Map();
@@ -309,7 +300,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   const value=isCurrent?forecast[0]?.estimate:history[i];
   if(!Number.isFinite(value))continue;
   const dot=svgElement('circle',{cx:x,cy:ypos(value),r:2.5,fill:colour,stroke:'#fff','stroke-width':.65});
-  const description=isCurrent?' predicted bookings':i===anchorIndex?' list-size-adjusted actual bookings':' adjusted and smoothed bookings';
+  const description=isCurrent?(section==='acute'?' recommended slots':' predicted bookings'):i===anchorIndex?' actual bookings':' smoothed bookings';
   dot.append(svgElement('title',{},fmtLong(date)+': '+integer(value)+description));
   svg.append(dot);
  }
@@ -326,7 +317,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   const interval=hasBand(row)?' (85% prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
   const soFar=row.nowcast?' · '+integer(row.nowcast.rawObserved)+' bookings so far · Report: '+row.nowcast.asOfLabel:
    (i===0?' · Bookings-so-far projection unavailable; ':' · ')+'Seasonal model with a 6-week half-life';
-  hit.append(svgElement('title',{},(i===0?'This week, ':'')+fmtLong(row.weekStart)+': '+integer(row.estimate)+' predicted'+interval+soFar));
+  const detail=section==='acute'?' recommended slots · Urgent Forecast → Predictions':' predicted'+interval+soFar;
+  hit.append(svgElement('title',{},(i===0?'This week, ':'')+fmtLong(row.weekStart)+': '+integer(row.estimate)+detail));
   svg.append(hit);
  });
  };
@@ -342,7 +334,7 @@ function renderSavedInsights(state,row=state.saved){
   row.bullets[key].length<=3&&row.bullets[key].every(line=>typeof line==='string')))return false;
  for(const item of document.querySelectorAll('#homePage .iq-home-insight')){
   const details=insightCopy.get(item);
-  if(details?.key)paintInsight(item,details,row.bullets[details.key]);
+  if(details?.key&&!['seasonalDemand','forecastPeak'].includes(details.key))paintInsight(item,details,row.bullets[details.key]);
  }
  return true;
 }
@@ -457,7 +449,7 @@ function renderCare(section,options,metrics){
  const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks,viewHistory,viewAdjustedHistory,viewStart}=options;
  const currentFour=adjustedHistory.slice(-4).filter((_,i)=>!holidayWeeks.has(shift(latestCompleteWeek,(i-3)*7)));
  const recentMean=currentFour.length>=2&&currentFour.every(Number.isFinite)?currentFour.reduce((a,b)=>a+b,0)/currentFour.length:null;
- const regularForecast=forecast.slice(1).filter(row=>!holidayWeeks.has(row.weekStart));
+ const regularForecast=forecast.slice(1).filter(row=>section==='acute'||!holidayWeeks.has(row.weekStart));
  const predicted=regularForecast.filter(row=>Number.isFinite(row.estimate));
  const completeForecast=predicted.length>0&&predicted.length===regularForecast.length;
  const meanForecast=completeForecast?predicted.reduce((a,b)=>a+b.estimate,0)/predicted.length:null;
@@ -546,8 +538,8 @@ function renderCare(section,options,metrics){
   metrics.acuteSeason=yearChange===null?seasonIndex:null;
   metrics.acuteVariation=variation;
   const forecastDetail=metrics.forecast===null?'There’s too little data for a four-week comparison.':
-   metrics.forecast===0?'We expect urgent bookings over the next four weeks to stay close to the recent average.':
-   'We expect to see '+describeChange(metrics.forecast)+' urgent bookings over the next four weeks than the recent average.';
+   metrics.forecast===0?'Recommended urgent slots over the next four weeks are close to the recent booking average.':
+   'The forecast recommends '+describeChange(metrics.forecast)+' urgent slots over the next four weeks than the recent booking average.';
   setInsight('acute',0,'Seasonal demand',[forecastDetail,seasonalComparison],
    [seasonPosition,metrics.forecast?describeChange(metrics.forecast):'',yearChange?describeChange(yearChange):'']);
   const extra=[...extras.values()].reduce((total,n)=>total+n,0);
@@ -573,25 +565,20 @@ function renderCare(section,options,metrics){
   metrics.unusedPrevious=unusedComparison.previous;
   metrics.unusedGroupCount=hotspot?Math.round(topCount):null;
   setInsight('acute',2,'Unused capacity',unusedBullets,unusedEmphasis,{unusedGroup:hotspot?topMissed:''});
-  const peak=peakForecast.length&&peakForecast.every(row=>Number.isFinite(row.estimate))
-   ?peakForecast.reduce((highest,row)=>row.estimate>highest.estimate?row:highest):null;
+  const peak=peakForecast.reduce((highest,row)=>
+   Number.isFinite(row.estimate)&&(!highest||row.estimate>highest.estimate)?row:highest,null);
   metrics.peak=peak?reportableCount(peak.estimate):null;
   metrics.peakChange=metrics.peak===null?null:reportableChange(signedTrend(peak.estimate,recentMean),peak.estimate,recentMean);
   const peakDate=peak?fmtDate(peak.weekStart):'';
   setInsight('acute',3,'Peak demand',metrics.peak===null?['There’s too little data to pick the busiest week.']:[
-   'Over the next nine weeks, we expect the busiest week to start '+peakDate+'.',
-   'We expect to see about '+integer(metrics.peak)+' urgent bookings that week.',
+   'The highest weekly total in Urgent Forecast → Predictions is for the week of '+peakDate+'.',
+   'The forecast recommends '+integer(metrics.peak)+' urgent slots that week.',
    metrics.peakChange?'That’s '+describeChange(metrics.peakChange)+' than a recent week on average.':
     metrics.peakChange===0?'That’s close to the recent weekly average.':''
-  ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent bookings',metrics.peakChange?describeChange(metrics.peakChange):''],{peakWeek:peakDate},{
+  ],[peakDate,metrics.peak===null?'':integer(metrics.peak)+' urgent slots',metrics.peakChange?describeChange(metrics.peakChange):''],{peakWeek:peakDate},{
    priority:metrics.peakChange>=10?'Plan ahead':'',
-   summary:metrics.peak===null?'':integer(metrics.peak)+' urgent bookings forecast for the week of '+peakDate+'.'
+   summary:metrics.peak===null?'':integer(metrics.peak)+' urgent slots recommended for the week of '+peakDate+'.'
   });
-  setInsight('acute',4,'Booking trend',[bookingChangeCopy(metrics.acuteTrend,'urgent'),seasonalComparison],
-   [metrics.acuteTrend?describeChange(metrics.acuteTrend):'']);
-  setInsight('acute',5,'Weekly variation',[weeklyVariationCopy(variation),
-   variation===null?'':'Based on the last eight completed weeks, using weeks with booking data.'],
-   [variation?variation+'% more':'']);
  }else{
   metrics.routineTrend=reportableChange(previous,recentTotal,sumWeeks(previousWeeks));
   metrics.routineYear=yearChange;
@@ -662,7 +649,7 @@ function renderCare(section,options,metrics){
   metrics.middleWait=middle?.days??null;
   setInsight('routine',1,'Waiting times',waitBullets,waitEmphasis,
    {longestGroup:hasWaitRange?longest.label:'',shortestGroup:hasWaitRange?shortest.label:'',middleGroup:middle?.label||''},{
-    priority:latest!==null&&older!==null&&latest-older>=1?'Review this week':'',
+    priority:(reportable.some(segment=>segment.days>=28)||(latest!==null&&(latest>=4||(older!==null&&latest-older>=1))))?'Review this week':'',
     summary:hasWaitRange?waitDays(longest.days)+' median wait for '+longest.label+'.':''
    });
   for(const row of records){
@@ -703,12 +690,6 @@ function renderCare(section,options,metrics){
   metrics.routineUnusedPrevious=unusedComparison.previous;
   metrics.routineUnusedGroupCount=hotspot?Math.round(topCount):null;
   setInsight('routine',3,'Unused capacity',unusedBullets,unusedEmphasis,{routineUnusedGroup:hotspot?topMissed:''});
-  setInsight('routine',4,'Near-term outlook',[bookingChangeCopy(metrics.routineForecast,'routine',true),
-   metrics.routineForecast===null?'':'Compares the next four weeks with the most recent completed weeks.'],
-   [metrics.routineForecast?describeChange(metrics.routineForecast):'']);
-  setInsight('routine',5,'Weekly variation',[weeklyVariationCopy(variation),
-   variation===null?'':'Based on the last eight completed weeks, using weeks with booking data.'],
-   [variation?variation+'% more':'']);
  }
 }
 function currentCareWeek(care,date,weekStart,slots,adjustCount,holidayWeeks,coverage,firstAppointment){
@@ -786,7 +767,8 @@ function update(){
   if(historyStart>latestCompleteWeek)throw Error('No complete appointment weeks available.');
   const historyWeeks=Math.round((isoDay(latestCompleteWeek)-isoDay(historyStart))/604800000)+1;
   const holidayWeeks=new Set();
-  const lastForecastWeek=shift(presentMonday,peakForecastWeeks*7);
+  const urgentForecast=window.getHomeUrgentForecast?.();
+  const lastForecastWeek=shift(presentMonday,4*7);
   for(let year=Number(historyStart.slice(0,4));year<=Number(shift(lastForecastWeek,6).slice(0,4));year++){
    for(const holiday of englandWalesBankHolidays(year))holidayWeeks.add(monday(holiday));
   }
@@ -800,14 +782,20 @@ function update(){
   }
   const metrics={},series=[];
   for(const care of ['acute','routine']){
+   const acute=care==='acute';
+   const selected=acute?new Set(urgentForecast?.groups):null;
    const weekCounts=new Map(),adjustedCounts=new Map();
    for(const row of slots){
     if(careFor(row.slot)!==care||!row.bookedDay||row.bookedDay>=date)continue;
+    if(acute&&(!selected.has(capacityUrgencyCategory(row.slot))||!locumMatches(row,'dailyForecastPage')))continue;
     const mondayKey=row.bookedWeek||monday(row.bookedDay);
     const count=weight(row);
     addCount(weekCounts,mondayKey,count);
     if(mondayKey>=historyStart&&mondayKey<=latestCompleteWeek&&!holidayWeeks.has(mondayKey)){
-     addCount(adjustedCounts,mondayKey,adjustCount(row.bookedDay,count));
+     if(!acute||(mondayKey>=urgentForecast.firstHistoryDate&&[1,2,3,4,5].includes(isoDay(row.bookedDay).getUTCDay()))){
+      const adjusted=acute?urgentForecast.adjust(row.bookedDay,count):adjustCount(row.bookedDay,count);
+      addCount(adjustedCounts,mondayKey,adjusted);
+     }
     }
    }
    const adjustedHistory=weekDates.map(week=>adjustedCounts.get(week)??null);
@@ -816,19 +804,30 @@ function update(){
    // End the historical line at the observed value, without smoothing the fan anchor.
    const lastObserved=adjustedHistory.findLastIndex(Number.isFinite);
    if(lastObserved>=0)history[lastObserved]=adjustedHistory[lastObserved];
-   const predictor=window.getHomeOverviewPredictor?.(groupNames[care],care);
-   const projection=Array.from({length:care==='acute'?peakForecastWeeks+1:5},(_,i)=>{
-    const weekStart=shift(presentMonday,i*7);
-    const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
-    return {...range,weekStart};
-   });
-   const nowcast=currentCareWeek(care,date,presentMonday,slots,adjustCount,holidayWeeks,coverage,firstAppointment);
-   if(nowcast){
-    const fullWeek=predictor?.range?.(presentMonday,true,.85,1);
-    const bounds=GPCorrectness.currentWeekForecastBounds(nowcast,fullWeek);
-    projection[0]={weekStart:presentMonday,estimate:nowcast.estimate,...bounds,nowcast};
+   let projection,peakForecast=[];
+   if(acute){
+    peakForecast=urgentForecast?.rows||[];
+    const forecastByWeek=new Map(peakForecast.map(row=>[row.weekStart,row]));
+    if(urgentForecast)forecastByWeek.set(urgentForecast.current.weekStart,urgentForecast.current);
+    projection=Array.from({length:5},(_,i)=>{
+     const weekStart=shift(presentMonday,i*7);
+     return {weekStart,estimate:forecastByWeek.get(weekStart)?.estimate};
+    });
+   }else{
+    const predictor=window.getHomeOverviewPredictor?.(groupNames[care]);
+    projection=Array.from({length:5},(_,i)=>{
+     const weekStart=shift(presentMonday,i*7);
+     const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
+     return {...range,weekStart};
+    });
+    const nowcast=currentCareWeek(care,date,presentMonday,slots,adjustCount,holidayWeeks,coverage,firstAppointment);
+    if(nowcast){
+     const fullWeek=predictor?.range?.(presentMonday,true,.85,1);
+     const bounds=GPCorrectness.currentWeekForecastBounds(nowcast,fullWeek);
+     projection[0]={weekStart:presentMonday,estimate:nowcast.estimate,...bounds,nowcast};
+    }
    }
-   series.push({care,history,adjustedHistory,forecast:projection.slice(0,5),peakForecast:projection.slice(1).filter(row=>!holidayWeeks.has(row.weekStart)),groups:groupNames[care],bookingMap:weekCounts});
+   series.push({care,history,adjustedHistory,forecast:projection,peakForecast,groups:groupNames[care],bookingMap:weekCounts});
   }
   const datedCoverage=coverage.filter(range=>GPCorrectness.validDate(range.asOf));
   const coveredCapacityWeeks=new Set(GPCorrectness.completeWeeks(datedCoverage,shift(latestCompleteWeek,7),56)
