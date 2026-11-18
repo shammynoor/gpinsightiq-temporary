@@ -1139,7 +1139,8 @@ function renderPreferencePlot(target,traces,layout,config,useCalendarBand=true){
  const saved=readChartPreferences()[key]||{};
  const data=traces.map(trace=>{
   const visibility=saved[plotSeriesKey(trace)];
-  return trace.visible!==false&&(visibility===true||visibility==='legendonly')?{...trace,visible:visibility}:trace;
+  const visible=trace.visible!==false&&(visibility===true||visibility==='legendonly')?{...trace,visible:visibility}:trace;
+  return GPChartZero.breakTrace(visible);
  });
  return Plotly.react(chart,data,layout,config).then(result=>{
   if(calendarAxis){
@@ -3439,14 +3440,15 @@ function renderPracticeSettings(){
  for(let i=0;i<=5;i++){const value=bottom+(top-bottom)*i/5,yy=y(value);add('line',{x1:L,x2:width-R,y1:yy,y2:yy,stroke:'#e6edf3'});const text=add('text',{x:L-10,y:yy+4,'text-anchor':'end',fill:'#6c7d8e','font-size':12});text.textContent=Math.round(value).toLocaleString('en-GB');}
  const tickEvery=Math.max(1,Math.ceil(months.length/12));
  months.forEach((month,i)=>{if(i%tickEvery!==0&&i!==months.length-1)return;const label=add('text',{x:x(i),y:height-25,'text-anchor':'middle',fill:'#63798e','font-size':11});label.textContent=new Date(month+'-01T12:00:00Z').toLocaleDateString('en-GB',{month:'short',year:'2-digit',timeZone:'UTC'});});
- add('polyline',{points:values.map((v,i)=>x(i)+','+y(v)).join(' '),fill:'none',stroke:'#177bb8','stroke-width':3,'stroke-linecap':'round','stroke-linejoin':'round'});
+ const populationPath=values=>values.map((v,i)=>(i===0||(values[i-1]===0&&v>0)?'M':'L')+x(i)+' '+y(v)).join(' ');
+ add('path',{d:populationPath(values),fill:'none',stroke:'#177bb8','stroke-width':3,'stroke-linecap':'round','stroke-linejoin':'round'});
  const edit=(i,value)=>{practiceSelectedMonth=months[i];practiceSettings.anchors[months[i]]=Math.max(0,Math.min(1000000,Math.round(value/10)*10));savePracticeSettings();renderPracticeSettings();};
  months.forEach((month,i)=>{
   const circle=add('circle',{cx:x(i),cy:y(values[i]),r:i===selectedIndex?7:4.5,fill:month in practiceSettings.anchors?'#0b639e':'#ffffff',stroke:'#177bb8','stroke-width':i===selectedIndex?3:2,class:'practice-point','data-index':i});
   const title=add('title',{},circle);title.textContent=month+': '+values[i].toLocaleString('en-GB');
   circle.addEventListener('pointerdown',event=>{
    event.preventDefault();practiceSelectedMonth=month;circle.setPointerCapture(event.pointerId);
-   const move=e=>{const bounds=svg.getBoundingClientRect();const yy=(e.clientY-bounds.top)*height/bounds.height;const value=top-(yy-T)/plotHeight*(top-bottom);practiceSettings.anchors[month]=Math.max(0,Math.min(1000000,Math.round(value/10)*10));const updated=practiceListValues(months);svg.querySelector('polyline').setAttribute('points',updated.map((v,j)=>x(j)+','+y(v)).join(' '));svg.querySelectorAll('.practice-point').forEach((dot,j)=>dot.setAttribute('cy',y(updated[j])));$('practiceListValue').value=practiceSettings.anchors[month];$('practiceListSelectedMonth').textContent=month;};
+   const move=e=>{const bounds=svg.getBoundingClientRect();const yy=(e.clientY-bounds.top)*height/bounds.height;const value=top-(yy-T)/plotHeight*(top-bottom);practiceSettings.anchors[month]=Math.max(0,Math.min(1000000,Math.round(value/10)*10));const updated=practiceListValues(months);svg.querySelector('path').setAttribute('d',populationPath(updated));svg.querySelectorAll('.practice-point').forEach((dot,j)=>dot.setAttribute('cy',y(updated[j])));$('practiceListValue').value=practiceSettings.anchors[month];$('practiceListSelectedMonth').textContent=month;};
    const end=()=>{circle.removeEventListener('pointermove',move);savePracticeSettings();renderPracticeSettings();};
    circle.addEventListener('pointermove',move);circle.addEventListener('pointerup',end,{once:true});circle.addEventListener('pointercancel',end,{once:true});
   });

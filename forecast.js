@@ -774,7 +774,7 @@ function renderHistoricalWeekday({planningOnly=false,capacityGroups=null,allHist
   const ns='http://www.w3.org/2000/svg',x=i=>columns[i].offsetLeft+columns[i].offsetWidth/2;
   const baseline=baselineY;
   const y=v=>baseline-v/max*340;
-  const poly=(points,cls)=>{const el=document.createElementNS(ns,'polyline');el.setAttribute('class',cls);el.setAttribute('points',points.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' '));svg.append(el)};
+  const poly=(points,cls)=>{for(const group of GPChartZero.segments(points.map(p=>baseline-p[1]))){const el=document.createElementNS(ns,'polyline');el.setAttribute('class',cls);el.setAttribute('points',group.map(i=>points[i].map(v=>v.toFixed(1)).join(',')).join(' '));svg.append(el)}};
   poly(historicalFit.map((v,i)=>[x(i),y(v)]),'forecast-historical-fit');
   const boundary=historicalFit.length-1;
   poly([[x(boundary),y(historicalFit[boundary])],...projected.map((v,i)=>[x(n+i),y(v)])],'forecast-projection-line');

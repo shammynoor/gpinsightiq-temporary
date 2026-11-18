@@ -144,7 +144,7 @@ function drawChart(model,horizon){
  const cur=y(model.capacity);
  svg.append(svgEl('line',{x1:pad.l,y1:cur,x2:width-pad.r,y2:cur,stroke:'#a6b9c9','stroke-dasharray':'6 5','stroke-width':1.4}));
  svg.append(svgEl('text',{x:width-pad.r,y:Math.max(12,cur-8),'text-anchor':'end',fill:'#70869c','font-size':12},'Current capacity'));
- const path=values.map((v,i)=>(i?'L':'M')+x(i)+' '+y(v)).join(' ');
+ const path=values.map((v,i)=>(i&&!(values[i-1]===0&&v>0)?'L':'M')+x(i)+' '+y(v)).join(' ');
  svg.append(svgEl('path',{d:path,stroke:'#2577ad','stroke-width':3,fill:'none','stroke-linecap':'round','stroke-linejoin':'round'}));
  for(let i=0;i<values.length;i++){
   const isSelected=ui.target===i+1;

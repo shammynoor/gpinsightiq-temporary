@@ -251,6 +251,8 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
  }
  const drawTrend=(points,{projection=false}={})=>{
   if(points.length<2)return;
+  const groups=GPChartZero.segments(points.map(point=>bottom-point[1]));
+  if(groups.length>1){for(const group of groups)drawTrend(group.map(i=>points[i]),{projection});return;}
   const path=projection?smoothForecastPath(points):points.map(([x,y],i)=>{
    if(i===0)return 'M'+x+' '+y;
    const [previousX,previousY]=points[i-1],gap=x-previousX;
