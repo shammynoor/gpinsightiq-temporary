@@ -7,20 +7,68 @@ const monthDate=month=>new Date(month+'-01T12:00:00Z');
 const monthLabel=new Intl.DateTimeFormat('en-GB',{month:'long',year:'numeric',timeZone:'UTC'});
 const fullLabel=new Intl.DateTimeFormat('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});
 const number=new Intl.NumberFormat('en-GB');
-let selectedMonth='',selectedAccount;
+let selectedMonth='',selectedAccount,openDay=null;
 function nextMonth(month,offset){
  const date=monthDate(month);date.setUTCMonth(date.getUTCMonth()+offset);
  return date.toISOString().slice(0,7);
 }
+function includedCapacity(row,groups){
+ return row.source!=='signposting'&&!excludedSlotTypes.has(row.slot)&&groups.has(capacityUrgencyCategory(row.slot))
+  &&locumMatches(row,'dailyForecastPage')&&row.count>0
+  &&['booked','available','blocked','embargoed'].includes(String(row.availability||'').trim().toLowerCase());
+}
 function dailyCapacity(rows,groups){
  const totals=new Map();
  for(const row of rows){
-  if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||!groups.has(capacityUrgencyCategory(row.slot))
-   ||!locumMatches(row,'dailyForecastPage')||!(row.count>0)
-   ||!['booked','available','blocked','embargoed'].includes(String(row.availability||'').trim().toLowerCase()))continue;
+  if(!includedCapacity(row,groups))continue;
   totals.set(row.date,(totals.get(row.date)||0)+row.count);
  }
  return totals;
+}
+function dayAppointmentMix(rows,groups,date){
+ const clinicians=new Map(),modes=new Map([['Face-to-face',0],['Phone',0]]);let total=0;
+ for(const row of rows){
+  if(row.date!==date||!includedCapacity(row,groups))continue;
+  const clinician=clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)]||'Unassigned';
+  const mode=consultCategoryNames.includes(consultAssignments[row.slot])?consultAssignments[row.slot]:(suggestConsultMode(row.slot)||'Unassigned');
+  const normal=mode.toLowerCase().replace(/[^a-z0-9]/g,'');
+  const label=['facetoface','f2f','inperson'].includes(normal)?'Face-to-face'
+   :['phone','telephone','telephoneconsultation','phoneconsultation'].includes(normal)?'Phone':mode;
+  total+=row.count;clinicians.set(clinician,(clinicians.get(clinician)||0)+row.count);modes.set(label,(modes.get(label)||0)+row.count);
+ }
+ return {total,clinicians,modes};
+}
+// Largest remainders keep each displayed percentage split at exactly 100.0%.
+function percentageSplit(counts,total){
+ if(!(total>0))return [];
+ const entries=[...counts].map(([label,count],i)=>({label,count,i,exact:count/total*1000,units:Math.floor(count/total*1000)}));
+ const remaining=1000-entries.reduce((sum,row)=>sum+row.units,0);
+ const ranked=[...entries].sort((a,b)=>(b.exact-b.units)-(a.exact-a.units)||a.i-b.i);
+ for(let i=0;i<remaining;i++)ranked[i%ranked.length].units++;
+ return entries.map(({label,count,units})=>({label,count,percent:units/10}));
+}
+function renderDayDetails(groups,known){
+ const panel=byId('urgentPlanning2DayDetails');panel.replaceChildren();panel.hidden=!openDay;
+ if(!openDay)return;
+ const header=document.createElement('div');header.className='urgent-planning-detail-header';
+ const title=document.createElement('h3');title.id='urgentPlanning2DayTitle';title.textContent=fullLabel.format(new Date(openDay+'T12:00:00Z'));
+ const close=document.createElement('button');close.type='button';close.className='urgent-planning-detail-close';close.textContent='Close';
+ close.addEventListener('click',()=>{const date=openDay;openDay=null;renderUrgentPlanningCalendar();byId('urgentPlanning2Grid').querySelector('[data-date="'+date+'"]')?.focus();});
+ header.append(title,close);panel.append(header);
+ const mix=dayAppointmentMix(availabilityRecords,groups,openDay);
+ if(!known||!mix.total){const empty=document.createElement('p');empty.className='urgent-planning-detail-empty';empty.textContent=!groups.size?'No daily appointment types are selected.':!known?'No appointment report coverage for this day.':'No appointments for the selected daily types on this day.';panel.append(empty);return;}
+ const body=document.createElement('div');body.className='urgent-planning-detail-mix';
+ for(const [label,counts] of [['Clinician mix',new Map([...mix.clinicians].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])))],['Consultation type',mix.modes]]){
+  const section=document.createElement('section'),heading=document.createElement('h4');heading.textContent=label;section.append(heading);
+  const split=percentageSplit(counts,mix.total);
+  if(label==='Consultation type'){
+   const bar=document.createElement('div');bar.className='urgent-planning-consult-bar';bar.setAttribute('role','img');bar.setAttribute('aria-label',split.map(row=>row.label+' '+row.percent+'%').join(', '));
+   for(const row of split){const segment=document.createElement('span');segment.className=row.label==='Face-to-face'?'mix-face':row.label==='Phone'?'mix-phone':'mix-other';segment.style.width=row.percent+'%';bar.append(segment);}section.append(bar);
+  }
+  const values=document.createElement('div');values.className=label==='Clinician mix'?'urgent-planning-clinician-mix':'urgent-planning-consult-mix';
+  for(const row of split){const item=document.createElement('div'),name=document.createElement('span'),value=document.createElement('strong');name.textContent=row.label;value.textContent=number.format(row.percent)+'%';item.append(name,value);values.append(item);}section.append(values);body.append(section);
+ }
+ panel.append(body);
 }
 function appointmentShade(actual,need){
  if(!Number.isFinite(actual)||!Number.isFinite(need)||need<0)return null;
@@ -46,8 +94,10 @@ function fitUrgentPlanningCalendar(){
   +parseFloat(padding.paddingTop)+parseFloat(padding.paddingBottom)+2+horizontalScrollbar;
  const wrap=page.closest('.wrap');
  const bottom=wrap?parseFloat(getComputedStyle(wrap).paddingBottom):20;
- const available=window.innerHeight-(calendar.getBoundingClientRect().top+window.scrollY)-bottom-2;
- const height=Math.min(Math.max(window.innerHeight*.5,chrome+rows*84),Math.max(0,available));
+ const detail=byId('urgentPlanning2DayDetails');
+ const detailHeight=detail&&!detail.hidden?detail.getBoundingClientRect().height+10:0;
+ const available=window.innerHeight-(calendar.getBoundingClientRect().top+window.scrollY)-bottom-2-detailHeight;
+ const height=Math.min(Math.max(window.innerHeight*.5,chrome+rows*84),Math.max(chrome+rows*54,available));
  calendar.style.setProperty('--calendar-height',height+'px');
  calendar.classList.toggle('compact-days',(height-chrome)/rows<84);
 }
@@ -62,7 +112,7 @@ function renderUrgentPlanningCalendar(){
  const weeklyTargets=forecast?.weekly||new Map();
  const first=monthKey(today);
  const account=window.gpChartPreferences?.account?.();
- if(account!==selectedAccount){selectedAccount=account;selectedMonth=first;}
+ if(account!==selectedAccount){selectedAccount=account;selectedMonth=first;openDay=null;}
  if(!selectedMonth)selectedMonth=first;
  byId('urgentPlanning2Month').textContent=monthLabel.format(monthDate(selectedMonth));
 
@@ -72,6 +122,7 @@ function renderUrgentPlanningCalendar(){
  const start=GPCorrectness.monday(selectedMonth+'-01');
  const finalDate=shift(nextMonth(selectedMonth,1)+'-01',-1);
  const end=shift(GPCorrectness.monday(finalDate),6);
+ if(openDay&&(openDay<today||openDay<start||openDay>end))openDay=null;
  const weekRows=Math.floor((Date.parse(end)-Date.parse(start))/604800000)+1;
  grid.style.setProperty('--calendar-week-rows',String(weekRows));
  const coverage=slotReportCoverage.filter(range=>GPCorrectness.validDate(range.start)&&GPCorrectness.validDate(range.end));
@@ -91,10 +142,16 @@ function renderUrgentPlanningCalendar(){
   cell.append(values);
  }
  for(let date=start;date<=end;date=shift(date,1)){
-  const cell=document.createElement('article');cell.className='urgent-planning-day';
+  const weekend=new Date(date+'T12:00:00Z').getUTCDay()%6===0;
+  const interactive=!weekend&&date>=today;
+  const cell=document.createElement(interactive?'button':'article');cell.className='urgent-planning-day';
+  if(interactive){
+   cell.type='button';cell.dataset.date=date;cell.setAttribute('aria-expanded',String(openDay===date));cell.setAttribute('aria-controls','urgentPlanning2DayDetails');
+   cell.addEventListener('click',()=>{openDay=openDay===date?null:date;renderUrgentPlanningCalendar();grid.querySelector('[data-date="'+date+'"]')?.focus();});
+  }
+  cell.classList.toggle('day-open',openDay===date);
   cell.classList.toggle('outside-month',monthKey(date)!==selectedMonth);
   cell.classList.toggle('is-today',date===today);
-  const weekend=new Date(date+'T12:00:00Z').getUTCDay()%6===0;
   cell.classList.toggle('is-weekend',weekend);
   cell.setAttribute('aria-label',fullLabel.format(new Date(date+'T12:00:00Z')));
   const time=document.createElement('time');time.dateTime=date;time.textContent=String(Number(date.slice(-2)));
@@ -123,6 +180,7 @@ function renderUrgentPlanningCalendar(){
    grid.append(weeklyCell);
   }
  }
+ renderDayDetails(groups,openDay&&(capacity.has(openDay)||covered(openDay)));
  fitUrgentPlanningCalendar();
 }
 window.renderUrgentPlanningCalendar=renderUrgentPlanningCalendar;
@@ -132,10 +190,11 @@ if(window.ResizeObserver){
  const calendar=byId('urgentPlanning2Page')?.querySelector('.urgent-planning-calendar');
  if(calendar){observer.observe(calendar.querySelector('.urgent-planning-calendar-header'));observer.observe(calendar.querySelector('.urgent-planning-weekdays'));}
  const header=document.querySelector('.dashboard-header');if(header)observer.observe(header);
+ const detail=byId('urgentPlanning2DayDetails');if(detail)observer.observe(detail);
 }
 byId('navUrgentPlanning2').addEventListener('click',()=>showPage('urgentPlanning2'));
 for(const [id,offset] of [['urgentPlanning2Previous',-1],['urgentPlanning2Next',1]]){
- byId(id).addEventListener('click',()=>{selectedMonth=nextMonth(selectedMonth,offset);renderUrgentPlanningCalendar();});
+ byId(id).addEventListener('click',()=>{selectedMonth=nextMonth(selectedMonth,offset);openDay=null;renderUrgentPlanningCalendar();});
 }
-byId('urgentPlanning2Today').addEventListener('click',()=>{selectedMonth=monthKey(dayView2LondonClock().date);renderUrgentPlanningCalendar();});
+byId('urgentPlanning2Today').addEventListener('click',()=>{selectedMonth=monthKey(dayView2LondonClock().date);openDay=null;renderUrgentPlanningCalendar();});
 })();
