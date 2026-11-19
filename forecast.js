@@ -229,7 +229,8 @@ window.readUrgentPlanningForecast=()=>{
 };
 window.readUrgentDailyPlanningForecast=()=>{
  const series=renderHistoricalWeekday({predictions:true});
- return {daily:new Map(dailyAppointmentTargets),groups:series?.dailyGroups||[]};
+ return {daily:new Map(dailyAppointmentTargets),groups:series?.dailyGroups||[],
+  weekly:new Map(weeklyAppointmentTargets),weeklyGroups:series?[...weeklyPlanningGroups]:[]};
 };
 // The daily target and time profile use the same appointment types and fitting dates.
 function bookingTimeProfile(sampleDays,dailyGroups,parts,locumPage){

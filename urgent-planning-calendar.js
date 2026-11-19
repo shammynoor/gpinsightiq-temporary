@@ -35,14 +35,20 @@ function renderUrgentPlanningCalendar(){
  const forecast=window.readUrgentDailyPlanningForecast();
  const groups=new Set(forecast?.groups||[]);
  const targets=forecast?.daily||new Map();
+ const weeklyGroups=new Set(forecast?.weeklyGroups||[]);
+ const weeklyTargets=forecast?.weekly||new Map();
  const first=monthKey(today);
  const account=window.gpChartPreferences?.account?.();
  if(account!==selectedAccount){selectedAccount=account;selectedMonth=first;}
  if(!selectedMonth)selectedMonth=first;
  byId('urgentPlanning2Month').textContent=monthLabel.format(monthDate(selectedMonth));
 
- byId('urgentPlanning2Types').textContent=groups.size?'Daily appointment types: '+[...groups].join(', '):'Select daily appointment types in Urgent Forecast → Predictions.';
+ const descriptions=[];
+ descriptions.push(groups.size?'Daily: '+[...groups].join(', '):'Daily: no appointment types selected');
+ descriptions.push(weeklyGroups.size?'Week column: '+[...weeklyGroups].join(', '):'Week column: no weekly appointment types selected');
+ byId('urgentPlanning2Types').textContent=descriptions.join(' · ')+'. Set planning basis in Urgent Forecast → Predictions.';
  const capacity=dailyCapacity(availabilityRecords,groups);
+ const weeklyCapacity=dailyCapacity(availabilityRecords,weeklyGroups);
  const grid=byId('urgentPlanning2Grid');grid.replaceChildren();
  const start=GPCorrectness.monday(selectedMonth+'-01');
  const finalDate=shift(nextMonth(selectedMonth,1)+'-01',-1);
@@ -50,21 +56,12 @@ function renderUrgentPlanningCalendar(){
  const weekRows=Math.floor((Date.parse(end)-Date.parse(start))/604800000)+1;
  grid.style.setProperty('--calendar-week-rows',String(weekRows));
  const coverage=slotReportCoverage.filter(range=>GPCorrectness.validDate(range.start)&&GPCorrectness.validDate(range.end));
- for(let date=start;date<=end;date=shift(date,1)){
-  const cell=document.createElement('article');cell.className='urgent-planning-day';
-  cell.classList.toggle('outside-month',monthKey(date)!==selectedMonth);
-  cell.classList.toggle('is-today',date===today);
-  cell.classList.toggle('is-weekend',new Date(date+'T12:00:00Z').getUTCDay()%6===0);
-  cell.setAttribute('aria-label',fullLabel.format(new Date(date+'T12:00:00Z')));
-  const time=document.createElement('time');time.dateTime=date;time.textContent=String(Number(date.slice(-2)));
-  if(date===today){time.setAttribute('aria-current','date');time.append(' · Today');}
-  cell.append(time);
-  const target=targets.get(date);
-  const actual=groups.size&&(capacity.has(date)||coverage.some(range=>range.start<=date&&range.end>=date))?capacity.get(date)||0:null;
-  const shade=target?.bankHoliday?null:appointmentShade(actual,target?.suggested);
+ const covered=date=>coverage.some(range=>range.start<=date&&range.end>=date);
+ function appendValues(cell,need,actual){
+  const shade=appointmentShade(actual,typeof need==='number'?need:null);
   if(shade)cell.style.setProperty('--appointment-shade',shade);
   const values=document.createElement('dl');
-  for(const [label,value] of [['Need',target?.bankHoliday?'Bank holiday':target?.suggested??null],['Appts',actual]]){
+  for(const [label,value] of [['Need',need],['Appts',actual]]){
    const term=document.createElement('dt'),amount=document.createElement('dd');
    term.textContent=label;amount.textContent=typeof value==='number'?number.format(value):value??'—';
    const row=document.createElement('div');
@@ -72,6 +69,32 @@ function renderUrgentPlanningCalendar(){
    row.append(term,amount);values.append(row);
   }
   cell.append(values);grid.append(cell);
+ }
+ for(let date=start;date<=end;date=shift(date,1)){
+  const cell=document.createElement('article');cell.className='urgent-planning-day';
+  cell.classList.toggle('outside-month',monthKey(date)!==selectedMonth);
+  cell.classList.toggle('is-today',date===today);
+  cell.classList.toggle('is-weekend',new Date(date+'T12:00:00Z').getUTCDay()%6===0);
+  cell.setAttribute('aria-label',fullLabel.format(new Date(date+'T12:00:00Z')));
+  const time=document.createElement('time');time.dateTime=date;time.textContent=String(Number(date.slice(-2)));
+  if(date===today)time.setAttribute('aria-current','date');
+  cell.append(time);
+  if(date===today){const badge=document.createElement('span');badge.className='urgent-planning-today-label';badge.textContent='Today';cell.append(badge);}
+  const target=targets.get(date);
+  const actual=groups.size&&(capacity.has(date)||covered(date))?capacity.get(date)||0:null;
+  appendValues(cell,target?.bankHoliday?'Bank holiday':target?.suggested??null,actual);
+  if(new Date(date+'T12:00:00Z').getUTCDay()===0){
+   const weekStart=shift(date,-6);
+   const days=Array.from({length:7},(_,i)=>shift(weekStart,i));
+   const weeklyCell=document.createElement('article');weeklyCell.className='urgent-planning-day urgent-planning-week';
+   weeklyCell.setAttribute('aria-label','Weekly planning appointments, '+fullLabel.format(new Date(weekStart+'T12:00:00Z'))+' to '+fullLabel.format(new Date(date+'T12:00:00Z')));
+   const heading=document.createElement('div');heading.className='urgent-planning-week-range';
+   const shortDate=day=>new Date(day+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
+   heading.textContent=shortDate(weekStart)+'–'+shortDate(date);weeklyCell.append(heading);
+   // Require complete report coverage before displaying a full-week capacity total.
+   const weeklyActual=weeklyGroups.size&&days.every(covered)?days.reduce((sum,day)=>sum+(weeklyCapacity.get(day)||0),0):null;
+   appendValues(weeklyCell,weeklyGroups.size?weeklyTargets.get(weekStart)??null:null,weeklyActual);
+  }
  }
 }
 window.renderUrgentPlanningCalendar=renderUrgentPlanningCalendar;
