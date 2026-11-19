@@ -227,6 +227,10 @@ window.readUrgentPlanningForecast=()=>{
  renderHistoricalWeekday({planningOnly:true});
  return {daily:dailyAppointmentTargets,weekly:weeklyAppointmentTargets,weeklyGroups:weeklyPlanningGroups,remainingWeekly:remainingWeeklyAppointmentTarget};
 };
+window.readUrgentDailyPlanningForecast=()=>{
+ const series=renderHistoricalWeekday({predictions:true});
+ return {daily:new Map(dailyAppointmentTargets),groups:series?.dailyGroups||[]};
+};
 // The daily target and time profile use the same appointment types and fitting dates.
 function bookingTimeProfile(sampleDays,dailyGroups,parts,locumPage){
  const samples=new Map(sampleDays.map(day=>[day,{
@@ -624,7 +628,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
   if(hasWeekly)weeklyAppointmentTargets.set(current.weekStart,current.weekly===null?null:Math.ceil(current.weekly));
   for(const {day,prediction} of current.days)saveTarget(day,prediction);
   const rows=Array.from({length:14},(_,i)=>calculateWeek(shift(nextMonday,i*7)));
-  predictionSeries={groups,firstHistoryDate:start,adjust:forecastAdjust,current,rows};
+  predictionSeries={groups,dailyGroups,firstHistoryDate:start,adjust:forecastAdjust,current,rows};
   for(const {weekStart,days,weekly,estimate} of rows){
    const tr=document.createElement('tr'),weekCell=document.createElement('th');
    weekCell.scope='row';weekCell.textContent=new Date(weekStart+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
@@ -811,7 +815,7 @@ window.getHomeUrgentForecast=()=>{
  return series&&{...series,rows:series.rows.slice(0,forecastHorizonWeeks())};
 };
 window.refreshForecastCharts=()=>{forecastRenderCache.analytics=null;forecastRenderCache.predictions=null;if(!$('dailyForecastPage')?.classList.contains('hidden'))renderHistoricalWeekday();if(!$('weeklyForecastPage')?.classList.contains('hidden'))render('weekly')};
-window.openWorkspaceForecast=function(mode){window.gpChartPreferences?.restore?.();window.closeDashboardMenus?.();for(const p of ['dailyForecastPage','weeklyForecastPage'])$(p)?.classList.toggle('hidden',p!==(mode==='daily'?'dailyForecastPage':'weeklyForecastPage'));for(const p of ['workforceNeedPage','workforcePlanningPage','routineCapacityPage','homePage','chartPage','waitingTimesPage','waitingOverTimePage','categoryPage','availabilityPage','routineAvailabilityPage','dayView2Page','bookingTimesPage','signpostingPage','rapidHealthPage','peoplePage','sessionSettingsPage','practiceSettingsPage','personalSettingsPage'])$(p)?.classList.add('hidden');document.querySelectorAll('.dashboard-nav button.active').forEach(b=>b.classList.remove('active'));$('nav'+(mode==='daily'?'Daily':'Weekly')+'Forecast')?.classList.add('active');if(mode==='daily'){const tab=window.gpChartPreferences?.read().forecastActiveTab;selectForecastTab(tab==='analytics'?'analytics':'predictions');}else render(mode)};
+window.openWorkspaceForecast=function(mode){window.gpChartPreferences?.restore?.();window.closeDashboardMenus?.();for(const p of ['dailyForecastPage','weeklyForecastPage'])$(p)?.classList.toggle('hidden',p!==(mode==='daily'?'dailyForecastPage':'weeklyForecastPage'));for(const p of ['urgentPlanning2Page','workforceNeedPage','workforcePlanningPage','routineCapacityPage','homePage','chartPage','waitingTimesPage','waitingOverTimePage','categoryPage','availabilityPage','routineAvailabilityPage','dayView2Page','bookingTimesPage','signpostingPage','rapidHealthPage','peoplePage','sessionSettingsPage','practiceSettingsPage','personalSettingsPage'])$(p)?.classList.add('hidden');document.querySelectorAll('.dashboard-nav button.active').forEach(b=>b.classList.remove('active'));$('nav'+(mode==='daily'?'Daily':'Weekly')+'Forecast')?.classList.add('active');if(mode==='daily'){const tab=window.gpChartPreferences?.read().forecastActiveTab;selectForecastTab(tab==='analytics'?'analytics':'predictions');}else render(mode)};
 let forecastResizeTimer;window.addEventListener('resize',()=>{clearTimeout(forecastResizeTimer);forecastResizeTimer=setTimeout(()=>{if(!$('dailyForecastPage')?.classList.contains('hidden')&&!$('forecastAnalyticsPanel')?.classList.contains('hidden'))renderHistoricalWeekday();},120);});
 document.addEventListener('DOMContentLoaded',()=>{$('dailyForecastHorizon')?.addEventListener('input',()=>requestAnimationFrame(changeForecastHorizon));$('forecastPredictionsTab')?.addEventListener('click',()=>selectForecastTab('predictions'));$('forecastAnalyticsTab')?.addEventListener('click',()=>selectForecastTab('analytics'));for(const id of ['dailyForecastWeekday','dailyForecastAdjustListSize','dailyForecastHistory'])$(id)?.addEventListener('change',()=>scheduleForecastFilterRefresh('daily'));for(const mode of ['daily','weekly']){$('nav'+(mode==='daily'?'Daily':'Weekly')+'Forecast')?.addEventListener('click',()=>showPage(mode==='daily'?'dailyForecast':'weeklyForecast'));if(mode==='weekly')$('weeklyForecastHistory')?.addEventListener('change',()=>scheduleForecastFilterRefresh('weekly'))}});
 })();
