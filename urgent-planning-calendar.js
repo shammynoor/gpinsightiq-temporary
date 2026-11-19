@@ -25,10 +25,12 @@ function dailyCapacity(rows,groups){
 function appointmentShade(actual,need){
  if(!Number.isFinite(actual)||!Number.isFinite(need)||need<0)return null;
  const difference=need===0?(actual===0?0:1):(actual-need)/need;
- // Stay green within 5%; blend to red below need or blue above need by 30%.
+ // Match the approved preview: distinct crimson, emerald and silver-blue cards.
+ if(Math.abs(difference)<=.05)return 'rgb(35, 153, 106)';
  const strength=Math.min(1,Math.max(0,(Math.abs(difference)-.05)/.25));
- const green=[35,157,99],extreme=difference<0?[204,66,72]:[40,112,210];
- return 'rgb('+green.map((v,i)=>Math.round(v+(extreme[i]-v)*strength)).join(', ')+')';
+ const start=difference<0?[220,124,139]:[153,184,210];
+ const end=difference<0?[184,42,69]:[83,128,168];
+ return 'rgb('+start.map((v,i)=>Math.round(v+(end[i]-v)*strength)).join(', ')+')';
 }
 function fitUrgentPlanningCalendar(){
  const page=byId('urgentPlanning2Page');
@@ -39,15 +41,15 @@ function fitUrgentPlanningCalendar(){
  const rows=Number(byId('urgentPlanning2Grid').style.getPropertyValue('--calendar-week-rows'))||6;
  const padding=getComputedStyle(calendar);
  const scroller=calendar.querySelector('.urgent-planning-calendar-scroll');
- const horizontalScrollbar=scroller.clientWidth<800?18:0;
+ const horizontalScrollbar=scroller.clientWidth<760?18:0;
  const chrome=header.getBoundingClientRect().height+6+weekdays.getBoundingClientRect().height
   +parseFloat(padding.paddingTop)+parseFloat(padding.paddingBottom)+2+horizontalScrollbar;
  const wrap=page.closest('.wrap');
  const bottom=wrap?parseFloat(getComputedStyle(wrap).paddingBottom):20;
  const available=window.innerHeight-(calendar.getBoundingClientRect().top+window.scrollY)-bottom-2;
- const height=Math.min(Math.max(window.innerHeight*.5,chrome+rows*78),Math.max(0,available));
+ const height=Math.min(Math.max(window.innerHeight*.5,chrome+rows*84),Math.max(0,available));
  calendar.style.setProperty('--calendar-height',height+'px');
- calendar.classList.toggle('compact-days',(height-chrome)/rows<78);
+ calendar.classList.toggle('compact-days',(height-chrome)/rows<84);
 }
 function renderUrgentPlanningCalendar(){
  const page=byId('urgentPlanning2Page');
@@ -86,21 +88,25 @@ function renderUrgentPlanningCalendar(){
    if(typeof value==='string')row.classList.toggle('is-text',true);
    row.append(term,amount);values.append(row);
   }
-  cell.append(values);grid.append(cell);
+  cell.append(values);
  }
  for(let date=start;date<=end;date=shift(date,1)){
   const cell=document.createElement('article');cell.className='urgent-planning-day';
   cell.classList.toggle('outside-month',monthKey(date)!==selectedMonth);
   cell.classList.toggle('is-today',date===today);
-  cell.classList.toggle('is-weekend',new Date(date+'T12:00:00Z').getUTCDay()%6===0);
+  const weekend=new Date(date+'T12:00:00Z').getUTCDay()%6===0;
+  cell.classList.toggle('is-weekend',weekend);
   cell.setAttribute('aria-label',fullLabel.format(new Date(date+'T12:00:00Z')));
   const time=document.createElement('time');time.dateTime=date;time.textContent=String(Number(date.slice(-2)));
   if(date===today)time.setAttribute('aria-current','date');
   cell.append(time);
   if(date===today){const badge=document.createElement('span');badge.className='urgent-planning-today-label';badge.textContent='Today';cell.append(badge);}
-  const target=targets.get(date);
-  const actual=groups.size&&(capacity.has(date)||covered(date))?capacity.get(date)||0:null;
-  appendValues(cell,target?.bankHoliday?'Bank holiday':target?.suggested??null,actual);
+  if(!weekend&&date>=today){
+   const target=targets.get(date);
+   const actual=groups.size&&(capacity.has(date)||covered(date))?capacity.get(date)||0:null;
+   appendValues(cell,target?.bankHoliday?'Bank holiday':target?.suggested??null,actual);
+  }
+  grid.append(cell);
   if(new Date(date+'T12:00:00Z').getUTCDay()===0){
    const weekStart=shift(date,-6);
    const days=Array.from({length:7},(_,i)=>shift(weekStart,i));
@@ -110,8 +116,11 @@ function renderUrgentPlanningCalendar(){
    const shortDate=day=>new Date(day+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
    heading.textContent=shortDate(weekStart)+'–'+shortDate(date);weeklyCell.append(heading);
    // Require complete report coverage before displaying a full-week capacity total.
-   const weeklyActual=weeklyGroups.size&&days.every(covered)?days.reduce((sum,day)=>sum+(weeklyCapacity.get(day)||0),0):null;
-   appendValues(weeklyCell,weeklyGroups.size?weeklyTargets.get(weekStart)??null:null,weeklyActual);
+   if(date>=today){
+    const weeklyActual=weeklyGroups.size&&days.every(covered)?days.reduce((sum,day)=>sum+(weeklyCapacity.get(day)||0),0):null;
+    appendValues(weeklyCell,weeklyGroups.size?weeklyTargets.get(weekStart)??null:null,weeklyActual);
+   }
+   grid.append(weeklyCell);
   }
  }
  fitUrgentPlanningCalendar();
