@@ -24,9 +24,30 @@ function dailyCapacity(rows,groups){
 }
 function appointmentShade(actual,need){
  if(!Number.isFinite(actual)||!Number.isFinite(need)||need<0)return null;
- const difference=need===0?(actual===0?0:1):Math.abs(actual-need)/need;
- const hue=125*(1-Math.min(1,difference/.30));
- return 'hsl('+hue+' 68% 45%)';
+ const difference=need===0?(actual===0?0:1):(actual-need)/need;
+ // Stay green within 5%; blend to red below need or blue above need by 30%.
+ const strength=Math.min(1,Math.max(0,(Math.abs(difference)-.05)/.25));
+ const green=[35,157,99],extreme=difference<0?[204,66,72]:[40,112,210];
+ return 'rgb('+green.map((v,i)=>Math.round(v+(extreme[i]-v)*strength)).join(', ')+')';
+}
+function fitUrgentPlanningCalendar(){
+ const page=byId('urgentPlanning2Page');
+ if(!page||page.classList.contains('hidden'))return;
+ const calendar=page.querySelector('.urgent-planning-calendar');
+ const header=calendar.querySelector('.urgent-planning-calendar-header');
+ const weekdays=calendar.querySelector('.urgent-planning-weekdays');
+ const rows=Number(byId('urgentPlanning2Grid').style.getPropertyValue('--calendar-week-rows'))||6;
+ const padding=getComputedStyle(calendar);
+ const scroller=calendar.querySelector('.urgent-planning-calendar-scroll');
+ const horizontalScrollbar=scroller.clientWidth<800?18:0;
+ const chrome=header.getBoundingClientRect().height+6+weekdays.getBoundingClientRect().height
+  +parseFloat(padding.paddingTop)+parseFloat(padding.paddingBottom)+2+horizontalScrollbar;
+ const wrap=page.closest('.wrap');
+ const bottom=wrap?parseFloat(getComputedStyle(wrap).paddingBottom):20;
+ const available=window.innerHeight-(calendar.getBoundingClientRect().top+window.scrollY)-bottom-2;
+ const height=Math.min(Math.max(window.innerHeight*.5,chrome+rows*78),Math.max(0,available));
+ calendar.style.setProperty('--calendar-height',height+'px');
+ calendar.classList.toggle('compact-days',(height-chrome)/rows<78);
 }
 function renderUrgentPlanningCalendar(){
  const page=byId('urgentPlanning2Page');
@@ -43,10 +64,6 @@ function renderUrgentPlanningCalendar(){
  if(!selectedMonth)selectedMonth=first;
  byId('urgentPlanning2Month').textContent=monthLabel.format(monthDate(selectedMonth));
 
- const descriptions=[];
- descriptions.push(groups.size?'Daily: '+[...groups].join(', '):'Daily: no appointment types selected');
- descriptions.push(weeklyGroups.size?'Week column: '+[...weeklyGroups].join(', '):'Week column: no weekly appointment types selected');
- byId('urgentPlanning2Types').textContent=descriptions.join(' · ')+'. Set planning basis in Urgent Forecast → Predictions.';
  const capacity=dailyCapacity(availabilityRecords,groups);
  const weeklyCapacity=dailyCapacity(availabilityRecords,weeklyGroups);
  const grid=byId('urgentPlanning2Grid');grid.replaceChildren();
@@ -66,6 +83,7 @@ function renderUrgentPlanningCalendar(){
    term.textContent=label;amount.textContent=typeof value==='number'?number.format(value):value??'—';
    const row=document.createElement('div');
    row.className='urgent-planning-value'+(label==='Appts'?' urgent-planning-appointments':'');
+   if(typeof value==='string')row.classList.toggle('is-text',true);
    row.append(term,amount);values.append(row);
   }
   cell.append(values);grid.append(cell);
@@ -96,8 +114,16 @@ function renderUrgentPlanningCalendar(){
    appendValues(weeklyCell,weeklyGroups.size?weeklyTargets.get(weekStart)??null:null,weeklyActual);
   }
  }
+ fitUrgentPlanningCalendar();
 }
 window.renderUrgentPlanningCalendar=renderUrgentPlanningCalendar;
+window.addEventListener('resize',fitUrgentPlanningCalendar);
+if(window.ResizeObserver){
+ const observer=new ResizeObserver(fitUrgentPlanningCalendar);
+ const calendar=byId('urgentPlanning2Page')?.querySelector('.urgent-planning-calendar');
+ if(calendar){observer.observe(calendar.querySelector('.urgent-planning-calendar-header'));observer.observe(calendar.querySelector('.urgent-planning-weekdays'));}
+ const header=document.querySelector('.dashboard-header');if(header)observer.observe(header);
+}
 byId('navUrgentPlanning2').addEventListener('click',()=>showPage('urgentPlanning2'));
 for(const [id,offset] of [['urgentPlanning2Previous',-1],['urgentPlanning2Next',1]]){
  byId(id).addEventListener('click',()=>{selectedMonth=nextMonth(selectedMonth,offset);renderUrgentPlanningCalendar();});
