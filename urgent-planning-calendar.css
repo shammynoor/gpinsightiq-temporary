@@ -1,18 +1,26 @@
-#urgentPlanning2Page .urgent-planning-calendar{padding:18px;background:#fff;border:1px solid #dce7f0;border-radius:16px;color:#17395b}
-#urgentPlanning2Page .urgent-planning-calendar-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-#urgentPlanning2Page h2{margin:0;font-size:22px}
-#urgentPlanning2Page .urgent-planning-month-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-#urgentPlanning2Page .urgent-planning-month-controls button{width:auto;min-height:36px;padding:6px 10px}
+#urgentPlanning2Page .urgent-planning-calendar{box-sizing:border-box;height:max(480px,50vh);display:flex;flex-direction:column;padding:14px;background:#fff;border:1px solid #dce7f0;border-radius:14px;color:#17395b}
+#urgentPlanning2Page .urgent-planning-calendar-header{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+#urgentPlanning2Page h2{margin:0;font-size:21px}
+#urgentPlanning2Page .urgent-planning-month-controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#urgentPlanning2Page .urgent-planning-month-controls button{width:auto;min-height:32px;padding:4px 10px}
 #urgentPlanning2Page .urgent-planning-month-controls strong{min-width:145px;text-align:center}
-#urgentPlanning2Page .urgent-planning-calendar-note{font-size:13px;line-height:1.5;color:#425f75;margin:6px 0 12px}
-#urgentPlanning2Page .urgent-planning-weekdays,#urgentPlanning2Page .urgent-planning-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
-#urgentPlanning2Page .urgent-planning-weekdays{margin-bottom:5px;font-size:13px;font-weight:650;text-align:center}
-#urgentPlanning2Page .urgent-planning-day{padding:9px 7px;min-height:112px;min-width:0;background:#f5f9fc;border:1px solid #dce7f0;border-radius:8px;overflow-wrap:anywhere}
-#urgentPlanning2Page .urgent-planning-day.outside-month{background:#fff;color:#677e90}
-#urgentPlanning2Page .urgent-planning-day.is-today{border:2px solid #237aa3;padding:8px 6px}
-#urgentPlanning2Page time{display:block;font-size:13px;font-weight:650;margin-bottom:9px}
-#urgentPlanning2Page dl{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:5px;margin:0}
-#urgentPlanning2Page dt{font-size:12px;color:#425f75}
-#urgentPlanning2Page dd{margin:0;font-weight:650;font-size:15px;font-variant-numeric:tabular-nums}
-@media(max-width:1000px){#urgentPlanning2Page dl{grid-template-columns:minmax(0,1fr);gap:1px}#urgentPlanning2Page dd+dt{margin-top:5px}}
-@media(max-width:640px){#urgentPlanning2Page .urgent-planning-calendar{padding:10px}#urgentPlanning2Page .urgent-planning-calendar-scroll{overflow-x:auto}#urgentPlanning2Page .urgent-planning-calendar-sheet{min-width:665px}}
+#urgentPlanning2Page .urgent-planning-calendar-note{font-size:12px;line-height:1.35;color:#425f75;margin:4px 0 6px}
+#urgentPlanning2Page .urgent-planning-colour-key{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:#425f75;margin:0 0 8px}
+#urgentPlanning2Page .urgent-planning-ramp{width:100px;height:7px;border-radius:5px;background:linear-gradient(90deg,#239d63,#deb932,#cc4248)}
+#urgentPlanning2Page .urgent-planning-calendar-scroll{flex:1;min-height:0;overflow:auto}
+#urgentPlanning2Page .urgent-planning-calendar-sheet{height:100%;display:flex;flex-direction:column;min-width:700px}
+#urgentPlanning2Page .urgent-planning-weekdays,#urgentPlanning2Page .urgent-planning-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+#urgentPlanning2Page .urgent-planning-weekdays{background:#f3f6fa;border:1px solid #dce7f0;border-bottom:0;font-size:12px;font-weight:650;text-align:right}
+#urgentPlanning2Page .urgent-planning-weekdays span{padding:5px 9px}
+#urgentPlanning2Page .urgent-planning-grid{flex:1;min-height:0;border-top:1px solid #dce7f0;border-left:1px solid #dce7f0;grid-template-rows:repeat(var(--calendar-week-rows,5),minmax(0,1fr))}
+#urgentPlanning2Page .urgent-planning-day{box-sizing:border-box;padding:4px 7px;min-width:0;min-height:0;background:#fff;border-right:1px solid #dce7f0;border-bottom:1px solid #dce7f0;overflow-wrap:anywhere}
+#urgentPlanning2Page .urgent-planning-day.is-weekend{background:#f3f6fa}
+#urgentPlanning2Page .urgent-planning-day.outside-month{background:#fafbfd;color:#677e90}
+#urgentPlanning2Page .urgent-planning-day.is-today{box-shadow:inset 0 0 0 2px #237aa3}
+#urgentPlanning2Page time{display:block;text-align:right;font-size:12px;font-weight:650;margin-bottom:3px}
+#urgentPlanning2Page dl{margin:0;display:grid;gap:2px}
+#urgentPlanning2Page .urgent-planning-value{display:flex;justify-content:space-between;gap:3px;align-items:baseline;min-width:0}
+#urgentPlanning2Page .urgent-planning-appointments{padding:2px 4px;margin-inline:-4px;border-radius:4px;background:color-mix(in srgb,var(--appointment-shade,transparent) 29%,white)}
+#urgentPlanning2Page dt{font-size:11px;color:#425f75}
+#urgentPlanning2Page dd{margin:0;font-weight:650;font-size:13px;font-variant-numeric:tabular-nums}
+@media(max-width:640px){#urgentPlanning2Page .urgent-planning-calendar{padding:10px;height:max(500px,50vh)}}
