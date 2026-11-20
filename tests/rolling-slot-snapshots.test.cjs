@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {reconcile}=require('../rolling-slot-snapshots.js');
+const {reconcile,validateNewFullReport}=require('../rolling-slot-snapshots.js');
 const add=(m,k,n)=>m.set(JSON.stringify(k),(m.get(JSON.stringify(k))||0)+n);
 function contribution(rows,snapshotFrom){
  const maps=Array.from({length:8},()=>new Map());
@@ -21,6 +21,12 @@ const baseline=entry('old','2026-11-08',contribution([{date:'2026-11-01',status:
 const w1=entry('week1','2026-11-16',contribution([{date:'2026-11-10',status:'Booked',count:2},{date:'2026-11-17',status:'Blocked',count:3},{date:'2026-11-22',status:'Available',count:4}],'2026-11-09'));
 const w2=entry('week2','2026-11-20',contribution([{date:'2026-11-17',status:'Booked',count:5},{date:'2026-11-23',status:'Available',count:1}],'2026-11-13'));
 const combined=es=>{const counts=new Map();for(const e of reconcile(es))for(const [key,value] of e.contribution.maps[1]){const [d,,s]=JSON.parse(key);counts.set(d+' '+s,(counts.get(d+' '+s)||0)+value)}return Object.fromEntries(counts)};
+const fullReport=contribution([{date:'2026-01-02',status:'Booked',count:3},{date:'2026-11-28',status:'Available',count:1}]);
+const earlier=entry('old','2025-12-31',contribution([{date:'2025-12-31',status:'Booked',count:1}]));
+assert.deepEqual(validateNewFullReport(fullReport,[earlier]),{first:'2026-01-02',last:'2026-11-28'});
+assert.throws(()=>validateNewFullReport(fullReport,[entry('other','2026-01-03',contribution([{date:'2026-01-02',status:'Available',count:1}]))]),/overlaps/);
+const savedWeek=entry('week','2026-11-20',contribution([{date:'2026-11-19',status:'Booked',count:1}],'2026-11-13'));
+assert.throws(()=>validateNewFullReport(fullReport,[savedWeek]),/weekly snapshot/);
 assert.deepEqual(combined([baseline,w1]),{'2026-11-01 Booked':3,'2026-11-10 Booked':2,'2026-11-17 Blocked':3,'2026-11-22 Available':4});
 assert.deepEqual(combined([w2,baseline,w1]),{'2026-11-17 Booked':5,'2026-11-23 Available':1,'2026-11-01 Booked':3,'2026-11-10 Booked':2});
 const effective=reconcile([baseline,w1,w2]);assert.equal([...effective[0].contribution.maps[0].values()].reduce((a,b)=>a+b,0),3);assert.equal([...effective[1].contribution.maps[0].values()].reduce((a,b)=>a+b,0),2);assert.equal([...effective[2].contribution.maps[0].values()].reduce((a,b)=>a+b,0),5);

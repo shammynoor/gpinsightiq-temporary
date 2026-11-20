@@ -67,5 +67,19 @@ function validateHistoricalReplacement(original,replacement){
  if(!first||!newFirst||newFirst<first||newLast>last)throw Error('The replacement contains dates outside the original report. Existing reports are unchanged.');
  return {first,last,newFirst,newLast};
 }
-const api={reconcile,validateHistoricalReplacement};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPRollingSlots=api;
+function validateNewFullReport(report,entries){
+ if(report?.kind!=='slot'||!isMap(report.maps?.[1]))throw Error('The report cannot be checked safely.');
+ const dates=new Set([...report.maps[1].keys()].map(key=>JSON.parse(key)[0]));
+ if(!dates.size)throw Error('No appointment dates were found.');
+ const ordered=[...dates].sort(),first=ordered[0],last=ordered.at(-1);
+ for(const entry of entries){
+  const c=entry.contribution;if(c?.kind!=='slot')continue;
+  if(!isMap(c.maps?.[1]))throw Error('An existing report cannot be checked safely. No data was changed.');
+  // A weekly snapshot is complete from its start, including removed slots.
+  if(c.snapshotType==='rolling-weekly'&&(!/^\d{4}-\d{2}-\d{2}$/.test(c.snapshotFrom||'')||last>=c.snapshotFrom))throw Error('This full report overlaps the coverage of a saved weekly snapshot. No data was changed.');
+  for(const key of c.maps[1].keys())if(dates.has(JSON.parse(key)[0]))throw Error('This full report overlaps an existing Slot Report. No data was changed.');
+ }
+ return {first,last};
+}
+const api={reconcile,validateHistoricalReplacement,validateNewFullReport};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPRollingSlots=api;
 })(typeof window!=='undefined'?window:globalThis);

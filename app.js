@@ -6055,16 +6055,15 @@ async function replaceExistingCSV(file){
    }
    GPRollingSlots.reconcile(entries);
    if(!confirm('Replace the historical report '+existing.source_name+'? The new file must be a complete replacement for '+bounds.first+' to '+bounds.last+'. Existing records in this report will be replaced; later weekly snapshots remain authoritative where they overlap.'))return;
-  }else if(kind==='slot'&&hasSlotHistory&&!existing&&[...contribution.maps[1].keys()].every(key=>JSON.parse(key)[0]<GPCorrectness.shift(GPCorrectness.londonDate(clinical),-7))){
-   const dates=new Set([...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]));
+  }else if(kind==='slot'&&hasSlotHistory&&!existing&&[...contribution.maps[1].keys()].some(key=>JSON.parse(key)[0]<GPCorrectness.shift(GPCorrectness.londonDate(clinical),-7))){
+   const entries=[];
    for(const source of iqSources.filter(row=>row.kind==='slot')){
     let entry=iqContributions.get(source.source_key);
     if(!entry||entry.revision!==source.revision)entry={revision:source.revision,value:await iqBridge.read(source.source_key)};
-    if(!entry.value?.maps?.[1]||Object.prototype.toString.call(entry.value.maps[1])!=='[object Map]')throw Error('An existing report cannot be checked safely. No data was changed.');
-    for(const key of entry.value.maps[1].keys())if(dates.has(JSON.parse(key)[0]))throw Error('This historical report overlaps an existing Slot Report. No data was changed; replace the existing report instead.');
+    entries.push({key:source.source_key,clinicalAt:source.clinical_at,contribution:entry.value});
    }
-   const ordered=[...dates].sort();
-   if(!confirm('Add this historical Slot Report for '+ordered[0]+' to '+ordered.at(-1)+'? Its appointment dates do not overlap existing Slot Reports.'))return;
+   const bounds=GPRollingSlots.validateNewFullReport(contribution,entries);
+   if(!confirm('Add this complete Slot Report for '+bounds.first+' to '+bounds.last+'? It includes historical appointments and does not overlap any saved Slot Report. Confirm that it contains all appointments for this period.'))return;
   }else if(kind==='slot'&&hasSlotHistory){
    const reportDate=GPCorrectness.londonDate(clinical),from=GPCorrectness.shift(reportDate,-7);
    const dates=[...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]).sort();
