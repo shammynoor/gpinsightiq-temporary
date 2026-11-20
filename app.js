@@ -2060,21 +2060,31 @@ function parseSignpostingDate(raw){
  if(iso){const dt=new Date(value+'T00:00:00Z');if(!isNaN(dt)&&dt.toISOString().slice(0,10)===value)return value}
  return '';
 }
+const SIGNPOSTING_REQUIRED_COLUMNS=['Anonymised Identifier','Age','Gender','Date',"Consultation Details' Time",'Code Term'];
+function signpostingHeader(rows){
+ const canonical=new Map(SIGNPOSTING_REQUIRED_COLUMNS.map(name=>[name.toLowerCase(),name]));
+ for(let i=0;i<Math.min(rows.length,100);i++){
+  if(!Array.isArray(rows[i]))continue;
+  const columns=rows[i].map(value=>{const label=String(value||'').replace(/^\uFEFF/,'').trim().replace(/\s+/g,' ');return canonical.get(label.toLowerCase())||label});
+  if(columns.includes('Code Term')&&(columns.includes('Date')||columns.includes('Anonymised Identifier')))return {index:i,columns};
+ }
+ return null;
+}
 function parseSignpostingCSV(csv){
- const parsed=Papa.parse(csv,{header:true,skipEmptyLines:false,bom:true});
- const required=['Anonymised Identifier','Age','Gender','Date',"Consultation Details' Time",'Code Term'];
- const headers=(parsed.meta.fields||[]).map(h=>h.trim());
- if(!required.every(col=>headers.includes(col)))throw Error('Signposting CSV is missing expected columns: '+required.filter(col=>!headers.includes(col)).join(', '));
- const previous=Object.fromEntries(required.map(k=>[k,'']));
- const results=[];
- for(const raw of parsed.data){
-  // Fill down EVERY column independently, including identifiers and demographics.
-  // Completely empty rows are ignored so they cannot become duplicate events.
-  const allFields=Object.keys(raw).filter(k=>k!=='__parsed_extra');
-  if(!allFields.some(k=>String(raw[k]??'').trim()))continue;
+ const parsed=Papa.parse(csv,{header:false,skipEmptyLines:false,bom:true});
+ const parseError=parsed.errors?.find(error=>error.code!=='UndetectableDelimiter');
+ if(parseError)throw Error('Signposting CSV parsing failed: '+parseError.message);
+ const header=signpostingHeader(parsed.data);
+ if(!header)throw Error('Signposting CSV headings were not found. No saved reports were changed.');
+ const missing=SIGNPOSTING_REQUIRED_COLUMNS.filter(col=>!header.columns.includes(col));
+ if(missing.length)throw Error('Signposting CSV is missing expected columns: '+missing.join(', '));
+ const previous=Object.fromEntries(SIGNPOSTING_REQUIRED_COLUMNS.map(key=>[key,''])),results=[];
+ for(const raw of parsed.data.slice(header.index+1)){
+  if(!Array.isArray(raw)||!raw.some(value=>String(value??'').trim()))continue;
   const row={};
-  for(const key of allFields){
-   const value=String(raw[key]??'').trim();
+  for(let i=0;i<header.columns.length;i++){
+   const key=header.columns[i];if(!key)continue;
+   const value=String(raw[i]??'').trim();
    if(value)previous[key]=value;
    row[key]=value||previous[key]||'';
   }
@@ -6029,7 +6039,8 @@ async function replaceExistingCSV(file){
   }
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
   if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);const refreshed=await loadFolder(true);iqUploadStatus.textContent=refreshed?'Rapid Health import finished.':'Rapid Health data saved, but the dashboard could not refresh. Refresh the page.';csvDropStatus(iqUploadStatus.textContent,!refreshed,false);return;}
-  const kind=headers.includes('Code Term')&&headers.includes('Date')?'signposting':'slot';
+  const preview=Papa.parse(text,{header:false,preview:100,skipEmptyLines:false,bom:true});
+  const kind=signpostingHeader(preview.data)||/signposting/i.test(file.name)?'signposting':'slot';
   const holderTokens=kind==='slot'?await GPSessionsHistory.holderTokens(parseSlotReportCSV(text),iqBridge.practice.id):null;
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv',holderTokens);
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;

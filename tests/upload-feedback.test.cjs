@@ -10,7 +10,7 @@ async function run(refreshOK){
  const maps=Array.from({length:8},()=>new Map());maps[1].set('test',2);
  const context={iqUploading:false,csvDropBusy:false,isOwner:true,iqUploadStatus:{textContent:''},iqSources:[],iqContributions:new Map(),
   iqBridge:{ensure:async()=>{},list:async()=>[],save:async entry=>saved.push(entry),practice:{name:'Test'}},
-  Papa:{parse:()=>({meta:{fields:[]}})},parseCSVContribution:()=>({kind:'slot',maps}),
+  Papa:{parse:()=>({meta:{fields:[]},data:[]})},signpostingHeader:()=>null,parseCSVContribution:()=>({kind:'slot',maps}),
   GPSessionsHistory:{holderTokens:async()=>new Map()},parseSlotReportCSV:()=>({columns:[],rows:[]}),
   confirm:()=>true,loadFolder:async()=>refreshOK,showRefreshFeedback:(message,loading)=>events.push({message,loading}),
   $:()=>statusEl,Date,Number,Map,JSON,Error};
