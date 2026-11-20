@@ -34,7 +34,9 @@ function allocateProjectedNeed(total,rows,key){
 }
 function calculateAchievable(rows){
  const keys=['urgent','routine','followup','visit'],empty=Object.fromEntries(keys.map(key=>[key,null]));
- if(!rows.length||rows.some(row=>!Number.isFinite(row.weeklySessions)||row.weeklySessions<0))return {values:empty,totalSessions:null,reason:'Enter sessions per week for every clinician type; enter 0 where none are planned.'};
+ if(!rows.length)return {values:empty,totalSessions:null,reason:'No clinician types are available.'};
+ rows=rows.map(row=>({...row,weeklySessions:row.weeklySessions==null?0:row.weeklySessions}));
+ if(rows.some(row=>!Number.isFinite(row.weeklySessions)||row.weeklySessions<0))return {values:empty,totalSessions:null,reason:'Sessions must be zero or more.'};
  const totals=Object.fromEntries(keys.map(key=>[key,0]));
  for(const row of rows){
   if(row.weeklySessions===0)continue;
@@ -43,8 +45,14 @@ function calculateAchievable(rows){
  }
  return {values:totals,totalSessions:rows.reduce((s,r)=>s+r.weeklySessions,0),reason:''};
 }
+function compareNeed(achievable,need){
+ if(!Number.isFinite(achievable))return {kind:'unavailable',amount:null};
+ if(!Number.isFinite(need))return {kind:'noForecast',amount:null};
+ const difference=Math.round((achievable-need)*10)/10;
+ return difference<0?{kind:'shortfall',amount:-difference}:difference>0?{kind:'surplus',amount:difference}:{kind:'met',amount:0};
+}
 function averageWeeklyForecast(values){return values.length&&values.every(Number.isFinite)?values.reduce((sum,value)=>sum+value,0)/values.length:null}
-const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed,calculateAchievable};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
+const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed,calculateAchievable,compareNeed};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
 if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
@@ -110,7 +118,7 @@ function getForecast(horizon){
 let model=null,horizon=4,draft=null,draftKey=null;
 function cell(row,value){const el=document.createElement('td');el.textContent=value;row.append(el);return el}
 function input(row,field,value,label){
- const td=document.createElement('td'),el=document.createElement('input');el.type='number';el.min='0';el.step='any';el.className='staffing-input';el.setAttribute('aria-label',label);el.value=Number.isFinite(value)?String(Math.round(value*100)/100):'';el.dataset.field=field;td.append(el);row.append(td);return el;
+ const td=document.createElement('td'),el=document.createElement('input');el.type='number';el.min='0';el.step='any';el.className='staffing-input';el.setAttribute('aria-label',label);el.value=Number.isFinite(value)?String(Math.round(value*100)/100):'';el.dataset.field=field;if(field==='weeklySessions')el.placeholder='0';td.append(el);row.append(td);return el;
 }
 function readRows(){
  return [...$('staffingRows').querySelectorAll('tr[data-name]')].map(tr=>{
@@ -121,9 +129,13 @@ function readRows(){
 function update(){
  if(!model)return;
  const rows=readRows(),result=calculateAchievable(rows);
- for(const [key,label] of [['urgent','Urgent'],['routine','Routine'],['followup','Followup'],['visit','Visit']])$('staffingAchievable'+label).textContent=number(result.values[key]);
+ for(const [key,label] of [['urgent','Urgent'],['routine','Routine'],['followup','Followup'],['visit','Visit']]){
+  const value=result.values[key],indicator=$('staffingGap'+label),comparison=compareNeed(value,model.need[key]);
+  $('staffingAchievable'+label).textContent=number(value);indicator.className='staffing-gap '+comparison.kind;
+  indicator.textContent=comparison.kind==='shortfall'?'⚠ '+number(comparison.amount)+' below need':comparison.kind==='surplus'?number(comparison.amount)+' above need':comparison.kind==='met'?'Meets need':comparison.kind==='noForecast'?'Forecast unavailable':'Capacity unavailable';
+ }
  $('staffingTotalSessions').textContent=number(result.totalSessions);
- $('staffingValidation').textContent=result.reason||'Achievable appointments use the unrounded historical bookings per session.';
+ $('staffingValidation').textContent=result.reason||'Blank sessions count as zero. Achievable appointments use unrounded historical rates.';
 }
 function render(){
  if(!isOwner)return;
@@ -134,10 +146,10 @@ function render(){
  for(const [key,label] of [['urgent','Urgent'],['routine','Routine'],['followup','Followup'],['visit','Visit']])$('staffingProjected'+label).textContent=number(Number.isFinite(forecast.projected[key])?forecast.projected[key]/horizon:null);
  $('staffingForecastNote').textContent=forecast.urgentOverlap?'Urgent forecast selection overlaps with follow-up or home visits; review the urgent forecast selection.':'— means a forecast is unavailable.';
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
- if(history.error||!history.rows.length){model=null;for(const id of ['staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingTotalSessions','staffingAchievableUrgent','staffingAchievableRoutine','staffingAchievableFollowup','staffingAchievableVisit'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
+ if(history.error||!history.rows.length){model=null;for(const id of ['staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingTotalSessions','staffingAchievableUrgent','staffingAchievableRoutine','staffingAchievableFollowup','staffingAchievableVisit'])$(id).textContent='—';for(const label of ['Urgent','Routine','Followup','Visit']){const el=$('staffingGap'+label);el.className='staffing-gap unavailable';el.textContent='Capacity unavailable'}$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
  $('staffingHistoryNote').textContent='Based on '+history.weeks+' complete recent weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Sessions: before 1pm or from 2pm.';
  const saved=draft||readChartPreferences()['staffingPlanner:weeklySessions']||{};
- model={historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
+ model={historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row])),need:Object.fromEntries(Object.entries(forecast.projected).map(([key,total])=>[key,Number.isFinite(total)?total/horizon:null]))};
  const groupNames=[...clinicianGroupNames,'Uncategorised'];
  const ordered=[...history.rows].sort((a,b)=>groupNames.indexOf(a.group)-groupNames.indexOf(b.group)||a.name.localeCompare(b.name));
  let currentGroup=null;

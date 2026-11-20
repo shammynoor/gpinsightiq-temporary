@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed,calculateAchievable}=require('../workforce-planner.js');
+const {calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed,calculateAchievable,compareNeed}=require('../workforce-planner.js');
 const demand={urgent:40,routine:60};
 const rows=[{name:'GP',urgent:0,routine:100,perSession:12,perWte:6},{name:'Urgent team',urgent:100,routine:0,perSession:10,perWte:4}];
 test('allocates forecasts and derives sessions and WTE from editable assumptions',()=>{
@@ -61,10 +61,20 @@ test('weekly achievable appointments multiply each type’s historical rate by p
  assert.deepEqual(result.values,{urgent:12.4,routine:9.6,followup:16,visit:1.2});
  assert.equal(result.totalSessions,6);
 });
-test('blank or invalid planned sessions and missing rates never imply complete capacity',()=>{
+test('blank planned sessions count as zero, while invalid and missing historical rates remain unavailable',()=>{
  const history={sessions:1,urgentCount:2,routineCount:3,followupCount:1,visitCount:0};
- assert.equal(calculateAchievable([{weeklySessions:null,history}]).values.urgent,null);
+ assert.equal(calculateAchievable([{weeklySessions:null,history}]).values.urgent,0);
+ assert.equal(calculateAchievable([{weeklySessions:null,history},{weeklySessions:2,history}]).values.urgent,4);
+ assert.equal(calculateAchievable([{weeklySessions:null,history},{weeklySessions:2,history}]).totalSessions,2);
  assert.equal(calculateAchievable([{weeklySessions:-1,history}]).values.urgent,null);
  assert.equal(calculateAchievable([{weeklySessions:3,history:{sessions:0}}]).values.urgent,null);
  assert.deepEqual(calculateAchievable([{weeklySessions:0,history:{sessions:0}}]).values,{urgent:0,routine:0,followup:0,visit:0});
+});
+
+test('compares achievable weekly appointments to the forecast',()=>{
+ assert.deepEqual(compareNeed(288.4,747.3),{kind:'shortfall',amount:458.9});
+ assert.deepEqual(compareNeed(110,100),{kind:'surplus',amount:10});
+ assert.deepEqual(compareNeed(100,100),{kind:'met',amount:0});
+ assert.equal(compareNeed(100,null).kind,'noForecast');
+ assert.equal(compareNeed(null,100).kind,'unavailable');
 });
