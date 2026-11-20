@@ -144,25 +144,29 @@ function renderSessionsHistory(){
  if(!isOwner)return;
  const head=$('workforceSessionsHistoryHead'),body=$('workforceSessionsHistoryBody'),notice=$('workforceSessionsHistoryNotice');
  head.replaceChildren();body.replaceChildren();
- const result=sessionReport();
- if(!result.types.length){notice.textContent='No completed sessions with clinician names are available. Upload a Slot Report with the session-holder name column.';return;}
- notice.textContent='Weeks marked * have incomplete report coverage or booked appointments with missing clinician names or times. Their counts are minimums. Reports saved before this feature may need to be uploaded again.';
+ const year='2026',result=sessionReport(),yearly=result.yearWeekTotals.get(year)||new Map();
+ const weeks=[...(result.yearWeeks.get(year)||[])].sort().reverse();
+ const types=[...new Set([...yearly.values()].flatMap(values=>[...values.keys()]))].sort((a,b)=>a.localeCompare(b));
+ if(!types.length){notice.textContent='No completed 2026 sessions with clinician names are available.';return}
+ notice.textContent='';
  const heading=document.createElement('tr');
- for(const label of ['Week beginning',...result.types]){const th=document.createElement('th');th.scope='col';th.textContent=label;heading.append(th)}head.append(heading);
- for(const year of [...result.yearWeeks.keys()].sort().reverse()){
-  const yearly=result.yearWeekTotals.get(year)||new Map(),weeks=[...result.yearWeeks.get(year)].sort().reverse(),subtotal=new Map();let partial=false;
-  for(const week of weeks){
-   const row=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';
-   const end=new Date(week+'T12:00:00Z');end.setUTCDate(end.getUTCDate()+6);
-   const split=week.slice(0,4)!==year||String(end.getUTCFullYear())!==year;
-   heading.textContent=new Date(week+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+(split?' ('+year+' part)':'')+(result.incomplete.has(week)?' *':'');row.append(heading);
-   const values=yearly.get(week);partial||=result.incomplete.has(week);
-   for(const type of result.types){const cell=document.createElement('td'),value=values?.get(type)||0;subtotal.set(type,(subtotal.get(type)||0)+value);cell.textContent=result.incomplete.has(week)?(value?'≥'+value:'—'):String(value);row.append(cell)}
-   body.append(row);
-  }
-  const row=document.createElement('tr');row.className='workforce-team-total';const heading=document.createElement('th');heading.scope='row';heading.textContent=year+' subtotal'+(partial?' *':'');row.append(heading);
-  for(const type of result.types){const cell=document.createElement('td'),value=subtotal.get(type)||0;cell.textContent=partial?(value?'≥'+value:'—'):String(value);row.append(cell)}body.append(row);
+ for(const label of ['Week beginning',...types]){const th=document.createElement('th');th.scope='col';th.textContent=label;heading.append(th)}head.append(heading);
+ const subtotal=new Map();let partial=false;
+ for(const week of weeks){
+  const row=document.createElement('tr'),th=document.createElement('th');th.scope='row';
+  const end=new Date(week+'T12:00:00Z');end.setUTCDate(end.getUTCDate()+6);
+  const split=week.slice(0,4)!==year||String(end.getUTCFullYear())!==year;
+  th.textContent=new Date(week+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+(split?' ('+year+' part)':'')+(result.incomplete.has(week)?' *':'');
+  if(result.incomplete.has(week))th.title='Incomplete report coverage or missing clinician names or times; counts are minimums.';
+  row.append(th);const values=yearly.get(week);partial||=result.incomplete.has(week);
+  for(const type of types){const cell=document.createElement('td'),value=values?.get(type)||0;subtotal.set(type,(subtotal.get(type)||0)+value);cell.textContent=result.incomplete.has(week)?(value?'≥'+value:'—'):String(value);row.append(cell)}body.append(row);
  }
+ const total=document.createElement('tr');total.className='workforce-team-total';const totalHeading=document.createElement('th');totalHeading.scope='row';totalHeading.textContent='2026 total'+(partial?' *':'');if(partial)totalHeading.title='Includes incomplete weeks; totals are minimums.';total.append(totalHeading);
+ for(const type of types){const cell=document.createElement('td'),value=subtotal.get(type)||0;cell.textContent=partial?(value?'≥'+value:'—'):String(value);total.append(cell)}body.append(total);
+ const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
+ const completeWeeks=GPSessionsHistory.completeYearWeeks(result,year,clock.date,slotReportCoverage);
+ const average=document.createElement('tr');average.className='workforce-team-total';const averageHeading=document.createElement('th');averageHeading.scope='row';averageHeading.textContent='Average / week';averageHeading.title='Based on '+completeWeeks.length+' fully covered complete weeks in 2026; incomplete and year-split weeks are excluded.';average.append(averageHeading);
+ for(const type of types){const cell=document.createElement('td');cell.textContent=completeWeeks.length?decimal.format(completeWeeks.reduce((sum,week)=>sum+(yearly.get(week)?.get(type)||0),0)/completeWeeks.length):'—';average.append(cell)}body.append(average);
 }
 function renderAppointmentsHistory(){
  if(!isOwner)return;

@@ -83,3 +83,12 @@ test('sessions history rendering exits before accessing data for non-admins',()=
  const context=vm.createContext({isOwner:false,$:()=>{throw Error('Viewer must not access history')}});
  vm.runInContext(code,context);assert.doesNotThrow(()=>context.renderSessionsHistory());
 });
+
+test('weekly average includes covered zero-session weeks and excludes partial, incomplete and year-split weeks',()=>{
+ const {completeYearWeeks}=require('../sessions-history.js');
+ const result={incomplete:new Map([['2026-01-12',true]])};
+ const coverage=[{start:'2026-01-01',end:'2026-01-31',asOf:'2026-01-30'}];
+ assert.deepEqual(completeYearWeeks(result,'2026','2026-01-30',coverage),['2026-01-05','2026-01-19']);
+ assert.deepEqual(completeYearWeeks(result,'2026','2026-01-30',[{start:'2026-01-05',end:'2026-01-10'}]),[]);
+ assert.deepEqual(completeYearWeeks(result,'2026','2026-01-06',coverage),[]);
+});

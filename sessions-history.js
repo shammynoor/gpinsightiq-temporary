@@ -76,6 +76,20 @@ function appointmentHistory(rows,{date,minute},typeFor,locumFor,careFor,excluded
  }
  return {types:[...types].sort((a,b)=>a.localeCompare(b)),yearWeeks,yearWeekTotals,incomplete};
 }
+// Only whole, completely covered weeks can contribute to an unbiased weekly average.
+function completeYearWeeks(result,year,today,coverage){
+ if(!Array.isArray(coverage)||!/^\d{4}$/.test(String(year)))return [];
+ const first=String(year)+'-01-01',last=String(year)+'-12-31',monday=weekMonday(first);
+ const shift=(day,offset)=>{const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+offset);return d.toISOString().slice(0,10)};
+ const weeks=[];
+ for(let week=monday<first?shift(monday,7):monday;shift(week,6)<=last&&shift(week,6)<today;week=shift(week,7)){
+  if(result.incomplete.has(week))continue;
+  let full=true;
+  for(let offset=0;offset<7;offset++){const day=shift(week,offset);if(!coverage.some(range=>range.start<=day&&range.end>=day&&(!range.asOf||range.asOf>=day))){full=false;break}}
+  if(full)weeks.push(week);
+ }
+ return weeks;
+}
 function weekMonday(date){const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7);return d.toISOString().slice(0,10)}
 function weeklySessionValue(result,year,type,coverageFraction,manual,workingWeeks=48){
  const automatic=result.observedYears.has(year)&&!result.missingYears.has(year)&&coverageFraction>0;
@@ -83,5 +97,5 @@ function weeklySessionValue(result,year,type,coverageFraction,manual,workingWeek
  const total=result.annualByType.get(year)?.get(type)||0;
  return {automatic:true,value:total/(workingWeeks*coverageFraction),total};
 }
-const api={holderTokens,calculate,appointmentHistory,holderColumn,weeklySessionValue};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPSessionsHistory=api;
+const api={holderTokens,calculate,appointmentHistory,completeYearWeeks,holderColumn,weeklySessionValue};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPSessionsHistory=api;
 })(typeof window!=='undefined'?window:globalThis);
