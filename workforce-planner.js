@@ -83,8 +83,11 @@ function update(){
   row.querySelector('[data-result="sessions"]').textContent=result.errors.length?'—':number(item.sessions);
   row.querySelector('[data-result="wte"]').textContent=result.errors.length?'—':number(item.wte);
  }
- $('staffingSessions').textContent=result.errors.length?'—':number(result.totalSessions);
- $('staffingWte').textContent=result.errors.length?'—':number(result.totalWte);
+ const totalPercentage=key=>rows.length&&rows.every(row=>Number.isFinite(row[key]))?number(rows.reduce((sum,row)=>sum+row[key],0))+'%':'—';
+ $('staffingTotalUrgent').textContent=totalPercentage('urgent');$('staffingTotalRoutine').textContent=totalPercentage('routine');
+ $('staffingTotalBookings').textContent=result.errors.length?'—':number(result.rows.reduce((sum,row)=>sum+row.appts,0));
+ $('staffingTotalSessions').textContent=$('staffingSessions').textContent=result.errors.length?'—':number(result.totalSessions);
+ $('staffingTotalWte').textContent=$('staffingWte').textContent=result.errors.length?'—':number(result.totalWte);
  $('staffingValidation').textContent=result.errors.join(' ')||(Number.isFinite(result.totalWte)?'':'Enter clinical sessions per WTE to calculate WTE.');
 }
 function render(){
@@ -97,7 +100,7 @@ function render(){
  $('staffingPeriod').textContent=forecast.start&&forecast.end?'Weekly average · weeks beginning '+forecast.start+' to '+forecast.end:'';
  $('staffingSource').textContent='Urgent types: '+(forecast.groups.join(', ')||'none')+'. Longer forecasts are less certain.';
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
- if(history.error||!history.rows.length){model=null;$('staffingSessions').textContent='—';$('staffingWte').textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
+ if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
  $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Urgent and routine bookings only; sessions are before 1pm or from 2pm, with at least one booking.';
  const saved=draft||readChartPreferences()['staffingPlanner:assumptions']||{};
  model={demand:{urgent:forecast.urgent,routine:forecast.routine}};
@@ -111,8 +114,9 @@ function render(){
   input(tr,'urgent',Object.hasOwn(prior,'urgent')?prior.urgent:data.urgent,data.name+' urgent allocation percent');
   input(tr,'routine',Object.hasOwn(prior,'routine')?prior.routine:data.routine,data.name+' routine allocation percent');
   input(tr,'perSession',Object.hasOwn(prior,'perSession')?prior.perSession:data.perSession,data.name+' bookings per session');
+  for(const key of ['appointments','sessions'])cell(tr,'—').dataset.result=key;
   input(tr,'perWte',Object.hasOwn(prior,'perWte')?prior.perWte:null,data.name+' patient-facing sessions per WTE');
-  for(const key of ['appointments','sessions','wte'])cell(tr,'—').dataset.result=key;
+  cell(tr,'—').dataset.result='wte';
   tr.addEventListener('input',()=>{draft=Object.fromEntries(readRows().map(({name,...values})=>[name,values]));$('staffingSaved').textContent='Changes not saved.';update()});body.append(tr);
  }
  update();
