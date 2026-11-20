@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {calculate,averageWeeklyForecast}=require('../workforce-planner.js');
+const {calculate,averageWeeklyForecast,historicalRate}=require('../workforce-planner.js');
 const demand={urgent:40,routine:60};
 const rows=[{name:'GP',urgent:0,routine:100,perSession:12,perWte:6},{name:'Urgent team',urgent:100,routine:0,perSession:10,perWte:4}];
 test('allocates forecasts and derives sessions and WTE from editable assumptions',()=>{
@@ -24,4 +24,12 @@ test('averages every forecast week and refuses incomplete horizons',()=>{
  assert.equal(averageWeeklyForecast(weeks),26.5);
  weeks[45]=undefined;assert.equal(averageWeeklyForecast(weeks),null);
  assert.equal(averageWeeklyForecast([]),null);
+});
+
+test('historical rates and totals use actual sessions as the denominator',()=>{
+ const types=[{urgentCount:30,routineCount:10,sessions:4},{urgentCount:10,routineCount:30,sessions:2}];
+ assert.equal(historicalRate([types[0]],'urgentCount'),7.5);
+ assert.equal(historicalRate([types[1]],'routineCount'),15);
+ assert.equal(historicalRate(types,'urgentCount'),40/6);
+ assert.equal(historicalRate([{urgentCount:0,sessions:0}],'urgentCount'),null);
 });

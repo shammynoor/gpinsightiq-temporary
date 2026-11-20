@@ -5,7 +5,7 @@ function calculate(demand,rows){
  for(const key of keys){
   if(!Number.isFinite(demand[key])||demand[key]<0){errors.push('Forecast unavailable for '+key+'.');continue}
   const sum=rows.reduce((n,r)=>n+(Number.isFinite(r[key])?r[key]:0),0);
-  if(demand[key]>0&&Math.abs(sum-100)>0.15)errors.push(key+' allocation must add up to 100%.');
+  if(demand[key]>0&&Math.abs(sum-100)>0.15)errors.push(sum===0?'No historical '+key+' bookings are available to distribute the forecast.':'Historical '+key+' bookings could not be reconciled.');
  }
  const results=rows.map(r=>{
   const appts=keys.reduce((sum,k)=>sum+demand[k]*(r[k]||0)/100,0);
@@ -17,8 +17,9 @@ function calculate(demand,rows){
  if(rows.some(r=>['perSession','perWte'].some(k=>r[k]!==null&&(!Number.isFinite(r[k])||r[k]<=0))))errors.push('Session rates must be positive, or left blank.');
  return {errors,rows:results,totalSessions:results.every(r=>Number.isFinite(r.sessions))?results.reduce((s,r)=>s+r.sessions,0):null,totalWte:results.every(r=>Number.isFinite(r.wte))?results.reduce((s,r)=>s+r.wte,0):null};
 }
+function historicalRate(rows,key){const sessions=rows.reduce((sum,row)=>sum+row.sessions,0);return sessions>0?rows.reduce((sum,row)=>sum+row[key],0)/sessions:null}
 function averageWeeklyForecast(values){return values.length&&values.every(Number.isFinite)?values.reduce((sum,value)=>sum+value,0)/values.length:null}
-const api={calculate,averageWeeklyForecast};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
+const api={calculate,averageWeeklyForecast,historicalRate};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
 if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
@@ -72,7 +73,8 @@ function input(row,field,value,label){
 function readRows(){
  return [...$('staffingRows').querySelectorAll('tr[data-name]')].map(tr=>{
   const value=field=>{const raw=tr.querySelector('[data-field="'+field+'"]').value;return raw.trim()===''?null:Number(raw)};
-  return {name:tr.dataset.name,urgent:value('urgent'),routine:value('routine'),perSession:value('perSession'),perWte:value('perWte')};
+  const history=model.history.get(tr.dataset.name);
+  return {name:tr.dataset.name,urgent:history.urgent,routine:history.routine,perSession:value('perSession'),perWte:value('perWte')};
  });
 }
 function update(){
@@ -83,8 +85,8 @@ function update(){
   row.querySelector('[data-result="sessions"]').textContent=result.errors.length?'—':number(item.sessions);
   row.querySelector('[data-result="wte"]').textContent=result.errors.length?'—':number(item.wte);
  }
- const totalPercentage=key=>rows.length&&rows.every(row=>Number.isFinite(row[key]))?number(rows.reduce((sum,row)=>sum+row[key],0))+'%':'—';
- $('staffingTotalUrgent').textContent=totalPercentage('urgent');$('staffingTotalRoutine').textContent=totalPercentage('routine');
+ $('staffingTotalUrgent').textContent=number(historicalRate(model.historyRows,'urgentCount'));
+ $('staffingTotalRoutine').textContent=number(historicalRate(model.historyRows,'routineCount'));
  $('staffingTotalBookings').textContent=result.errors.length?'—':number(result.rows.reduce((sum,row)=>sum+row.appts,0));
  $('staffingTotalSessions').textContent=$('staffingSessions').textContent=result.errors.length?'—':number(result.totalSessions);
  $('staffingTotalWte').textContent=$('staffingWte').textContent=result.errors.length?'—':number(result.totalWte);
@@ -101,9 +103,9 @@ function render(){
  $('staffingSource').textContent='Urgent types: '+(forecast.groups.join(', ')||'none')+'. Longer forecasts are less certain.';
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
  if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
- $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Urgent and routine bookings only; sessions are before 1pm or from 2pm, with at least one booking.';
+ $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Forecasts use the historical booking mix. Sessions are before 1pm or from 2pm, with at least one booking.';
  const saved=draft||readChartPreferences()['staffingPlanner:assumptions']||{};
- model={demand:{urgent:forecast.urgent,routine:forecast.routine}};
+ model={demand:{urgent:forecast.urgent,routine:forecast.routine},historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
  const groupNames=[...clinicianGroupNames,'Uncategorised'];
  const ordered=[...history.rows].sort((a,b)=>groupNames.indexOf(a.group)-groupNames.indexOf(b.group)||a.name.localeCompare(b.name));
  let currentGroup=null;
@@ -111,13 +113,13 @@ function render(){
   if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=8;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
   const tr=document.createElement('tr');tr.dataset.name=data.name;const title=document.createElement('th');title.scope='row';title.textContent=data.name;tr.append(title);
   const prior=saved[data.name]||{};
-  input(tr,'urgent',Object.hasOwn(prior,'urgent')?prior.urgent:data.urgent,data.name+' urgent allocation percent');
-  input(tr,'routine',Object.hasOwn(prior,'routine')?prior.routine:data.routine,data.name+' routine allocation percent');
+  cell(tr,number(historicalRate([data],'urgentCount')));
+  cell(tr,number(historicalRate([data],'routineCount')));
   input(tr,'perSession',Object.hasOwn(prior,'perSession')?prior.perSession:data.perSession,data.name+' bookings per session');
   for(const key of ['appointments','sessions'])cell(tr,'—').dataset.result=key;
   input(tr,'perWte',Object.hasOwn(prior,'perWte')?prior.perWte:null,data.name+' patient-facing sessions per WTE');
   cell(tr,'—').dataset.result='wte';
-  tr.addEventListener('input',()=>{draft=Object.fromEntries(readRows().map(({name,...values})=>[name,values]));$('staffingSaved').textContent='Changes not saved.';update()});body.append(tr);
+  tr.addEventListener('input',()=>{draft=Object.fromEntries(readRows().map(({name,perSession,perWte})=>[name,{perSession,perWte}]));$('staffingSaved').textContent='Changes not saved.';update()});body.append(tr);
  }
  update();
 }
@@ -126,8 +128,8 @@ document.addEventListener('DOMContentLoaded',()=>{
  $('staffingSave')?.addEventListener('click',()=>{
   if(!isOwner||!model)return;
   const rows=readRows(),result=calculate(model.demand,rows);
-  if(result.errors.length){$('staffingSaved').textContent='Correct the allocation before saving.';return}
-  const saved=Object.fromEntries(rows.map(({name,...values})=>[name,values]));
+  if(result.errors.length){$('staffingSaved').textContent='Check the forecast and historical data before saving.';return}
+  const saved=Object.fromEntries(rows.map(({name,perSession,perWte})=>[name,{perSession,perWte}]));
   draft=saved;writeChartPreference('staffingPlanner:assumptions',saved);$('staffingSaved').textContent='Scenario saved locally; account sync may take a moment.';
  });
 });
