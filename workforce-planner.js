@@ -24,8 +24,16 @@ function historicalCareType(type,category,planningCare){
  return planningCare;
 }
 function historicalRate(rows,key){const sessions=rows.reduce((sum,row)=>sum+row.sessions,0);return sessions>0?rows.reduce((sum,row)=>sum+row[key],0)/sessions:null}
+function allocateProjectedNeed(total,rows,key){
+ if(!Number.isFinite(total)||total<0)return rows.map(()=>null);
+ const counts=rows.map(row=>Number.isFinite(row[key])&&row[key]>=0?row[key]:null);
+ if(counts.some(value=>value===null))return rows.map(()=>null);
+ const sum=counts.reduce((a,b)=>a+b,0);
+ if(!sum)return rows.map(()=>total===0?0:null);
+ return counts.map(value=>total*value/sum);
+}
 function averageWeeklyForecast(values){return values.length&&values.every(Number.isFinite)?values.reduce((sum,value)=>sum+value,0)/values.length:null}
-const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
+const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
 if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
@@ -75,9 +83,18 @@ function getForecast(horizon){
  const u=weeks.map(week=>byWeek.get(week));
  const selected=urgent?.groups||[];
  const routineTypes=groupUrgencyNames.filter(name=>isDashboardToggleOption(name)&&appointmentCategoryFor(name).trim().toLowerCase()!=='urgent care'&&appointmentCalculationRole(name)==='routine');
- const predictor=window.getHomeOverviewPredictor?.(routineTypes);
- const r=weeks.map((week,i)=>predictor?.range?.(week,true,.85,i+1)?.estimate);
- return {urgentGroups:new Set(selected),urgent:averageWeeklyForecast(u.map(row=>row?.estimate)),routine:averageWeeklyForecast(r),start:weeks[0],end:weeks.at(-1),groups:selected};
+ const weeklyAverage=names=>{if(!names.length)return null;const predictor=window.getHomeOverviewPredictor?.(names);return averageWeeklyForecast(weeks.map((week,i)=>predictor?.range?.(week,true,.85,i+1)?.estimate))};
+ const routine=weeklyAverage(routineTypes);
+ const categoryOf=name=>historicalCareType(name,appointmentCategoryFor(name),appointmentCalculationRole(name));
+ const options=groupUrgencyNames.filter(isDashboardToggleOption);
+ const followupTypes=options.filter(name=>categoryOf(name)==='followup'),visitTypes=options.filter(name=>categoryOf(name)==='visit');
+ const routineOnly=routineTypes.filter(name=>categoryOf(name)==='routine');
+ const urgentOverlap=selected.some(name=>['followup','visit'].includes(categoryOf(name)));
+ const urgentAverage=averageWeeklyForecast(u.map(row=>row?.estimate));
+ const projected={urgent:urgentOverlap?null:Number.isFinite(urgentAverage)?urgentAverage*horizon:null,routine:Number.isFinite(routine)&&routineOnly.length===routineTypes.length?routine*horizon:null,followup:null,visit:null};
+ if(routineOnly.length!==routineTypes.length){const average=weeklyAverage(routineOnly);projected.routine=Number.isFinite(average)?average*horizon:null}
+ for(const [key,names] of [['followup',followupTypes],['visit',visitTypes]]){const average=weeklyAverage(names);projected[key]=Number.isFinite(average)?average*horizon:null}
+ return {urgentGroups:new Set(selected),urgent:urgentAverage,routine,projected,start:weeks[0],end:weeks.at(-1),groups:selected,urgentOverlap};
 }
 let model=null,horizon=4,draft=null,draftKey=null;
 function cell(row,value){const el=document.createElement('td');el.textContent=value;row.append(el);return el}
@@ -94,6 +111,11 @@ function readRows(){
 function update(){
  if(!model)return;
  const rows=readRows(),result=calculate(model.demand,rows),body=$('staffingRows'),dataRows=body.querySelectorAll('tr[data-name]');
+ for(const [care,field,label] of [['urgent','urgentCount','Urgent'],['routine','routineCount','Routine'],['followup','followupCount','Followup'],['visit','visitCount','Visit']]){
+  const values=allocateProjectedNeed(model.projected[care],rows.map(row=>model.history.get(row.name)),field);
+  for(let i=0;i<dataRows.length;i++)dataRows[i].querySelector('[data-projection="'+care+'"]').textContent=number(values[i]);
+  $('staffingProjected'+label).textContent=number(model.projected[care]);
+ }
  for(let i=0;i<result.rows.length;i++){
   const row=dataRows[i],item=result.rows[i];row.querySelector('[data-result="appointments"]').textContent=result.errors.length?'—':number(item.appts);
   row.querySelector('[data-result="sessions"]').textContent=result.errors.length?'—':number(item.sessions);
@@ -115,21 +137,22 @@ function render(){
  const forecast=getForecast(horizon),history=loadHistory(forecast.urgentGroups);
  $('staffingUrgent').textContent=number(forecast.urgent);$('staffingRoutine').textContent=number(forecast.routine);
  $('staffingDemand').textContent=Number.isFinite(forecast.urgent)&&Number.isFinite(forecast.routine)?number(forecast.urgent+forecast.routine):'—';
- $('staffingPeriod').textContent=forecast.start&&forecast.end?'Weekly average · weeks beginning '+forecast.start+' to '+forecast.end:'';
- $('staffingSource').textContent='Urgent types: '+(forecast.groups.join(', ')||'none')+'. Longer forecasts are less certain.';
+ $('staffingPeriod').textContent=forecast.start&&forecast.end?'Weeks beginning '+forecast.start+' to '+forecast.end+' · projected need is for the full period; staffing figures are per week.':'';
+ $('staffingSource').textContent='Urgent types: '+(forecast.groups.join(', ')||'none')+'. Projected need is split by recent historical bookings. — means a forecast or historical split is unavailable. Longer forecasts are less certain.'+(forecast.urgentOverlap?' Urgent types overlap follow-up or home visits; review the urgent forecast selection.':'');
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
- if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
- $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. The forecast does not add separate demand for follow-ups or home visits. Sessions are before 1pm or from 2pm, with at least one booking.';
+ if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingProjectedUrgent','staffingProjectedRoutine','staffingProjectedFollowup','staffingProjectedVisit','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
+ $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Weekly staffing estimates use the existing urgent and routine forecasts. Sessions are before 1pm or from 2pm, with at least one booking.';
  const saved=draft||readChartPreferences()['staffingPlanner:assumptions']||{};
- model={demand:{urgent:forecast.urgent,routine:forecast.routine},historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
+ model={demand:{urgent:forecast.urgent,routine:forecast.routine},projected:forecast.projected,historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
  const groupNames=[...clinicianGroupNames,'Uncategorised'];
  const ordered=[...history.rows].sort((a,b)=>groupNames.indexOf(a.group)-groupNames.indexOf(b.group)||a.name.localeCompare(b.name));
  let currentGroup=null;
  for(const data of ordered){
-  if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=10;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
+  if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=14;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
   const tr=document.createElement('tr');tr.dataset.name=data.name;const title=document.createElement('th');title.scope='row';title.textContent=data.name;tr.append(title);
   const prior=saved[data.name]||{};
   for(const field of ['urgentCount','routineCount','followupCount','visitCount']){const td=cell(tr,''),value=document.createElement('span');value.className='staffing-history-value';value.textContent=number(historicalRate([data],field));td.append(value)}
+  for(const care of ['urgent','routine','followup','visit'])cell(tr,'—').dataset.projection=care;
   input(tr,'perSession',Object.hasOwn(prior,'perSession')?prior.perSession:data.perSession,data.name+' bookings per session');
   for(const key of ['appointments','sessions'])cell(tr,'—').dataset.result=key;
   input(tr,'perWte',Object.hasOwn(prior,'perWte')?prior.perWte:null,data.name+' patient-facing sessions per WTE');

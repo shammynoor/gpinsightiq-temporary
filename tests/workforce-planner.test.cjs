@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {calculate,averageWeeklyForecast,historicalRate,historicalCareType}=require('../workforce-planner.js');
+const {calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed}=require('../workforce-planner.js');
 const demand={urgent:40,routine:60};
 const rows=[{name:'GP',urgent:0,routine:100,perSession:12,perWte:6},{name:'Urgent team',urgent:100,routine:0,perSession:10,perWte:4}];
 test('allocates forecasts and derives sessions and WTE from editable assumptions',()=>{
@@ -42,4 +42,14 @@ test('separates follow-up and home visit types from routine and urgent bookings'
  assert.equal(historicalCareType('Routine','Routine Care','routine'), 'routine');
  assert.equal(historicalCareType('Same Day','Urgent Care','urgent'), 'urgent');
  assert.equal(historicalCareType('Other','Other',''), '');
+});
+
+test('allocates total projected need across historical clinician shares',()=>{
+ const rows=[{urgentCount:30,followupCount:10},{urgentCount:70,followupCount:0}];
+ assert.deepEqual(allocateProjectedNeed(400,rows,'urgentCount'),[120,280]);
+ assert.deepEqual(allocateProjectedNeed(12,rows,'followupCount'),[12,0]);
+ assert.deepEqual(allocateProjectedNeed(null,rows,'urgentCount'),[null,null]);
+ assert.deepEqual(allocateProjectedNeed(12,rows,'visitCount'),[null,null]);
+ assert.deepEqual(allocateProjectedNeed(12,[{visitCount:0}],'visitCount'),[null]);
+ assert.deepEqual(allocateProjectedNeed(0,[{visitCount:0}],'visitCount'),[0]);
 });
