@@ -138,7 +138,7 @@ function setupResponsiveHeader(){
 
 function applyAccessMode(){
  document.body.classList.toggle('viewer-mode',!isOwner);
- for(const id of ['navCategories','navPeople','navPracticeSettings','chooseFolder','sourceSetup']){const el=document.getElementById(id);if(el)el.hidden=!isOwner}
+ for(const id of ['navCategories','navPeople','navPracticeSettings','navStaffingPlanner','chooseFolder','sourceSetup']){const el=document.getElementById(id);if(el)el.hidden=!isOwner}
  const label=document.getElementById('accessRoleLabel');if(label)label.textContent=iqBridge?.platformAdmin?'Platform administrator':isOwner?'Practice administrator':'Practice viewer';
 }
 async function identifyOwner(){
@@ -4391,13 +4391,13 @@ $('dayView2Today')?.addEventListener('click',()=>{chooseDayView2Date(dayView2Wor
 $('dayView2Previous')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),-1));});
 $('dayView2Next')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),1));});
 
-const workspacePages=[['urgentPlanning2Page','navUrgentPlanning2','urgentPlanning2'],['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['sessionSettingsPage','navSessionSettings','sessionSettings'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
+const workspacePages=[['urgentPlanning2Page','navUrgentPlanning2','urgentPlanning2'],['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['staffingPlannerPage','navStaffingPlanner','staffingPlanner'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['sessionSettingsPage','navSessionSettings','sessionSettings'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
 function showPage(which,{historyMode='push'}={}){
  if(which==='dayView2')which='dayView';
  if(which==='chart2')which='chart';
  const forecastMode=which==='dailyForecast'?'daily':which==='weeklyForecast'?'weekly':null;
  const known=forecastMode||which==='chart2'||workspacePages.some(([, , name])=>name===which);
- if(!known||(!isOwner&&['categories','people','sessionSettings','practiceSettings'].includes(which))){
+ if(!known||(!isOwner&&['categories','people','sessionSettings','practiceSettings','staffingPlanner'].includes(which))){
   if(historyMode!=='push')showPage('home',{historyMode});
   return;
  }
@@ -4424,6 +4424,7 @@ function showPage(which,{historyMode='push'}={}){
  if(which==='urgentPlanning2')window.renderUrgentPlanningCalendar?.();
  if(which==='workforceNeed')window.renderWeeklyPlanning?.();
  if(which==='workforcePlanning')window.renderWorkforcePlanning?.();
+ if(which==='staffingPlanner')window.renderStaffingPlanner?.();
  if(which==='home'){updateHomePracticeName();window.updateHomeOverview?.();}
  if(pageName==='chart')setTimeout(()=>{refresh();scheduleChartResize()},0);
  else if(which==='waitingTimes')setTimeout(renderWaitingTimesChart,0);
@@ -4449,7 +4450,7 @@ $('historicBreakdown').addEventListener('click',event=>{
  if(window.Plotly)Plotly.purge($('combinedDemandChart'));
  scheduleDemandRefresh();
 });
-$('navWorkforcePlanning').onclick=()=>showPage('workforcePlanning');
+$('navWorkforcePlanning').onclick=()=>showPage('workforcePlanning');$('navStaffingPlanner').onclick=()=>showPage('staffingPlanner');
 document.getElementById('navWorkforceNeed').onclick=()=>showPage('workforceNeed');document.getElementById('navHome').onclick=()=>showPage('home');document.getElementById('navRoutineCapacity').onclick=()=>showPage('routineCapacity');document.getElementById('navChart').onclick=()=>showPage('chart');document.getElementById('navWaitingTimes').onclick=()=>showPage('waitingTimes');document.getElementById('navWaitingTrend').onclick=()=>showPage('waitingTrend');document.getElementById('navCategories').onclick=()=>showPage('categories');document.getElementById('navAvailability').onclick=()=>showPage('availability');document.getElementById('navRoutineAvailability').onclick=()=>showPage('routineAvailability');
 document.getElementById('navDayView2').onclick=()=>showPage('dayView');document.getElementById('navBookingTimes').onclick=()=>showPage('bookingTimes');document.getElementById('navSignposting').onclick=()=>showPage('signposting');document.getElementById('navRapidHealth').onclick=()=>showPage('rapidHealth');document.getElementById('navPeople').onclick=()=>showPage('people');document.getElementById('navSessionSettings').onclick=()=>showPage('sessionSettings');document.getElementById('navPracticeSettings').onclick=()=>showPage('practiceSettings');document.getElementById('navPersonalSettings').onclick=()=>showPage('personalSettings');$('personalSettingsForm').addEventListener('submit',savePersonalSettings);$('historicStackedArea')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('demandCombineLines')?.addEventListener('change',()=>{const chart=$('combinedDemandChart');if(chart&&window.Plotly)Plotly.purge(chart);scheduleDemandRefresh();});$('slotTableSearch').addEventListener('input',renderSlotTable);for(const id of ['slotGroupFilter','slotModeFilter','slotPurposeFilter','slotCapacityFilter'])$(id)?.addEventListener('change',renderSlotTable);$('slotUnassignedOnly').addEventListener('change',renderSlotTable);$('slotModeUnassignedOnly').addEventListener('change',renderSlotTable);$('slotPurposeUnassignedOnly')?.addEventListener('change',renderSlotTable);$('slotCapacityUnassignedOnly')?.addEventListener('change',renderSlotTable);$('peopleSearch').addEventListener('input',renderPeople);$('peopleGroupFilter').addEventListener('change',renderPeople);$('peopleUnassignedOnly').addEventListener('change',()=>{const only=$('peopleUnassignedOnly').checked;$('peopleGroupFilter').disabled=only;renderPeople()});
 function renderSessionSettings(){
@@ -5608,7 +5609,7 @@ window.addEventListener('storage',event=>{
 
 async function renderActiveAnalyticsPage(){
  updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
- const renderers={urgentPlanning2Page:()=>window.renderUrgentPlanningCalendar?.(),homePage:()=>window.updateHomeOverview?.(),workforcePlanningPage:()=>window.renderWorkforcePlanning?.(),workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
+ const renderers={urgentPlanning2Page:()=>window.renderUrgentPlanningCalendar?.(),homePage:()=>window.updateHomeOverview?.(),workforcePlanningPage:()=>window.renderWorkforcePlanning?.(),staffingPlannerPage:()=>window.renderStaffingPlanner?.(),workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
  for(const [id,draw] of Object.entries(renderers)){const page=$(id);if(page&&!page.classList.contains("hidden"))await draw()}
 }
 function refreshOnDateRollover(){if(document.hidden||!folderAccessVerified)return;if(updateDashboardDateContext())void renderActiveAnalyticsPage().catch(e=>showRefreshFeedback("Chart refresh failed: "+e.message))}
