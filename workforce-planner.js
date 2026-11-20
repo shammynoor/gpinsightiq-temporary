@@ -113,8 +113,7 @@ function render(){
   if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=8;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
   const tr=document.createElement('tr');tr.dataset.name=data.name;const title=document.createElement('th');title.scope='row';title.textContent=data.name;tr.append(title);
   const prior=saved[data.name]||{};
-  cell(tr,number(historicalRate([data],'urgentCount')));
-  cell(tr,number(historicalRate([data],'routineCount')));
+  for(const field of ['urgentCount','routineCount']){const td=cell(tr,''),value=document.createElement('span');value.className='staffing-history-value';value.textContent=number(historicalRate([data],field));td.append(value)}
   input(tr,'perSession',Object.hasOwn(prior,'perSession')?prior.perSession:data.perSession,data.name+' bookings per session');
   for(const key of ['appointments','sessions'])cell(tr,'—').dataset.result=key;
   input(tr,'perWte',Object.hasOwn(prior,'perWte')?prior.perWte:null,data.name+' patient-facing sessions per WTE');
