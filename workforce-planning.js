@@ -11,8 +11,8 @@ const dayMilliseconds=86400000;
 const monthFormat=new Intl.DateTimeFormat('en-GB',{month:'short',timeZone:'UTC'});
 const dateFormat=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'long',year:'numeric',timeZone:'UTC'});
 
-function projectionCoverage(today){
- const first=projectionYear+'-01-01',last=projectionYear+'-12-31';
+function projectionCoverage(today,year=projectionYear){
+ const first=year+'-01-01',last=year+'-12-31';
  const ranges=slotReportCoverage.map(({start,end,asOf})=>[
   start>first?start:first,[end,asOf||today,today,last].sort()[0]
  ]).filter(([start,end])=>start<=end).sort(([a],[b])=>a.localeCompare(b));
@@ -63,6 +63,23 @@ function annualBookedSlots(today,coverage,scaleByMonth){
  return totals;
 }
 
+// Count bookings only up to the report snapshot when pairing them with
+// completed sessions, so future appointments today do not inflate the ratio.
+let completedSlotsCache=null;
+function annualCompletedSlots(clock,scaleByMonth){
+ const cacheKey=JSON.stringify([clock.date,clock.minute,scaleByMonth?[...scaleByMonth]:null,clinicianAssignments,[...excludedSlotTypes].sort()]);
+ if(completedSlotsCache?.source===availabilityRecords&&completedSlotsCache.key===cacheKey)return completedSlotsCache.totals;
+ const totals=new Map();
+ for(const row of availabilityRecords){
+  const year=row.date?.slice(0,4);
+  if(!years.includes(year)||row.date>clock.date||String(row.availability).toLowerCase()!=='booked'||!isDayView2SlotReportRecord(row)||excludedSlotTypes.has(row.slot)||!(row.count>0))continue;
+  if(row.date===clock.date&&(!Number.isFinite(row.minute)||row.minute>=clock.minute))continue;
+  const type=effectiveClinicianType(row.clinician);if(!type)continue;
+  const key=cellKey(type,year),scale=scaleByMonth?.get(row.date.slice(0,7))??1;
+  totals.set(key,(totals.get(key)||0)+row.count*scale);
+ }
+ completedSlotsCache={source:availabilityRecords,key:cacheKey,totals};return totals;
+}
 function addRow(body,type){
  const row=body.insertRow();
  const heading=document.createElement('th');
@@ -115,21 +132,36 @@ function addGroupControls(bodies,group,onChange){
  return {rows,refresh};
 }
 
+let sessionReportCache=null;
+function sessionReport(){
+ const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
+ const key=JSON.stringify([clock.date,clock.minute,clinicianAssignments,userTypeLocum,sessionCategoryLocum,[...excludedSlotTypes].sort(),slotReportCoverage]);
+ if(sessionReportCache?.source===availabilityRecords&&sessionReportCache.key===key)return sessionReportCache.result;
+ const result=GPSessionsHistory.calculate(availabilityRecords,clock,row=>effectiveClinicianType(row.clinician),row=>locumCategory(row)==='Locum',excludedSlotTypes,slotReportCoverage);
+ sessionReportCache={source:availabilityRecords,key,result};return result;
+}
 function renderSessionsHistory(){
  if(!isOwner)return;
  const head=$('workforceSessionsHistoryHead'),body=$('workforceSessionsHistoryBody'),notice=$('workforceSessionsHistoryNotice');
  head.replaceChildren();body.replaceChildren();
- const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
- const result=GPSessionsHistory.calculate(availabilityRecords,clock,row=>effectiveClinicianType(row.clinician),row=>locumCategory(row)==='Locum',excludedSlotTypes,slotReportCoverage);
+ const result=sessionReport();
  if(!result.types.length){notice.textContent='No completed sessions with clinician names are available. Upload a Slot Report with the session-holder name column.';return;}
  notice.textContent='Weeks marked * have incomplete report coverage or booked appointments with missing clinician names or times. Their counts are minimums. Reports saved before this feature may need to be uploaded again.';
  const heading=document.createElement('tr');
  for(const label of ['Week beginning',...result.types]){const th=document.createElement('th');th.scope='col';th.textContent=label;heading.append(th)}head.append(heading);
- for(const week of result.weeks){
-  const row=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';
-  heading.textContent=new Date(week+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+(result.incomplete.has(week)?' *':'');row.append(heading);
-  for(const type of result.types){const cell=document.createElement('td'),value=result.totals.get(week)?.get(type)||0;cell.textContent=result.incomplete.has(week)?(value?'≥'+value:'—'):String(value);row.append(cell)}
-  body.append(row);
+ for(const year of [...result.yearWeeks.keys()].sort().reverse()){
+  const yearly=result.yearWeekTotals.get(year)||new Map(),weeks=[...result.yearWeeks.get(year)].sort().reverse(),subtotal=new Map();let partial=false;
+  for(const week of weeks){
+   const row=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';
+   const end=new Date(week+'T12:00:00Z');end.setUTCDate(end.getUTCDate()+6);
+   const split=week.slice(0,4)!==year||String(end.getUTCFullYear())!==year;
+   heading.textContent=new Date(week+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+(split?' ('+year+' part)':'')+(result.incomplete.has(week)?' *':'');row.append(heading);
+   const values=yearly.get(week);partial||=result.incomplete.has(week);
+   for(const type of result.types){const cell=document.createElement('td'),value=values?.get(type)||0;subtotal.set(type,(subtotal.get(type)||0)+value);cell.textContent=result.incomplete.has(week)?(value?'≥'+value:'—'):String(value);row.append(cell)}
+   body.append(row);
+  }
+  const row=document.createElement('tr');row.className='workforce-team-total';const heading=document.createElement('th');heading.scope='row';heading.textContent=year+' subtotal'+(partial?' *':'');row.append(heading);
+  for(const type of result.types){const cell=document.createElement('td'),value=subtotal.get(type)||0;cell.textContent=partial?(value?'≥'+value:'—'):String(value);row.append(cell)}body.append(row);
  }
 }
 function renderWorkforcePlanning(){
@@ -163,6 +195,10 @@ function renderWorkforcePlanning(){
   ?'Adjusted to a practice list size of '+integer.format(adjustment.size)+' ('+monthFormat.format(Date.parse(adjustment.month+'-01'))+' '+adjustment.month.slice(0,4)+').'
   :'';
  const totals=annualBookedSlots(today,coverage,adjusted?adjustment.scaleByMonth:null);
+ const recordedSessions=sessionReport();
+ const sessionClock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
+ const sessionBookings=recordedSessions.annualByType.size?annualCompletedSlots(sessionClock,adjusted?adjustment.scaleByMonth:null):new Map();
+ const yearSessionCoverage=new Map(years.map(year=>[year,projectionCoverage(today,year)]));
  const coveredYears=new Set(years.filter(year=>slotReportCoverage.some(({start,end})=>
   start<=today&&start<=year+'-12-31'&&end>=year+'-01-01'&&today>=year+'-01-01')));
  if(!coverage.fraction)coveredYears.delete(projectionYear);
@@ -258,7 +294,9 @@ function renderWorkforcePlanning(){
    }
    for(const year of years){
     const key=cellKey(type,year);
-    const stored=workforceWeeklySessions.get(key);
+    const manual=workforceWeeklySessions.get(key),yearCoverage=yearSessionCoverage.get(year);
+    const sessionValue=GPSessionsHistory.weeklySessionValue(recordedSessions,year,type,yearCoverage.fraction,manual,workingWeeks);
+    const useRecorded=sessionValue.automatic,sessionTotal=sessionValue.total,stored=sessionValue.value;
     const count=coveredYears.has(year)?totals.get(key)??0:null;
     const slotCell=slotsRow.insertCell();
     slotCell.textContent=count===null?'—':integer.format(displayCount(count,year));
@@ -272,12 +310,14 @@ function renderWorkforcePlanning(){
     const average=averagesRow.insertCell();
     const updateAverage=sessions=>{
      const period=year===projectionYear?coverage.fraction:1;
-     average.textContent=count!==null&&sessions>0?decimal.format(count/(sessions*workingWeeks*period)):'—';
+     const denominator=useRecorded?sessionTotal:sessions*workingWeeks*period;
+     const numerator=useRecorded?(sessionBookings.get(key)||0):count;
+     average.textContent=numerator!==null&&denominator>0?decimal.format(numerator/denominator):'—';
     };
     updateAverage(stored);
     const entry=sessionsRow.insertCell();
     if(!isOwner){
-     entry.textContent=stored??'—';
+     entry.textContent=useRecorded?decimal.format(stored):(stored??'—');
      continue;
     }
     const input=document.createElement('input');
@@ -285,7 +325,8 @@ function renderWorkforcePlanning(){
     input.min='0';
     input.step='any';
     input.inputMode='decimal';
-    input.value=stored??'';
+    input.value=useRecorded?String(Math.round(stored*100)/100):(stored??'');
+    if(useRecorded){input.readOnly=true;input.title='Calculated from recorded sessions for the covered period';}
     input.setAttribute('aria-label',type+', '+year+', average sessions per week at this practice');
     input.addEventListener('input',()=>updateAverage(input.valueAsNumber));
     input.addEventListener('change',()=>{
@@ -301,6 +342,7 @@ function renderWorkforcePlanning(){
      scheduleCloudSave();
     });
     entry.append(input);
+    if(useRecorded){const note=document.createElement('small');note.className='workforce-slot-share';note.textContent=' '+integer.format(sessionTotal)+' recorded';entry.append(note)}
    }
   }
   if(members.length>1){

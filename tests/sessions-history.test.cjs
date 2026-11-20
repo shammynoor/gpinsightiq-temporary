@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
-const {calculate,holderTokens,holderColumn}=require('../sessions-history.js');
+const {calculate,holderTokens,holderColumn,weeklySessionValue}=require('../sessions-history.js');
 const clock={date:'2026-11-20',minute:720};
 const row=(person,date,minute,clinician='Partner',sessionCategory='Core')=>({person,date,minute,clinician,sessionCategory,slot:'Routine',source:'slot',availability:'Booked',count:1});
 const type=r=>r.clinician,locum=r=>r.sessionCategory==='Locum';
@@ -22,6 +22,25 @@ test('partial coverage and the current week are marked incomplete',()=>{
  const result=calculate(rows,clock,type,locum,new Set(),coverage);
  assert.equal(result.incomplete.has('2026-11-09'),false);
  assert.equal(result.incomplete.has('2026-11-16'),true);
+});
+test('sessions in a week crossing New Year are subtotalled in their actual calendar years',()=>{
+ const result=calculate([row('h1:a','2025-12-29',600),row('h1:a','2026-01-02',600)],clock,type,locum);
+ assert.equal(result.yearWeekTotals.get('2025').get('2025-12-29').get('Partner'),1);
+ assert.equal(result.yearWeekTotals.get('2026').get('2025-12-29').get('Partner'),1);
+ assert.equal(result.annualByType.get('2025').get('Partner'),1);
+ assert.equal(result.annualByType.get('2026').get('Partner'),1);
+});
+test('missing identities and mixed mappings do not masquerade as complete yearly totals',()=>{
+ const result=calculate([row('h1:a','2026-01-02',600),row('','2026-01-03',600)],clock,type,locum);
+ assert.equal(result.observedYears.has('2026'),true);assert.equal(result.missingYears.has('2026'),true);
+});
+test('recorded yearly sessions fill weekly averages without overwriting manual values',()=>{
+ const result=calculate([row('h1:a','2026-01-02',600),row('h1:b','2026-01-02',600)],clock,type,locum);
+ assert.deepEqual(weeklySessionValue(result,'2026','Partner',0.5,7),{automatic:true,value:2/24,total:2});
+ assert.deepEqual(weeklySessionValue(result,'2026','Absent type',0.5,7),{automatic:true,value:0,total:0});
+ assert.deepEqual(weeklySessionValue(result,'2025','Partner',1,7),{automatic:false,value:7,total:null});
+ result.missingYears.add('2026');
+ assert.deepEqual(weeklySessionValue(result,'2026','Partner',0.5,7),{automatic:false,value:7,total:null});
 });
 test('a clinician is counted once even when type classifications disagree',()=>{
  const result=calculate([row('h1:a','2026-11-16',600,'Partner'),row('h1:a','2026-11-16',610,'Salaried','Locum')],clock,type,locum);
