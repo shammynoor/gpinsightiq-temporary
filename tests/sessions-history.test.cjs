@@ -92,3 +92,27 @@ test('weekly average includes covered zero-session weeks and excludes partial, i
  assert.deepEqual(completeYearWeeks(result,'2026','2026-01-30',[{start:'2026-01-05',end:'2026-01-10'}]),[]);
  assert.deepEqual(completeYearWeeks(result,'2026','2026-01-06',coverage),[]);
 });
+
+test('the session threshold counts booked appointments across a clinician’s full half-day',()=>{
+ const one=row('h1:a','2026-11-16',540);
+ const twoA=row('h1:b','2026-11-16',540);
+ const twoB={...row('h1:b','2026-11-16',610),slot:'Follow-up'};
+ const three={...row('h1:c','2026-11-16',840),count:3};
+ const afternoon=row('h1:a','2026-11-16',840);
+ const rows=[one,twoA,twoB,three,afternoon];
+ assert.equal(calculate(rows,clock,type,locum,new Set(),null,1).totals.get('2026-11-16').get('Partner'),4);
+ const two=calculate(rows,clock,type,locum,new Set(),null,2);
+ assert.equal(two.totals.get('2026-11-16').get('Partner'),2);
+ assert.equal(calculate(rows,clock,type,locum,new Set(),null,3).totals.get('2026-11-16').get('Partner'),1);
+ assert.equal(calculate(rows,clock,type,locum,new Set(),null,4).totals.size,0);
+ assert.equal(calculate(rows,clock,type,locum).totals.get('2026-11-16').get('Partner'),4);
+});
+test('a clinic qualifies using all types before calculating rates for a filtered type',()=>{
+ const routine=row('h1:a','2026-11-16',540);
+ const other={...row('h1:a','2026-11-16',600),slot:'Follow-up',sessionCategory:'Locum'};
+ const single=row('h1:b','2026-11-16',540);
+ const all=calculate([routine,other,single],clock,type,locum,new Set(),null,2);
+ const filtered=calculate([routine,single],clock,type,locum,new Set(),null,1,all.sessionKeys,all.sessionLabels);
+ assert.equal(filtered.totals.get('2026-11-16').get('Partner · Locum'),1);
+ assert.equal(filtered.sessionKeys.has(require('../sessions-history.js').sessionKey(single)),false);
+});

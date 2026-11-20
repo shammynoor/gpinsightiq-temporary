@@ -1341,9 +1341,10 @@ async function loadCloudCategories(options={}){
    validateCloudCategories(data);
    workforceWeeklySessions=new Map((data.workforceWeeklySessions||[]).map(([type,year,value])=>[JSON.stringify([type,year]),value]));
    analyticsRoles=data.analyticsRoles||{};
+   practiceSettings.sessionMinAppointments=1;
    if(data.practiceSettings&&typeof data.practiceSettings==='object'){
     const p=data.practiceSettings;
-    practiceSettings={name:typeof p.name==='string'?p.name:'',anchors:p.anchors&&typeof p.anchors==='object'&&!Array.isArray(p.anchors)?Object.fromEntries(Object.entries(p.anchors).filter(([month,value])=>/^\d{4}-\d{2}$/.test(month)&&Number.isFinite(Number(value))&&Number(value)>=0).map(([month,value])=>[month,Number(value)])): {}};
+    practiceSettings={name:typeof p.name==='string'?p.name:'',sessionMinAppointments:Number.isInteger(p.sessionMinAppointments)&&p.sessionMinAppointments>=1&&p.sessionMinAppointments<=4?p.sessionMinAppointments:1,anchors:p.anchors&&typeof p.anchors==='object'&&!Array.isArray(p.anchors)?Object.fromEntries(Object.entries(p.anchors).filter(([month,value])=>/^\d{4}-\d{2}$/.test(month)&&Number.isFinite(Number(value))&&Number(value)>=0).map(([month,value])=>[month,Number(value)])): {}};
     try{iqLocalStorage.setItem(PRACTICE_SETTINGS_KEY,JSON.stringify(practiceSettings))}catch(e){}
    }
    updateHomePracticeName();
@@ -1442,7 +1443,7 @@ async function saveCloudCategories(options={}){
   version:9,
   analyticsRoles:ensureAnalyticsRoles(),
    togglePriority:{...togglePriority},
-  practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors}},
+  practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors},sessionMinAppointments:workforceSessionMinimum()},
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
@@ -3242,8 +3243,9 @@ function savePersonalSettings(event){
 }
 
 const PRACTICE_SETTINGS_KEY='demand-iq-practice-settings-v1';
-let practiceSettings={name:'',anchors:{}},practiceSelectedMonth='';
-try{const stored=JSON.parse(iqLocalStorage.getItem(PRACTICE_SETTINGS_KEY)||'{}');if(stored&&typeof stored==='object'){practiceSettings.name=typeof stored.name==='string'?stored.name:'';practiceSettings.anchors=stored.anchors&&typeof stored.anchors==='object'?stored.anchors:{};}}catch(e){}
+let practiceSettings={name:'',anchors:{},sessionMinAppointments:1},practiceSelectedMonth='';
+function workforceSessionMinimum(){const n=practiceSettings.sessionMinAppointments;return Number.isInteger(n)&&n>=1&&n<=4?n:1;}
+try{const stored=JSON.parse(iqLocalStorage.getItem(PRACTICE_SETTINGS_KEY)||'{}');if(stored&&typeof stored==='object'){practiceSettings.name=typeof stored.name==='string'?stored.name:'';practiceSettings.anchors=stored.anchors&&typeof stored.anchors==='object'?stored.anchors:{};practiceSettings.sessionMinAppointments=Number.isInteger(stored.sessionMinAppointments)&&stored.sessionMinAppointments>=1&&stored.sessionMinAppointments<=4?stored.sessionMinAppointments:1;}}catch(e){}
 function savePracticeSettings(){updateHomePracticeName();try{iqLocalStorage.setItem(PRACTICE_SETTINGS_KEY,JSON.stringify(practiceSettings));}catch(e){$('practiceListStatus').textContent='Unable to save changes in this browser.';}scheduleCloudSave();scheduleDemandRefresh();}
 function practiceMonths(){
  let first='',last='';
@@ -5643,7 +5645,7 @@ function validateCloudCategories(data){
  if(data.folder!==undefined&&data.folder!==null&&(!object(data.folder)||typeof data.folder.id!=='string'||!data.folder.id.trim()||(data.folder.name!==undefined&&typeof data.folder.name!=='string')))invalid('folder');
  if(data.practiceSettings!==undefined){
   const p=data.practiceSettings;
-  if(!object(p)||(p.name!==undefined&&typeof p.name!=='string')||(p.anchors!==undefined&&(!object(p.anchors)||Object.entries(p.anchors).some(([k,v])=>!/^\d{4}-(0[1-9]|1[0-2])$/.test(k)||!['number','string'].includes(typeof v)||!String(v).trim()||!Number.isFinite(Number(v))||Number(v)<0))))invalid('practiceSettings');
+  if(!object(p)||(p.name!==undefined&&typeof p.name!=='string')||(p.sessionMinAppointments!==undefined&&(!Number.isInteger(p.sessionMinAppointments)||p.sessionMinAppointments<1||p.sessionMinAppointments>4))||(p.anchors!==undefined&&(!object(p.anchors)||Object.entries(p.anchors).some(([k,v])=>!/^\d{4}-(0[1-9]|1[0-2])$/.test(k)||!['number','string'].includes(typeof v)||!String(v).trim()||!Number.isFinite(Number(v))||Number(v)<0))))invalid('practiceSettings');
  }
  validAssignments(data.assignments,validCategoryNames(data.categories));
  for(const [namesKey,mapKey,fallback] of [['categories','assignments',categoryNames],['clinicianCategories','clinicianAssignments',clinicianCategoryNames],['consultCategories','consultAssignments',[]],['purposeCategories','purposeAssignments',purposeCategoryNames],['capacityCategories','capacityAssignments',capacityCategoryNames],['clinicianGroupCategories','clinicianGroupAssignments',clinicianGroupNames],['groupUrgencyCategories','groupUrgencyAssignments',groupUrgencyNames],['appointmentCategoryNames',null,appointmentCategoryNames]]){
@@ -5738,7 +5740,7 @@ function analyticsSettingsSnapshot(){
   workforceWeeklySessions:[...workforceWeeklySessions].map(([key,value])=>[...JSON.parse(key),value]),
   analyticsRoles:ensureAnalyticsRoles(),
    togglePriority:{...togglePriority},
-  practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors}},
+  practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors},sessionMinAppointments:workforceSessionMinimum()},
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},

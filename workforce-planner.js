@@ -56,7 +56,6 @@ const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType,all
 if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
-const typeOf=row=>{const name=effectiveClinicianType(row.clinician)||'Unassigned';return locumCategory(row)==='Locum'&&!/\blocum\b/i.test(name)?name+' · Locum':name};
 function careOf(row,urgentGroups){
  const type=capacityUrgencyCategory(row.slot),category=appointmentCategoryFor(type).trim().toLowerCase();
  if(category==='urgent care')return urgentGroups.has(type)?'urgent':'';
@@ -67,16 +66,21 @@ function loadHistory(urgentGroups){
  const today=GPCorrectness.londonDate(),clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,12),weekSet=new Set(weeks);
  if(weeks.length<4)return {error:'At least four complete weeks of Slot Report coverage are needed for historical assumptions.'};
- const rows=availabilityRecords.filter(r=>r.source==='slot'&&String(r.availability).toLowerCase()==='booked'&&!excludedSlotTypes.has(r.slot)&&r.date&&weekSet.has(mondayOf(r.date))&&historyCareOf(r,urgentGroups));
- const planningRows=rows.filter(r=>careOf(r,urgentGroups));
- const planningSessions=GPSessionsHistory.calculate(planningRows,clock,r=>effectiveClinicianType(r.clinician),r=>locumCategory(r)==='Locum',excludedSlotTypes,slotReportCoverage);
- const sessions=GPSessionsHistory.calculate(rows,clock,r=>effectiveClinicianType(r.clinician),r=>locumCategory(r)==='Locum',excludedSlotTypes,slotReportCoverage);
- const valid=weeks.filter(w=>!sessions.incomplete.has(w));
+ const allRows=availabilityRecords.filter(r=>r.source==='slot'&&String(r.availability).toLowerCase()==='booked'&&!excludedSlotTypes.has(r.slot)&&r.date&&weekSet.has(mondayOf(r.date)));
+ const typeFor=r=>effectiveClinicianType(r.clinician),locumFor=r=>locumCategory(r)==='Locum';
+ // Qualify each clinic using every booked appointment, before filtering the care types displayed below.
+ const allSessions=GPSessionsHistory.calculate(allRows,clock,typeFor,locumFor,excludedSlotTypes,slotReportCoverage,workforceSessionMinimum());
+ const rows=allRows.filter(r=>historyCareOf(r,urgentGroups)),planningRows=rows.filter(r=>careOf(r,urgentGroups));
+ const planningSessions=GPSessionsHistory.calculate(planningRows,clock,typeFor,locumFor,excludedSlotTypes,slotReportCoverage,1,allSessions.sessionKeys,allSessions.sessionLabels);
+ const sessions=GPSessionsHistory.calculate(rows,clock,typeFor,locumFor,excludedSlotTypes,slotReportCoverage,1,allSessions.sessionKeys,allSessions.sessionLabels);
+ const valid=weeks.filter(w=>!allSessions.incomplete.has(w));
  if(valid.length<4)return {error:'At least four complete weeks with clinician names and appointment times are needed. Upload or replace reports that contain the session-holder name.'};
  const validSet=new Set(valid),people=new Map();
  for(const row of rows){
-  if(!validSet.has(mondayOf(row.date))||!Number.isInteger(row.minute)||(row.minute>=780&&row.minute<840))continue;
-  const type=typeOf(row),care=historyCareOf(row,urgentGroups),planningCare=careOf(row,urgentGroups);
+  const session=GPSessionsHistory.sessionKey(row);
+  if(!validSet.has(mondayOf(row.date))||!session||!sessions.sessionKeys.has(session))continue;
+  const type=sessions.sessionLabels.get(session),care=historyCareOf(row,urgentGroups),planningCare=careOf(row,urgentGroups);
+  if(type.startsWith('Multiple clinician types'))return {error:'Some sessions have conflicting clinician types. Resolve these mappings before using the workforce estimate.'};
   if(!people.has(type)){const base=effectiveClinicianType(row.clinician)||'Unassigned';const group=clinicianGroupAssignments[base];people.set(type,{name:type,group:clinicianGroupNames.includes(group)?group:'Uncategorised',urgentCount:0,routineCount:0,followupCount:0,visitCount:0,planningUrgentCount:0,planningRoutineCount:0,sessions:0,planningSessions:0})}
   people.get(type)[care+'Count']+=Number(row.count)||0;
   if(planningCare)people.get(type)['planning'+(planningCare==='urgent'?'Urgent':'Routine')+'Count']+=Number(row.count)||0;
@@ -147,7 +151,7 @@ function render(){
  $('staffingForecastNote').textContent=forecast.urgentOverlap?'Urgent forecast selection overlaps with follow-up or home visits; review the urgent forecast selection.':'— means a forecast is unavailable.';
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
  if(history.error||!history.rows.length){model=null;for(const id of ['staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingTotalSessions','staffingAchievableUrgent','staffingAchievableRoutine','staffingAchievableFollowup','staffingAchievableVisit'])$(id).textContent='—';for(const label of ['Urgent','Routine','Followup','Visit']){const el=$('staffingGap'+label);el.className='staffing-gap unavailable';el.textContent='Capacity unavailable'}$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
- $('staffingHistoryNote').textContent='Based on '+history.weeks+' complete recent weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Sessions: before 1pm or from 2pm.';
+ $('staffingHistoryNote').textContent='Based on '+history.weeks+' complete recent weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Sessions: before 1pm or from 2pm, with at least '+workforceSessionMinimum()+' booked '+(workforceSessionMinimum()===1?'appointment':'appointments')+'.';
  const saved=draft||readChartPreferences()['staffingPlanner:weeklySessions']||{};
  model={historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row])),need:Object.fromEntries(Object.entries(forecast.projected).map(([key,total])=>[key,Number.isFinite(total)?total/horizon:null]))};
  const groupNames=[...clinicianGroupNames,'Uncategorised'];

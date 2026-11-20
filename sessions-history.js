@@ -14,7 +14,12 @@ async function holderTokens(parsed,practiceId,cryptoApi=globalThis.crypto){
  }));
  return tokens;
 }
-function calculate(rows,{date,minute},typeFor,locumFor,excluded=new Set(),coverage=null){
+function sessionKey(row){
+ if(!row.date||!Number.isInteger(row.minute)||(row.minute>=780&&row.minute<840)||!row.person||!String(row.person).startsWith('h1:'))return null;
+ return JSON.stringify([row.person,row.date,row.minute<780?'morning':'afternoon']);
+}
+function calculate(rows,{date,minute},typeFor,locumFor,excluded=new Set(),coverage=null,minimum=1,allowedKeys=null,canonicalLabels=null){
+ minimum=Number.isInteger(minimum)&&minimum>=1&&minimum<=4?minimum:1;
  const seen=new Map(),incomplete=new Map(),dates=new Set(),yearWeeks=new Map(),missingYears=new Set(),observedYears=new Set();
  for(const row of rows){
   if(row.source!=='slot'||String(row.availability||'').toLowerCase()!=='booked'||!(row.count>0)||excluded.has(row.slot)||!row.date)continue;
@@ -26,10 +31,11 @@ function calculate(rows,{date,minute},typeFor,locumFor,excluded=new Set(),covera
   if(row.minute>=780&&row.minute<840)continue;
   if(!row.person||!String(row.person).startsWith('h1:')){incomplete.set(week,true);missingYears.add(year);continue}
   observedYears.add(year);
-  const period=row.minute<780?'morning':'afternoon',type=typeFor(row)||'Unassigned',locum=!!locumFor(row);
-  const key=JSON.stringify([row.person,row.date,period]);const existing=seen.get(key);
-  if(existing){if(existing.type!==type)existing.conflict=true;existing.locum||=locum}
-  else seen.set(key,{week,year,type,locum,conflict:false});
+  const type=typeFor(row)||'Unassigned',locum=!!locumFor(row),key=sessionKey(row);
+  if(allowedKeys&&!allowedKeys.has(key))continue;
+  const existing=seen.get(key);
+  if(existing){if(existing.type!==type)existing.conflict=true;existing.locum||=locum;existing.bookings+=Number(row.count)}
+  else seen.set(key,{week,year,type,locum,conflict:false,bookings:Number(row.count)});
  }
  if(Array.isArray(coverage))for(const week of dates){
   for(let offset=0;offset<7;offset++){
@@ -38,20 +44,23 @@ function calculate(rows,{date,minute},typeFor,locumFor,excluded=new Set(),covera
    if(iso>=date||!coverage.some(range=>range.start<=iso&&range.end>=iso&&(!range.asOf||range.asOf>=iso))){incomplete.set(week,true);break}
   }
  }
- const totals=new Map(),types=new Set(),yearWeekTotals=new Map(),annualByType=new Map();
- for(const entry of seen.values()){
+ const totals=new Map(),types=new Set(),yearWeekTotals=new Map(),annualByType=new Map(),sessionKeys=new Set(),sessionLabels=new Map();
+ for(const [key,entry] of seen){
+  if(entry.bookings<minimum)continue;
   let label=entry.conflict?'Multiple clinician types':entry.type;
   if(entry.locum&&!/\blocum\b/i.test(label))label+=' · Locum';
+  if(canonicalLabels?.has(key))label=canonicalLabels.get(key);
+  sessionKeys.add(key);sessionLabels.set(key,label);
   types.add(label);if(!totals.has(entry.week))totals.set(entry.week,new Map());
   const row=totals.get(entry.week);row.set(label,(row.get(label)||0)+1);
   if(!yearWeekTotals.has(entry.year))yearWeekTotals.set(entry.year,new Map());
   const yearly=yearWeekTotals.get(entry.year);if(!yearly.has(entry.week))yearly.set(entry.week,new Map());
   const breakdown=yearly.get(entry.week);breakdown.set(label,(breakdown.get(label)||0)+1);
-  if(entry.conflict||entry.type==='Unassigned'){missingYears.add(entry.year);continue}
+  if(entry.conflict||label.startsWith('Multiple clinician types')||entry.type==='Unassigned'){missingYears.add(entry.year);continue}
   if(!annualByType.has(entry.year))annualByType.set(entry.year,new Map());
   const annual=annualByType.get(entry.year);annual.set(entry.type,(annual.get(entry.type)||0)+1);
  }
- return {weeks:[...dates].sort().reverse(),types:[...types].sort((a,b)=>a.localeCompare(b)),totals,incomplete,yearWeeks,yearWeekTotals,annualByType,missingYears,observedYears};
+ return {weeks:[...dates].sort().reverse(),types:[...types].sort((a,b)=>a.localeCompare(b)),totals,incomplete,yearWeeks,yearWeekTotals,annualByType,missingYears,observedYears,sessionKeys,sessionLabels};
 }
 // Count booked appointments by appointment date; session-holder names and session times are not required.
 function appointmentHistory(rows,{date,minute},typeFor,locumFor,careFor,excluded=new Set(),coverage=null){
@@ -97,5 +106,5 @@ function weeklySessionValue(result,year,type,coverageFraction,manual,workingWeek
  const total=result.annualByType.get(year)?.get(type)||0;
  return {automatic:true,value:total/(workingWeeks*coverageFraction),total};
 }
-const api={holderTokens,calculate,appointmentHistory,completeYearWeeks,holderColumn,weeklySessionValue};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPSessionsHistory=api;
+const api={holderTokens,calculate,sessionKey,appointmentHistory,completeYearWeeks,holderColumn,weeklySessionValue};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPSessionsHistory=api;
 })(typeof window!=='undefined'?window:globalThis);

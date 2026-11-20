@@ -66,14 +66,15 @@ function annualBookedSlots(today,coverage,scaleByMonth){
 // Count bookings only up to the report snapshot when pairing them with
 // completed sessions, so future appointments today do not inflate the ratio.
 let completedSlotsCache=null;
-function annualCompletedSlots(clock,scaleByMonth){
- const cacheKey=JSON.stringify([clock.date,clock.minute,scaleByMonth?[...scaleByMonth]:null,clinicianAssignments,[...excludedSlotTypes].sort()]);
+function annualCompletedSlots(clock,scaleByMonth,qualifiedSessions){
+ const cacheKey=JSON.stringify([clock.date,clock.minute,scaleByMonth?[...scaleByMonth]:null,clinicianAssignments,workforceSessionMinimum(),[...excludedSlotTypes].sort()]);
  if(completedSlotsCache?.source===availabilityRecords&&completedSlotsCache.key===cacheKey)return completedSlotsCache.totals;
  const totals=new Map();
  for(const row of availabilityRecords){
   const year=row.date?.slice(0,4);
   if(!years.includes(year)||row.date>clock.date||String(row.availability).toLowerCase()!=='booked'||!isDayView2SlotReportRecord(row)||excludedSlotTypes.has(row.slot)||!(row.count>0))continue;
   if(row.date===clock.date&&(!Number.isFinite(row.minute)||row.minute>=clock.minute))continue;
+  if(!qualifiedSessions.has(GPSessionsHistory.sessionKey(row)))continue;
   const type=effectiveClinicianType(row.clinician);if(!type)continue;
   const key=cellKey(type,year),scale=scaleByMonth?.get(row.date.slice(0,7))??1;
   totals.set(key,(totals.get(key)||0)+row.count*scale);
@@ -135,9 +136,9 @@ function addGroupControls(bodies,group,onChange){
 let sessionReportCache=null;
 function sessionReport(){
  const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
- const key=JSON.stringify([clock.date,clock.minute,clinicianAssignments,userTypeLocum,sessionCategoryLocum,[...excludedSlotTypes].sort(),slotReportCoverage]);
+ const key=JSON.stringify([clock.date,clock.minute,clinicianAssignments,userTypeLocum,sessionCategoryLocum,[...excludedSlotTypes].sort(),slotReportCoverage,workforceSessionMinimum()]);
  if(sessionReportCache?.source===availabilityRecords&&sessionReportCache.key===key)return sessionReportCache.result;
- const result=GPSessionsHistory.calculate(availabilityRecords,clock,row=>effectiveClinicianType(row.clinician),row=>locumCategory(row)==='Locum',excludedSlotTypes,slotReportCoverage);
+ const result=GPSessionsHistory.calculate(availabilityRecords,clock,row=>effectiveClinicianType(row.clinician),row=>locumCategory(row)==='Locum',excludedSlotTypes,slotReportCoverage,workforceSessionMinimum());
  sessionReportCache={source:availabilityRecords,key,result};return result;
 }
 function renderSessionsHistory(){
@@ -147,7 +148,7 @@ function renderSessionsHistory(){
  const year='2026',result=sessionReport(),yearly=result.yearWeekTotals.get(year)||new Map();
  const weeks=[...(result.yearWeeks.get(year)||[])].sort().reverse();
  const types=[...new Set([...yearly.values()].flatMap(values=>[...values.keys()]))].sort((a,b)=>a.localeCompare(b));
- if(!types.length){notice.textContent='No completed 2026 sessions with clinician names are available.';return}
+ if(!types.length){notice.textContent='No 2026 sessions meet the selected definition, or clinician names are unavailable.';return}
  notice.textContent='';
  const heading=document.createElement('tr');
  for(const label of ['Week beginning',...types]){const th=document.createElement('th');th.scope='col';th.textContent=label;heading.append(th)}head.append(heading);
@@ -231,7 +232,7 @@ function renderWorkforcePlanning(){
  const totals=annualBookedSlots(today,coverage,adjusted?adjustment.scaleByMonth:null);
  const recordedSessions=sessionReport();
  const sessionClock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
- const sessionBookings=recordedSessions.annualByType.size?annualCompletedSlots(sessionClock,adjusted?adjustment.scaleByMonth:null):new Map();
+ const sessionBookings=recordedSessions.annualByType.size?annualCompletedSlots(sessionClock,adjusted?adjustment.scaleByMonth:null,recordedSessions.sessionKeys):new Map();
  const yearSessionCoverage=new Map(years.map(year=>[year,projectionCoverage(today,year)]));
  const coveredYears=new Set(years.filter(year=>slotReportCoverage.some(({start,end})=>
   start<=today&&start<=year+'-12-31'&&end>=year+'-01-01'&&today>=year+'-01-01')));
@@ -281,6 +282,8 @@ function renderWorkforcePlanning(){
  if(!isOwner){historyView.hidden=true;appointmentView.hidden=true;for(const id of ['workforceSessionsHistoryHead','workforceSessionsHistoryBody','workforceAppointmentsHistoryHead','workforceAppointmentsHistoryBody'])$(id).replaceChildren();}
  historyTab.onclick=isOwner?()=>{renderSessionsHistory();showHistory('sessions');$('workforceSessionsHistoryTitle').focus()}:null;
  appointmentTab.onclick=isOwner?()=>{renderAppointmentsHistory();showHistory('appointments');$('workforceAppointmentsHistoryTitle').focus()}:null;
+ const sessionMinimum=$('workforceSessionMinimum');sessionMinimum.value=String(workforceSessionMinimum());
+ sessionMinimum.onchange=isOwner?()=>{const minimum=Number(sessionMinimum.value);if(!Number.isInteger(minimum)||minimum<1||minimum>4)return;practiceSettings.sessionMinAppointments=minimum;savePracticeSettings();renderWorkforcePlanning();renderSessionsHistory()}:null;
  $('workforceAppointmentsType').onchange=()=>renderAppointmentsHistory();
  $('workforceSessionsHistoryBack').onclick=()=>{showHistory('overview');historyTab.focus()};
  $('workforceAppointmentsHistoryBack').onclick=()=>{showHistory('overview');appointmentTab.focus()};
