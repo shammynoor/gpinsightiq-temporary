@@ -115,6 +115,23 @@ function addGroupControls(bodies,group,onChange){
  return {rows,refresh};
 }
 
+function renderSessionsHistory(){
+ if(!isOwner)return;
+ const head=$('workforceSessionsHistoryHead'),body=$('workforceSessionsHistoryBody'),notice=$('workforceSessionsHistoryNotice');
+ head.replaceChildren();body.replaceChildren();
+ const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
+ const result=GPSessionsHistory.calculate(availabilityRecords,clock,row=>effectiveClinicianType(row.clinician),row=>locumCategory(row)==='Locum',excludedSlotTypes,slotReportCoverage);
+ if(!result.types.length){notice.textContent='No completed sessions with clinician names are available. Upload a Slot Report with the session-holder name column.';return;}
+ notice.textContent='Weeks marked * have incomplete report coverage or booked appointments with missing clinician names or times. Their counts are minimums. Reports saved before this feature may need to be uploaded again.';
+ const heading=document.createElement('tr');
+ for(const label of ['Week beginning',...result.types]){const th=document.createElement('th');th.scope='col';th.textContent=label;heading.append(th)}head.append(heading);
+ for(const week of result.weeks){
+  const row=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';
+  heading.textContent=new Date(week+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+(result.incomplete.has(week)?' *':'');row.append(heading);
+  for(const type of result.types){const cell=document.createElement('td'),value=result.totals.get(week)?.get(type)||0;cell.textContent=result.incomplete.has(week)?(value?'≥'+value:'—'):String(value);row.append(cell)}
+  body.append(row);
+ }
+}
 function renderWorkforcePlanning(){
  const page=$('workforcePlanningPage');
  if(page.classList.contains('hidden'))return;
@@ -184,6 +201,14 @@ function renderWorkforcePlanning(){
  enter.hidden=!isOwner;
  enter.disabled=!isOwner||!types.length;
  const overview=$('workforceOverviewView'),sessionsView=$('workforceSessionsView');
+ const historyTab=$('workforceSessionsHistoryTab'),historyView=$('workforceSessionsHistoryView');
+ $('workforceHistoryTabs').hidden=!isOwner;historyTab.hidden=!isOwner;historyTab.disabled=!isOwner;
+ const overviewTab=$('workforceOverviewTab');
+ const selectTab=history=>{historyTab.setAttribute('aria-selected',String(history));historyTab.setAttribute('aria-pressed',String(history));overviewTab.setAttribute('aria-selected',String(!history));overviewTab.setAttribute('aria-pressed',String(!history))};
+ overviewTab.onclick=()=>{historyView.hidden=true;sessionsView.hidden=true;overview.hidden=false;selectTab(false)};
+ if(!isOwner){historyView.hidden=true;$('workforceSessionsHistoryHead').replaceChildren();$('workforceSessionsHistoryBody').replaceChildren();}
+ historyTab.onclick=isOwner?()=>{renderSessionsHistory();overview.hidden=true;sessionsView.hidden=true;historyView.hidden=false;selectTab(true);$('workforceSessionsHistoryTitle').focus()}:null;
+ $('workforceSessionsHistoryBack').onclick=()=>{historyView.hidden=true;overview.hidden=false;selectTab(false);historyTab.focus()};
  if(!isOwner){
   sessionsView.hidden=true;
   overview.hidden=false;

@@ -11,6 +11,7 @@ async function run(refreshOK){
  const context={iqUploading:false,csvDropBusy:false,isOwner:true,iqUploadStatus:{textContent:''},iqSources:[],iqContributions:new Map(),
   iqBridge:{ensure:async()=>{},list:async()=>[],save:async entry=>saved.push(entry),practice:{name:'Test'}},
   Papa:{parse:()=>({meta:{fields:[]}})},parseCSVContribution:()=>({kind:'slot',maps}),
+  GPSessionsHistory:{holderTokens:async()=>new Map()},parseSlotReportCSV:()=>({columns:[],rows:[]}),
   confirm:()=>true,loadFolder:async()=>refreshOK,showRefreshFeedback:(message,loading)=>events.push({message,loading}),
   $:()=>statusEl,Date,Number,Map,JSON,Error};
  vm.createContext(context);vm.runInContext(status+'\n'+upload,context);

@@ -1715,10 +1715,11 @@ function parseSlotReportCSV(csv){
  return {columns,rows:parsed.data,quantityPosition:hasQuantity?10:undefined};
 }
 
-function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,_peopleAggregate,slotStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate){
+function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,_peopleAggregate,slotStats,waitingAggregate,waitingTrendAggregate,appointmentTimeAggregate,holderTokens){
  const parsed=parseSlotReportCSV(csv);
  const columnPositions=new Map(parsed.columns.map((name,index)=>[name,index]));
  const sessionCategoryColumn=parsed.columns.find(name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'')==='sessionssessioncategory');
+ const holderColumnPosition=parsed.columns.findIndex(name=>String(name).trim().toLowerCase()==='Full Name of the Session Holder of the Session'.toLowerCase());
  const dna=columnPositions.has('DNA')?{attended:0,didNotAttend:0,unknown:0}:null;
  let valid=0,skipped=0;
  const sessionCategories=new Set();
@@ -1753,8 +1754,9 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   const date=appointmentDay.toISOString().slice(0,10);
   const category=String(r[sessionCategoryColumn]||'').trim();if(category)sessionCategories.add(category);
   const clinician=r[slotUserTypeColumn]||'Unknown clinician';
-  // Preserve the aggregate key shape so existing reports can still load.
-  const person='';
+  // Retain a practice-specific pseudonym only; never save the clinician name.
+  const holder=holderColumnPosition<0?'':String(original[holderColumnPosition]||'').trim();
+  const person=status==='booked'&&holderTokens?.get(holder)||'';
   if(dna){
    const outcome=r.DNA.toLowerCase();
    if(outcome==='did not attend')dna.didNotAttend+=quantity;
@@ -2193,12 +2195,12 @@ function mergeCSVCounts(target,source){
   }else target.set(key,(target.get(key)||0)+value);
  }
 }
-function parseCSVContribution(csvText,name){
+function parseCSVContribution(csvText,name,holderTokens){
  if(isDirectRHFile(name))return {kind:'rapidHealth',summary:DirectRHCSV.monthlyWeekdayOtherEnquiries(csvText,Papa)};
  if(isSignpostingFile(name))return {kind:'signposting',events:parseSignpostingCSV(csvText)};
  if(!/slot[\s_-]*report/i.test(name))return {kind:'other'};
  const maps=Array.from({length:8},()=>new Map());
- const stats=aggregateCSV(csvText,...maps);
+ const stats=aggregateCSV(csvText,...maps,holderTokens);
  return {kind:'slot',maps,valid:stats.valid,skipped:stats.skipped,dna:stats.dna,sessionCategories:stats.sessionCategories};
 }
 async function loadFolder(force=true){if(!selectedFolder||busy)return;busy=true;setButtons();showRefreshFeedback('Refreshing data…',true);setSync('Checking practice workspace CSV files…');try{
@@ -6025,7 +6027,8 @@ async function replaceExistingCSV(file){
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
   if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);const refreshed=await loadFolder(true);iqUploadStatus.textContent=refreshed?'Rapid Health import finished.':'Rapid Health data saved, but the dashboard could not refresh. Refresh the page.';csvDropStatus(iqUploadStatus.textContent,!refreshed,false);return;}
   const kind=headers.includes('Code Term')&&headers.includes('Date')?'signposting':'slot';
-  const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv');
+  const holderTokens=kind==='slot'?await GPSessionsHistory.holderTokens(parseSlotReportCSV(text),iqBridge.practice.id):null;
+  const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv',holderTokens);
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
   if(!count)throw Error('No valid records were found in this file. No saved reports were changed.');
   const clinical=new Date(file.lastModified);
