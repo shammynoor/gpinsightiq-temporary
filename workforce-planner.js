@@ -32,8 +32,19 @@ function allocateProjectedNeed(total,rows,key){
  if(!sum)return rows.map(()=>total===0?0:null);
  return counts.map(value=>total*value/sum);
 }
+function calculateAchievable(rows){
+ const keys=['urgent','routine','followup','visit'],empty=Object.fromEntries(keys.map(key=>[key,null]));
+ if(!rows.length||rows.some(row=>!Number.isFinite(row.weeklySessions)||row.weeklySessions<0))return {values:empty,totalSessions:null,reason:'Enter sessions per week for every clinician type; enter 0 where none are planned.'};
+ const totals=Object.fromEntries(keys.map(key=>[key,0]));
+ for(const row of rows){
+  if(row.weeklySessions===0)continue;
+  if(!row.history||!(row.history.sessions>0))return {values:empty,totalSessions:rows.reduce((s,r)=>s+r.weeklySessions,0),reason:'Historical bookings per session are unavailable for at least one clinician type with planned sessions.'};
+  for(const key of keys){const rate=historicalRate([row.history],key+'Count');if(!Number.isFinite(rate))return {values:empty,totalSessions:rows.reduce((s,r)=>s+r.weeklySessions,0),reason:'Historical booking rates are unavailable for at least one clinician type.'};totals[key]+=row.weeklySessions*rate}
+ }
+ return {values:totals,totalSessions:rows.reduce((s,r)=>s+r.weeklySessions,0),reason:''};
+}
 function averageWeeklyForecast(values){return values.length&&values.every(Number.isFinite)?values.reduce((sum,value)=>sum+value,0)/values.length:null}
-const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
+const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed,calculateAchievable};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
 if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
@@ -103,72 +114,51 @@ function input(row,field,value,label){
 }
 function readRows(){
  return [...$('staffingRows').querySelectorAll('tr[data-name]')].map(tr=>{
-  const value=field=>{const raw=tr.querySelector('[data-field="'+field+'"]').value;return raw.trim()===''?null:Number(raw)};
-  const history=model.history.get(tr.dataset.name);
-  return {name:tr.dataset.name,urgent:history.urgent,routine:history.routine,perSession:value('perSession'),perWte:value('perWte')};
+  const raw=tr.querySelector('[data-field="weeklySessions"]').value;
+  return {name:tr.dataset.name,weeklySessions:raw.trim()===''?null:Number(raw),history:model.history.get(tr.dataset.name)};
  });
 }
 function update(){
  if(!model)return;
- const rows=readRows(),result=calculate(model.demand,rows),body=$('staffingRows'),dataRows=body.querySelectorAll('tr[data-name]');
- for(const [care,field,label] of [['urgent','urgentCount','Urgent'],['routine','routineCount','Routine'],['followup','followupCount','Followup'],['visit','visitCount','Visit']]){
-  const values=allocateProjectedNeed(model.projected[care],rows.map(row=>model.history.get(row.name)),field);
-  for(let i=0;i<dataRows.length;i++)dataRows[i].querySelector('[data-projection="'+care+'"]').textContent=number(values[i]);
-  $('staffingProjected'+label).textContent=number(model.projected[care]);
- }
- for(let i=0;i<result.rows.length;i++){
-  const row=dataRows[i],item=result.rows[i];row.querySelector('[data-result="appointments"]').textContent=result.errors.length?'—':number(item.appts);
-  row.querySelector('[data-result="sessions"]').textContent=result.errors.length?'—':number(item.sessions);
-  row.querySelector('[data-result="wte"]').textContent=result.errors.length?'—':number(item.wte);
- }
- $('staffingTotalUrgent').textContent=number(historicalRate(model.historyRows,'urgentCount'));
- $('staffingTotalRoutine').textContent=number(historicalRate(model.historyRows,'routineCount'));
- $('staffingTotalFollowup').textContent=number(historicalRate(model.historyRows,'followupCount'));
- $('staffingTotalVisit').textContent=number(historicalRate(model.historyRows,'visitCount'));
- $('staffingTotalBookings').textContent=result.errors.length?'—':number(result.rows.reduce((sum,row)=>sum+row.appts,0));
- $('staffingTotalSessions').textContent=$('staffingSessions').textContent=result.errors.length?'—':number(result.totalSessions);
- $('staffingTotalWte').textContent=$('staffingWte').textContent=result.errors.length?'—':number(result.totalWte);
- $('staffingValidation').textContent=result.errors.join(' ')||(Number.isFinite(result.totalWte)?'':'Enter clinical sessions per WTE to calculate WTE.');
+ const rows=readRows(),result=calculateAchievable(rows);
+ for(const [key,label] of [['urgent','Urgent'],['routine','Routine'],['followup','Followup'],['visit','Visit']])$('staffingAchievable'+label).textContent=number(result.values[key]);
+ $('staffingTotalSessions').textContent=number(result.totalSessions);
+ $('staffingValidation').textContent=result.reason||'Achievable appointments use the unrounded historical bookings per session.';
 }
 function render(){
  if(!isOwner)return;
  const root=$('staffingPlannerPage');if(!root||root.classList.contains('hidden'))return;
  const key=chartPreferenceKey();if(key!==draftKey){draft=null;draftKey=key}
  const forecast=getForecast(horizon),history=loadHistory(forecast.urgentGroups);
- $('staffingUrgent').textContent=number(forecast.urgent);$('staffingRoutine').textContent=number(forecast.routine);
- $('staffingDemand').textContent=Number.isFinite(forecast.urgent)&&Number.isFinite(forecast.routine)?number(forecast.urgent+forecast.routine):'—';
- $('staffingPeriod').textContent=forecast.start&&forecast.end?'Weeks beginning '+forecast.start+' to '+forecast.end+' · projected need is for the full period; staffing figures are per week.':'';
- $('staffingSource').textContent='Urgent types: '+(forecast.groups.join(', ')||'none')+'. Projected need is split by recent historical bookings. — means a forecast or historical split is unavailable. Longer forecasts are less certain.'+(forecast.urgentOverlap?' Urgent types overlap follow-up or home visits; review the urgent forecast selection.':'');
+ $('staffingPeriod').textContent=forecast.start&&forecast.end?'Average per week · weeks beginning '+forecast.start+' to '+forecast.end:'';
+ for(const [key,label] of [['urgent','Urgent'],['routine','Routine'],['followup','Followup'],['visit','Visit']])$('staffingProjected'+label).textContent=number(Number.isFinite(forecast.projected[key])?forecast.projected[key]/horizon:null);
+ $('staffingForecastNote').textContent=forecast.urgentOverlap?'Urgent forecast selection overlaps with follow-up or home visits; review the urgent forecast selection.':'— means a forecast is unavailable.';
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
- if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingProjectedUrgent','staffingProjectedRoutine','staffingProjectedFollowup','staffingProjectedVisit','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
- $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Weekly staffing estimates use the existing urgent and routine forecasts. Sessions are before 1pm or from 2pm, with at least one booking.';
- const saved=draft||readChartPreferences()['staffingPlanner:assumptions']||{};
- model={demand:{urgent:forecast.urgent,routine:forecast.routine},projected:forecast.projected,historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
+ if(history.error||!history.rows.length){model=null;for(const id of ['staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingTotalSessions','staffingAchievableUrgent','staffingAchievableRoutine','staffingAchievableFollowup','staffingAchievableVisit'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
+ $('staffingHistoryNote').textContent='Based on '+history.weeks+' complete recent weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Sessions: before 1pm or from 2pm.';
+ const saved=draft||readChartPreferences()['staffingPlanner:weeklySessions']||{};
+ model={historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
  const groupNames=[...clinicianGroupNames,'Uncategorised'];
  const ordered=[...history.rows].sort((a,b)=>groupNames.indexOf(a.group)-groupNames.indexOf(b.group)||a.name.localeCompare(b.name));
  let currentGroup=null;
  for(const data of ordered){
-  if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=14;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
+  if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=6;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
   const tr=document.createElement('tr');tr.dataset.name=data.name;const title=document.createElement('th');title.scope='row';title.textContent=data.name;tr.append(title);
-  const prior=saved[data.name]||{};
   for(const field of ['urgentCount','routineCount','followupCount','visitCount']){const td=cell(tr,''),value=document.createElement('span');value.className='staffing-history-value';value.textContent=number(historicalRate([data],field));td.append(value)}
-  for(const care of ['urgent','routine','followup','visit'])cell(tr,'—').dataset.projection=care;
-  input(tr,'perSession',Object.hasOwn(prior,'perSession')?prior.perSession:data.perSession,data.name+' bookings per session');
-  for(const key of ['appointments','sessions'])cell(tr,'—').dataset.result=key;
-  input(tr,'perWte',Object.hasOwn(prior,'perWte')?prior.perWte:null,data.name+' patient-facing sessions per WTE');
-  cell(tr,'—').dataset.result='wte';
-  tr.addEventListener('input',()=>{draft=Object.fromEntries(readRows().map(({name,perSession,perWte})=>[name,{perSession,perWte}]));$('staffingSaved').textContent='Changes not saved.';update()});body.append(tr);
+  const prior=saved[data.name];input(tr,'weeklySessions',Number.isFinite(prior)?prior:null,data.name+' planned sessions per week');
+  tr.addEventListener('input',()=>{draft=Object.fromEntries(readRows().map(({name,weeklySessions})=>[name,weeklySessions]));$('staffingSaved').textContent='Changes not saved.';update()});body.append(tr);
  }
+ for(const [key,label] of [['urgentCount','Urgent'],['routineCount','Routine'],['followupCount','Followup'],['visitCount','Visit']])$('staffingTotal'+label).textContent=number(historicalRate(model.historyRows,key));
  update();
 }
 document.addEventListener('DOMContentLoaded',()=>{
  $('staffingHorizon')?.addEventListener('click',event=>{const button=event.target.closest('button[data-weeks]');if(!button)return;horizon=Number(button.dataset.weeks);for(const el of $('staffingHorizon').querySelectorAll('button'))el.setAttribute('aria-pressed',String(el===button));render()});
  $('staffingSave')?.addEventListener('click',()=>{
   if(!isOwner||!model)return;
-  const rows=readRows(),result=calculate(model.demand,rows);
-  if(result.errors.length){$('staffingSaved').textContent='Check the forecast and historical data before saving.';return}
-  const saved=Object.fromEntries(rows.map(({name,perSession,perWte})=>[name,{perSession,perWte}]));
-  draft=saved;writeChartPreference('staffingPlanner:assumptions',saved);$('staffingSaved').textContent='Scenario saved locally; account sync may take a moment.';
+  const rows=readRows();
+  if(rows.some(row=>row.weeklySessions!==null&&(!Number.isFinite(row.weeklySessions)||row.weeklySessions<0))){$('staffingSaved').textContent='Sessions must be zero or more.';return}
+  const saved=Object.fromEntries(rows.map(({name,weeklySessions})=>[name,weeklySessions]));
+  draft=saved;writeChartPreference('staffingPlanner:weeklySessions',saved);$('staffingSaved').textContent='Scenario saved locally; account sync may take a moment.';
  });
 });
 window.renderStaffingPlanner=render;

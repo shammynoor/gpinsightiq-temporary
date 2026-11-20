@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed}=require('../workforce-planner.js');
+const {calculate,averageWeeklyForecast,historicalRate,historicalCareType,allocateProjectedNeed,calculateAchievable}=require('../workforce-planner.js');
 const demand={urgent:40,routine:60};
 const rows=[{name:'GP',urgent:0,routine:100,perSession:12,perWte:6},{name:'Urgent team',urgent:100,routine:0,perSession:10,perWte:4}];
 test('allocates forecasts and derives sessions and WTE from editable assumptions',()=>{
@@ -52,4 +52,19 @@ test('allocates total projected need across historical clinician shares',()=>{
  assert.deepEqual(allocateProjectedNeed(12,rows,'visitCount'),[null,null]);
  assert.deepEqual(allocateProjectedNeed(12,[{visitCount:0}],'visitCount'),[null]);
  assert.deepEqual(allocateProjectedNeed(0,[{visitCount:0}],'visitCount'),[0]);
+});
+
+test('weekly achievable appointments multiply each type’s historical rate by planned sessions',()=>{
+ const a={sessions:10,urgentCount:21,routineCount:24,followupCount:35,visitCount:3};
+ const b={sessions:4,urgentCount:8,routineCount:0,followupCount:4,visitCount:0};
+ const result=calculateAchievable([{weeklySessions:4,history:a},{weeklySessions:2,history:b}]);
+ assert.deepEqual(result.values,{urgent:12.4,routine:9.6,followup:16,visit:1.2});
+ assert.equal(result.totalSessions,6);
+});
+test('blank or invalid planned sessions and missing rates never imply complete capacity',()=>{
+ const history={sessions:1,urgentCount:2,routineCount:3,followupCount:1,visitCount:0};
+ assert.equal(calculateAchievable([{weeklySessions:null,history}]).values.urgent,null);
+ assert.equal(calculateAchievable([{weeklySessions:-1,history}]).values.urgent,null);
+ assert.equal(calculateAchievable([{weeklySessions:3,history:{sessions:0}}]).values.urgent,null);
+ assert.deepEqual(calculateAchievable([{weeklySessions:0,history:{sessions:0}}]).values,{urgent:0,routine:0,followup:0,visit:0});
 });
