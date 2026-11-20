@@ -164,6 +164,36 @@ function renderSessionsHistory(){
   for(const type of result.types){const cell=document.createElement('td'),value=subtotal.get(type)||0;cell.textContent=partial?(value?'≥'+value:'—'):String(value);row.append(cell)}body.append(row);
  }
 }
+function renderAppointmentsHistory(){
+ if(!isOwner)return;
+ const head=$('workforceAppointmentsHistoryHead'),body=$('workforceAppointmentsHistoryBody'),notice=$('workforceAppointmentsHistoryNotice');
+ head.replaceChildren();body.replaceChildren();
+ const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
+ const careFor=row=>{
+  const type=capacityUrgencyCategory(row.slot),category=appointmentCategoryFor(type),role=appointmentCalculationRole(type);
+  const base=category.trim().toLowerCase()==='urgent care'||role==='urgent'?'urgent':role==='routine'?'routine':'';
+  return GPWorkforcePlanner.historicalCareType(type,category,base);
+ };
+ const result=GPSessionsHistory.appointmentHistory(availabilityRecords,clock,row=>effectiveClinicianType(row.clinician),row=>locumCategory(row)==='Locum',careFor,excludedSlotTypes,slotReportCoverage);
+ if(!result.types.length){notice.textContent='No past booked appointments are available for these appointment types.';return}
+ const selected=$('workforceAppointmentsType').value;
+ notice.textContent='Booked appointments by appointment date. Weeks marked * have incomplete coverage or are still in progress; counts are minimums.';
+ const heading=document.createElement('tr');
+ for(const label of ['Week beginning',...result.types]){const th=document.createElement('th');th.scope='col';th.textContent=label;heading.append(th)}head.append(heading);
+ for(const year of [...result.yearWeeks.keys()].sort().reverse()){
+  const yearly=result.yearWeekTotals.get(year)||new Map(),weeks=[...result.yearWeeks.get(year)].sort().reverse(),subtotal=new Map();let partial=false;
+  for(const week of weeks){
+   const row=document.createElement('tr'),th=document.createElement('th');th.scope='row';
+   const end=new Date(week+'T12:00:00Z');end.setUTCDate(end.getUTCDate()+6);
+   const split=week.slice(0,4)!==year||String(end.getUTCFullYear())!==year;
+   th.textContent=new Date(week+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'})+(split?' ('+year+' part)':'')+(result.incomplete.has(week)?' *':'');row.append(th);
+   const values=yearly.get(week)?.get(selected);partial||=result.incomplete.has(week);
+   for(const type of result.types){const cell=document.createElement('td'),value=values?.get(type)||0;subtotal.set(type,(subtotal.get(type)||0)+value);cell.textContent=result.incomplete.has(week)?(value?'≥'+integer.format(value):'—'):integer.format(value);row.append(cell)}body.append(row);
+  }
+  const row=document.createElement('tr');row.className='workforce-team-total';const th=document.createElement('th');th.scope='row';th.textContent=year+' subtotal'+(partial?' *':'');row.append(th);
+  for(const type of result.types){const cell=document.createElement('td'),value=subtotal.get(type)||0;cell.textContent=partial?(value?'≥'+integer.format(value):'—'):integer.format(value);row.append(cell)}body.append(row);
+ }
+}
 function renderWorkforcePlanning(){
  const page=$('workforcePlanningPage');
  if(page.classList.contains('hidden'))return;
@@ -239,12 +269,18 @@ function renderWorkforcePlanning(){
  const overview=$('workforceOverviewView'),sessionsView=$('workforceSessionsView');
  const historyTab=$('workforceSessionsHistoryTab'),historyView=$('workforceSessionsHistoryView');
  $('workforceHistoryTabs').hidden=!isOwner;historyTab.hidden=!isOwner;historyTab.disabled=!isOwner;
- const overviewTab=$('workforceOverviewTab');
- const selectTab=history=>{historyTab.setAttribute('aria-selected',String(history));historyTab.setAttribute('aria-pressed',String(history));overviewTab.setAttribute('aria-selected',String(!history));overviewTab.setAttribute('aria-pressed',String(!history))};
- overviewTab.onclick=()=>{historyView.hidden=true;sessionsView.hidden=true;overview.hidden=false;selectTab(false)};
- if(!isOwner){historyView.hidden=true;$('workforceSessionsHistoryHead').replaceChildren();$('workforceSessionsHistoryBody').replaceChildren();}
- historyTab.onclick=isOwner?()=>{renderSessionsHistory();overview.hidden=true;sessionsView.hidden=true;historyView.hidden=false;selectTab(true);$('workforceSessionsHistoryTitle').focus()}:null;
- $('workforceSessionsHistoryBack').onclick=()=>{historyView.hidden=true;overview.hidden=false;selectTab(false);historyTab.focus()};
+ const overviewTab=$('workforceOverviewTab'),appointmentTab=$('workforceAppointmentsHistoryTab'),appointmentView=$('workforceAppointmentsHistoryView');
+ appointmentTab.hidden=!isOwner;appointmentTab.disabled=!isOwner;
+ const selectTab=selected=>{for(const [tab,name] of [[overviewTab,'overview'],[historyTab,'sessions'],[appointmentTab,'appointments']]){tab.setAttribute('aria-selected',String(selected===name));tab.setAttribute('aria-pressed',String(selected===name))}};
+ const showHistory=name=>{overview.hidden=name!=='overview';historyView.hidden=name!=='sessions';appointmentView.hidden=name!=='appointments';sessionsView.hidden=true;selectTab(name)};
+ overviewTab.onclick=()=>showHistory('overview');
+ if(!isOwner){historyView.hidden=true;appointmentView.hidden=true;for(const id of ['workforceSessionsHistoryHead','workforceSessionsHistoryBody','workforceAppointmentsHistoryHead','workforceAppointmentsHistoryBody'])$(id).replaceChildren();}
+ historyTab.onclick=isOwner?()=>{renderSessionsHistory();showHistory('sessions');$('workforceSessionsHistoryTitle').focus()}:null;
+ appointmentTab.onclick=isOwner?()=>{renderAppointmentsHistory();showHistory('appointments');$('workforceAppointmentsHistoryTitle').focus()}:null;
+ $('workforceAppointmentsType').onchange=()=>renderAppointmentsHistory();
+ $('workforceSessionsHistoryBack').onclick=()=>{showHistory('overview');historyTab.focus()};
+ $('workforceAppointmentsHistoryBack').onclick=()=>{showHistory('overview');appointmentTab.focus()};
+ if(isOwner&&!appointmentView.hidden)renderAppointmentsHistory();
  if(!isOwner){
   sessionsView.hidden=true;
   overview.hidden=false;

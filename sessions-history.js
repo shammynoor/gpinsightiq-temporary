@@ -53,6 +53,29 @@ function calculate(rows,{date,minute},typeFor,locumFor,excluded=new Set(),covera
  }
  return {weeks:[...dates].sort().reverse(),types:[...types].sort((a,b)=>a.localeCompare(b)),totals,incomplete,yearWeeks,yearWeekTotals,annualByType,missingYears,observedYears};
 }
+// Count booked appointments by appointment date; session-holder names and session times are not required.
+function appointmentHistory(rows,{date,minute},typeFor,locumFor,careFor,excluded=new Set(),coverage=null){
+ const types=new Set(),yearWeeks=new Map(),yearWeekTotals=new Map(),incomplete=new Set();
+ for(const row of rows){
+  if(row.source!=='slot'||String(row.availability||'').toLowerCase()!=='booked'||!(row.count>0)||excluded.has(row.slot)||!row.date||row.date>date)continue;
+  const week=weekMonday(row.date),year=row.date.slice(0,4),care=careFor(row);
+  if(!care)continue;
+  if(!yearWeeks.has(year))yearWeeks.set(year,new Set());yearWeeks.get(year).add(week);
+  if(row.date===date&&(!Number.isFinite(row.minute)||row.minute>=minute)){incomplete.add(week);continue}
+  let type=typeFor(row)||'Unassigned';if(locumFor(row)&&!/\blocum\b/i.test(type))type+=' · Locum';types.add(type);
+  if(!yearWeekTotals.has(year))yearWeekTotals.set(year,new Map());
+  const byWeek=yearWeekTotals.get(year);if(!byWeek.has(week))byWeek.set(week,new Map());
+  const byCare=byWeek.get(week);if(!byCare.has(care))byCare.set(care,new Map());
+  const byType=byCare.get(care);byType.set(type,(byType.get(type)||0)+Number(row.count));
+ }
+ if(Array.isArray(coverage))for(const weeks of yearWeeks.values())for(const week of weeks){
+  for(let offset=0;offset<7;offset++){
+   const day=new Date(week+'T12:00:00Z');day.setUTCDate(day.getUTCDate()+offset);const iso=day.toISOString().slice(0,10);
+   if(iso>=date||!coverage.some(range=>range.start<=iso&&range.end>=iso&&(!range.asOf||range.asOf>=iso))){incomplete.add(week);break}
+  }
+ }
+ return {types:[...types].sort((a,b)=>a.localeCompare(b)),yearWeeks,yearWeekTotals,incomplete};
+}
 function weekMonday(date){const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7);return d.toISOString().slice(0,10)}
 function weeklySessionValue(result,year,type,coverageFraction,manual,workingWeeks=48){
  const automatic=result.observedYears.has(year)&&!result.missingYears.has(year)&&coverageFraction>0;
@@ -60,5 +83,5 @@ function weeklySessionValue(result,year,type,coverageFraction,manual,workingWeek
  const total=result.annualByType.get(year)?.get(type)||0;
  return {automatic:true,value:total/(workingWeeks*coverageFraction),total};
 }
-const api={holderTokens,calculate,holderColumn,weeklySessionValue};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPSessionsHistory=api;
+const api={holderTokens,calculate,appointmentHistory,holderColumn,weeklySessionValue};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPSessionsHistory=api;
 })(typeof window!=='undefined'?window:globalThis);
