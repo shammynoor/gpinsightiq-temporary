@@ -17,9 +17,15 @@ function calculate(demand,rows){
  if(rows.some(r=>['perSession','perWte'].some(k=>r[k]!==null&&(!Number.isFinite(r[k])||r[k]<=0))))errors.push('Session rates must be positive, or left blank.');
  return {errors,rows:results,totalSessions:results.every(r=>Number.isFinite(r.sessions))?results.reduce((s,r)=>s+r.sessions,0):null,totalWte:results.every(r=>Number.isFinite(r.wte))?results.reduce((s,r)=>s+r.wte,0):null};
 }
+function historicalCareType(type,category,planningCare){
+ const name=String(type||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+ if(name.startsWith('followup'))return 'followup';
+ if(['visit','homevisit','homevisiting','housecall','domiciliary'].some(prefix=>name.startsWith(prefix))||String(category||'').trim().toLowerCase()==='home visiting')return 'visit';
+ return planningCare;
+}
 function historicalRate(rows,key){const sessions=rows.reduce((sum,row)=>sum+row.sessions,0);return sessions>0?rows.reduce((sum,row)=>sum+row[key],0)/sessions:null}
 function averageWeeklyForecast(values){return values.length&&values.every(Number.isFinite)?values.reduce((sum,value)=>sum+value,0)/values.length:null}
-const api={calculate,averageWeeklyForecast,historicalRate};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
+const api={calculate,averageWeeklyForecast,historicalRate,historicalCareType};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GPWorkforcePlanner=api;
 if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
@@ -29,28 +35,36 @@ function careOf(row,urgentGroups){
  if(category==='urgent care')return urgentGroups.has(type)?'urgent':'';
  return appointmentCalculationRole(type)==='routine'?'routine':'';
 }
+function historyCareOf(row,urgentGroups){const type=capacityUrgencyCategory(row.slot);return historicalCareType(type,appointmentCategoryFor(type),careOf(row,urgentGroups))}
 function loadHistory(urgentGroups){
  const today=GPCorrectness.londonDate(),clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,12),weekSet=new Set(weeks);
  if(weeks.length<4)return {error:'At least four complete weeks of Slot Report coverage are needed for historical assumptions.'};
- const rows=availabilityRecords.filter(r=>r.source==='slot'&&String(r.availability).toLowerCase()==='booked'&&!excludedSlotTypes.has(r.slot)&&r.date&&weekSet.has(mondayOf(r.date))&&careOf(r,urgentGroups));
+ const rows=availabilityRecords.filter(r=>r.source==='slot'&&String(r.availability).toLowerCase()==='booked'&&!excludedSlotTypes.has(r.slot)&&r.date&&weekSet.has(mondayOf(r.date))&&historyCareOf(r,urgentGroups));
+ const planningRows=rows.filter(r=>careOf(r,urgentGroups));
+ const planningSessions=GPSessionsHistory.calculate(planningRows,clock,r=>effectiveClinicianType(r.clinician),r=>locumCategory(r)==='Locum',excludedSlotTypes,slotReportCoverage);
  const sessions=GPSessionsHistory.calculate(rows,clock,r=>effectiveClinicianType(r.clinician),r=>locumCategory(r)==='Locum',excludedSlotTypes,slotReportCoverage);
  const valid=weeks.filter(w=>!sessions.incomplete.has(w));
  if(valid.length<4)return {error:'At least four complete weeks with clinician names and appointment times are needed. Upload or replace reports that contain the session-holder name.'};
  const validSet=new Set(valid),people=new Map();
  for(const row of rows){
   if(!validSet.has(mondayOf(row.date))||!Number.isInteger(row.minute)||(row.minute>=780&&row.minute<840))continue;
-  const type=typeOf(row),care=careOf(row,urgentGroups);
-  if(!people.has(type)){const base=effectiveClinicianType(row.clinician)||'Unassigned';const group=clinicianGroupAssignments[base];people.set(type,{name:type,group:clinicianGroupNames.includes(group)?group:'Uncategorised',urgentCount:0,routineCount:0,sessions:0})}
+  const type=typeOf(row),care=historyCareOf(row,urgentGroups),planningCare=careOf(row,urgentGroups);
+  if(!people.has(type)){const base=effectiveClinicianType(row.clinician)||'Unassigned';const group=clinicianGroupAssignments[base];people.set(type,{name:type,group:clinicianGroupNames.includes(group)?group:'Uncategorised',urgentCount:0,routineCount:0,followupCount:0,visitCount:0,planningUrgentCount:0,planningRoutineCount:0,sessions:0,planningSessions:0})}
   people.get(type)[care+'Count']+=Number(row.count)||0;
+  if(planningCare)people.get(type)['planning'+(planningCare==='urgent'?'Urgent':'Routine')+'Count']+=Number(row.count)||0;
  }
  for(const week of valid)for(const [type,count] of sessions.totals.get(week)||[]){
   if(type.startsWith('Multiple clinician types'))return {error:'Some sessions have conflicting clinician types. Resolve these mappings before using the workforce estimate.'};
-  if(!people.has(type))people.set(type,{name:type,group:'Uncategorised',urgentCount:0,routineCount:0,sessions:0});people.get(type).sessions+=count;
+  if(!people.has(type))people.set(type,{name:type,group:'Uncategorised',urgentCount:0,routineCount:0,followupCount:0,visitCount:0,planningUrgentCount:0,planningRoutineCount:0,sessions:0,planningSessions:0});people.get(type).sessions+=count;
+ }
+ for(const week of valid)for(const [type,count] of planningSessions.totals.get(week)||[]){
+  if(type.startsWith('Multiple clinician types'))return {error:'Some sessions have conflicting clinician types. Resolve these mappings before using the workforce estimate.'};
+  if(people.has(type))people.get(type).planningSessions+=count;
  }
  const rowsOut=[...people.values()].sort((a,b)=>a.name.localeCompare(b.name));
- const urgentTotal=rowsOut.reduce((s,r)=>s+r.urgentCount,0),routineTotal=rowsOut.reduce((s,r)=>s+r.routineCount,0);
- for(const r of rowsOut){r.urgent=urgentTotal?100*r.urgentCount/urgentTotal:0;r.routine=routineTotal?100*r.routineCount/routineTotal:0;r.perSession=r.sessions?(r.urgentCount+r.routineCount)/r.sessions:null}
+ const urgentTotal=rowsOut.reduce((s,r)=>s+r.planningUrgentCount,0),routineTotal=rowsOut.reduce((s,r)=>s+r.planningRoutineCount,0);
+ for(const r of rowsOut){r.urgent=urgentTotal?100*r.planningUrgentCount/urgentTotal:0;r.routine=routineTotal?100*r.planningRoutineCount/routineTotal:0;r.perSession=r.planningSessions?(r.planningUrgentCount+r.planningRoutineCount)/r.planningSessions:null}
  return {rows:rowsOut,weeks:valid.length,excludedWeeks:weeks.length-valid.length,urgentTotal,routineTotal};
 }
 function getForecast(horizon){
@@ -87,6 +101,8 @@ function update(){
  }
  $('staffingTotalUrgent').textContent=number(historicalRate(model.historyRows,'urgentCount'));
  $('staffingTotalRoutine').textContent=number(historicalRate(model.historyRows,'routineCount'));
+ $('staffingTotalFollowup').textContent=number(historicalRate(model.historyRows,'followupCount'));
+ $('staffingTotalVisit').textContent=number(historicalRate(model.historyRows,'visitCount'));
  $('staffingTotalBookings').textContent=result.errors.length?'—':number(result.rows.reduce((sum,row)=>sum+row.appts,0));
  $('staffingTotalSessions').textContent=$('staffingSessions').textContent=result.errors.length?'—':number(result.totalSessions);
  $('staffingTotalWte').textContent=$('staffingWte').textContent=result.errors.length?'—':number(result.totalWte);
@@ -102,18 +118,18 @@ function render(){
  $('staffingPeriod').textContent=forecast.start&&forecast.end?'Weekly average · weeks beginning '+forecast.start+' to '+forecast.end:'';
  $('staffingSource').textContent='Urgent types: '+(forecast.groups.join(', ')||'none')+'. Longer forecasts are less certain.';
  const body=$('staffingRows');body.replaceChildren();$('staffingValidation').textContent='';
- if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
- $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. Forecasts use the historical booking mix. Sessions are before 1pm or from 2pm, with at least one booking.';
+ if(history.error||!history.rows.length){model=null;for(const id of ['staffingSessions','staffingWte','staffingTotalUrgent','staffingTotalRoutine','staffingTotalFollowup','staffingTotalVisit','staffingTotalBookings','staffingTotalSessions','staffingTotalWte'])$(id).textContent='—';$('staffingHistoryNote').textContent=history.error||'No matching historical bookings found.';return}
+ $('staffingHistoryNote').textContent='Historical mix: '+history.weeks+' complete weeks'+(history.excludedWeeks?' ('+history.excludedWeeks+' incomplete excluded)':'')+'. The forecast does not add separate demand for follow-ups or home visits. Sessions are before 1pm or from 2pm, with at least one booking.';
  const saved=draft||readChartPreferences()['staffingPlanner:assumptions']||{};
  model={demand:{urgent:forecast.urgent,routine:forecast.routine},historyRows:history.rows,history:new Map(history.rows.map(row=>[row.name,row]))};
  const groupNames=[...clinicianGroupNames,'Uncategorised'];
  const ordered=[...history.rows].sort((a,b)=>groupNames.indexOf(a.group)-groupNames.indexOf(b.group)||a.name.localeCompare(b.name));
  let currentGroup=null;
  for(const data of ordered){
-  if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=8;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
+  if(data.group!==currentGroup){currentGroup=data.group;const groupRow=document.createElement('tr'),heading=document.createElement('th');groupRow.className='staffing-group';heading.scope='rowgroup';heading.colSpan=10;heading.textContent=currentGroup;groupRow.append(heading);body.append(groupRow)}
   const tr=document.createElement('tr');tr.dataset.name=data.name;const title=document.createElement('th');title.scope='row';title.textContent=data.name;tr.append(title);
   const prior=saved[data.name]||{};
-  for(const field of ['urgentCount','routineCount']){const td=cell(tr,''),value=document.createElement('span');value.className='staffing-history-value';value.textContent=number(historicalRate([data],field));td.append(value)}
+  for(const field of ['urgentCount','routineCount','followupCount','visitCount']){const td=cell(tr,''),value=document.createElement('span');value.className='staffing-history-value';value.textContent=number(historicalRate([data],field));td.append(value)}
   input(tr,'perSession',Object.hasOwn(prior,'perSession')?prior.perSession:data.perSession,data.name+' bookings per session');
   for(const key of ['appointments','sessions'])cell(tr,'—').dataset.result=key;
   input(tr,'perWte',Object.hasOwn(prior,'perWte')?prior.perWte:null,data.name+' patient-facing sessions per WTE');

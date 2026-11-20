@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {calculate,averageWeeklyForecast,historicalRate}=require('../workforce-planner.js');
+const {calculate,averageWeeklyForecast,historicalRate,historicalCareType}=require('../workforce-planner.js');
 const demand={urgent:40,routine:60};
 const rows=[{name:'GP',urgent:0,routine:100,perSession:12,perWte:6},{name:'Urgent team',urgent:100,routine:0,perSession:10,perWte:4}];
 test('allocates forecasts and derives sessions and WTE from editable assumptions',()=>{
@@ -32,4 +32,14 @@ test('historical rates and totals use actual sessions as the denominator',()=>{
  assert.equal(historicalRate([types[1]],'routineCount'),15);
  assert.equal(historicalRate(types,'urgentCount'),40/6);
  assert.equal(historicalRate([{urgentCount:0,sessions:0}],'urgentCount'),null);
+});
+
+test('separates follow-up and home visit types from routine and urgent bookings',()=>{
+ assert.equal(historicalCareType('Follow-Up','Planned Care',''), 'followup');
+ assert.equal(historicalCareType('Follow up','Routine Care','routine'), 'followup');
+ assert.equal(historicalCareType('Visit','Home Visiting',''), 'visit');
+ assert.equal(historicalCareType('GP home visits','Home Visiting',''), 'visit');
+ assert.equal(historicalCareType('Routine','Routine Care','routine'), 'routine');
+ assert.equal(historicalCareType('Same Day','Urgent Care','urgent'), 'urgent');
+ assert.equal(historicalCareType('Other','Other',''), '');
 });
