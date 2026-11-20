@@ -1666,14 +1666,18 @@ const slotQuantityHeadings=new Set(['count','slot count','appointment count','qu
 const slotRequiredColumns=['Appointment Date','Appointment Time',slotLeadTimeColumn,slotUserTypeColumn,'Slot Type','Availability'];
 const slotHeaderlessColumns=[...slotRequiredColumns,'Patient Age','Gender','Town of the Location of the Session','DNA'];
 const slotAvailabilityValues=new Set(['booked','available','blocked','embargoed']);
+const slotCanonicalHeadings=new Map([...slotRequiredColumns,'DNA'].map(name=>[name.toLowerCase(),name]));
+function normaliseSlotHeading(value){const name=String(value??'').replace(/^\uFEFF/,'').trim().replace(/\s+/g,' ');return slotCanonicalHeadings.get(name.toLowerCase())||name}
+function isSlotHeadingRow(row){return Array.isArray(row)&&slotRequiredColumns.every(column=>row.some(value=>normaliseSlotHeading(value)===column))}
+function isHeaderlessSlotRow(row){const clean=value=>String(value??'').trim();return Array.isArray(row)&&row.length>=9&&!!parseDate(clean(row[0]))&&/^\d{1,2}:\d{2}/.test(clean(row[1]))&&!!clean(row[3])&&!!clean(row[4])&&slotAvailabilityValues.has(clean(row[5]).toLowerCase())}
 
 function parseSlotReportCSV(csv){
  const parsed=Papa.parse(csv,{delimiter:',',skipEmptyLines:'greedy'});
  if(parsed.errors.length)throw Error('Slot Report CSV parsing failed: '+parsed.errors[0].message);
  const clean=value=>String(value??'').trim();
- const headerIndex=parsed.data.slice(0,30).findIndex(row=>slotRequiredColumns.every(column=>row.some(value=>clean(value)===column)));
+ const headerIndex=parsed.data.findIndex(isSlotHeadingRow);
  if(headerIndex>=0){
-  const columns=parsed.data[headerIndex].map(clean);
+  const columns=parsed.data[headerIndex].map(normaliseSlotHeading);
   if([...slotRequiredColumns,'DNA'].some(column=>columns.indexOf(column)!==columns.lastIndexOf(column))){
    throw Error('The Slot Report contains duplicate column headings.');
   }
@@ -2061,14 +2065,24 @@ function parseSignpostingDate(raw){
  return '';
 }
 const SIGNPOSTING_REQUIRED_COLUMNS=['Anonymised Identifier','Age','Gender','Date',"Consultation Details' Time",'Code Term'];
+const SIGNPOSTING_CANONICAL_COLUMNS=new Map(SIGNPOSTING_REQUIRED_COLUMNS.map(name=>[name.toLowerCase(),name]));
 function signpostingHeader(rows){
- const canonical=new Map(SIGNPOSTING_REQUIRED_COLUMNS.map(name=>[name.toLowerCase(),name]));
- for(let i=0;i<Math.min(rows.length,100);i++){
+ for(let i=0;i<rows.length;i++){
   if(!Array.isArray(rows[i]))continue;
-  const columns=rows[i].map(value=>{const label=String(value||'').replace(/^\uFEFF/,'').trim().replace(/\s+/g,' ');return canonical.get(label.toLowerCase())||label});
+  const columns=rows[i].map(value=>{const label=String(value||'').replace(/^\uFEFF/,'').trim().replace(/\s+/g,' ');return SIGNPOSTING_CANONICAL_COLUMNS.get(label.toLowerCase())||label});
   if(columns.includes('Code Term')&&(columns.includes('Date')||columns.includes('Anonymised Identifier')))return {index:i,columns};
  }
  return null;
+}
+function detectAnalyticsReportKind(csv,filename){
+ let kind='';
+ // Stop as soon as a recognised header (or a supported headerless slot row) is found.
+ Papa.parse(csv,{header:false,skipEmptyLines:'greedy',bom:true,step(result,parser){
+  const row=result.data,slot=isSlotHeadingRow(row),signposting=!!signpostingHeader([row]);
+  if(slot&&signposting)throw Error('The CSV contains conflicting report headings. No saved reports were changed.');
+  if(slot||signposting||isHeaderlessSlotRow(row)){kind=signposting?'signposting':'slot';parser.abort()}
+ }});
+ return kind||(/signposting/i.test(String(filename||''))?'signposting':'slot');
 }
 function parseSignpostingCSV(csv){
  const parsed=Papa.parse(csv,{header:false,skipEmptyLines:false,bom:true});
@@ -6039,8 +6053,7 @@ async function replaceExistingCSV(file){
   }
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
   if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);const refreshed=await loadFolder(true);iqUploadStatus.textContent=refreshed?'Rapid Health import finished.':'Rapid Health data saved, but the dashboard could not refresh. Refresh the page.';csvDropStatus(iqUploadStatus.textContent,!refreshed,false);return;}
-  const preview=Papa.parse(text,{header:false,preview:100,skipEmptyLines:false,bom:true});
-  const kind=signpostingHeader(preview.data)||/signposting/i.test(file.name)?'signposting':'slot';
+  const kind=detectAnalyticsReportKind(text,file.name);
   const holderTokens=kind==='slot'?await GPSessionsHistory.holderTokens(parseSlotReportCSV(text),iqBridge.practice.id):null;
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv',holderTokens);
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
