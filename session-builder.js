@@ -21,8 +21,9 @@ function validateRows(rows){
 }
 window.validateSessionBuilderTypes=validateRows;
 function reconcileRows(rows){
- const modes=configuredModes(),groups=new Set(configuredGroups());
- return rows.map(row=>({...row,appointmentsByMode:Object.fromEntries(modes.map(mode=>[mode,Object.hasOwn(row.appointmentsByMode,mode)?row.appointmentsByMode[mode]:0])),clinicianTypes:(row.clinicianTypes||[]).filter(name=>groups.has(name))}));
+ const modes=configuredModes();
+ // Keep saved assignments even if settings are temporarily unavailable or a category is hidden.
+ return rows.map(row=>({...row,appointmentsByMode:{...row.appointmentsByMode,...Object.fromEntries(modes.filter(mode=>!Object.hasOwn(row.appointmentsByMode,mode)).map(mode=>[mode,0]))},clinicianTypes:[...(row.clinicianTypes||[])]}));
 }
 window.syncSessionBuilderSettings=()=>{if(canEditSessionBuilder())sessionBuilderTypes=reconcileRows(sessionBuilderTypes);};
 window.renameSessionBuilderSetting=(kind,oldName,newName)=>{
@@ -34,7 +35,7 @@ window.renameSessionBuilderSetting=(kind,oldName,newName)=>{
 };
 function commit(rows){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
- validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty();renderSessionRequirements();
+ validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty(250);renderSessionRequirements();
 }
 let demandCache=null;
 function readAverageDemand(){
@@ -116,6 +117,7 @@ function renderSessionBuilder(){
   for(const type of types){
    const option=document.createElement('option');option.value=type;option.textContent=type;choices.append(option);
   }
+  if(row.clinicianTypes?.length===1&&!types.includes(row.clinicianTypes[0])){const missing=document.createElement('option');missing.value=row.clinicianTypes[0];missing.textContent=row.clinicianTypes[0]+' (unavailable in People settings)';choices.append(missing);}
   choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';
   choices.addEventListener('change',()=>{try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,clinicianTypes:choices.value?[choices.value]:[]}:item));}catch(error){choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';byId('sessionBuilderSaveStatus').textContent=error.message;}});
   eligibleCell.append(choices);tr.append(eligibleCell);
@@ -135,8 +137,8 @@ function renderSessionBuilder(){
   dropdown.append(options);appointmentCell.append(dropdown);tr.append(appointmentCell);
   for(const mode of modes){
    const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.required=true;input.inputMode='numeric';input.value=String(row.appointmentsByMode[mode]??0);input.className='session-builder-count';input.setAttribute('aria-label',mode+' appointments for '+row.name);
-   input.addEventListener('input',()=>input.setCustomValidity(''));
-   input.addEventListener('change',()=>{try{const value=Number(input.value);if(!/^\d+$/.test(input.value)||!Number.isSafeInteger(value))throw Error('Enter a whole number of zero or more.');commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentsByMode:{...item.appointmentsByMode,[mode]:value}}:item));input.setCustomValidity('');}catch(error){input.setCustomValidity(error.message);input.reportValidity();}});
+   input.addEventListener('input',()=>{input.setCustomValidity('');const value=Number(input.value);if(/^\d+$/.test(input.value)&&Number.isSafeInteger(value))commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentsByMode:{...item.appointmentsByMode,[mode]:value}}:item));});
+   input.addEventListener('change',()=>{try{const value=Number(input.value);if(!/^\d+$/.test(input.value)||!Number.isSafeInteger(value))throw Error('Enter a whole number of zero or more.');if(sessionBuilderTypes.find(item=>item.id===row.id)?.appointmentsByMode[mode]!==value)commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentsByMode:{...item.appointmentsByMode,[mode]:value}}:item));input.setCustomValidity('');}catch(error){input.setCustomValidity(error.message);input.reportValidity();}});
    td.append(input);tr.append(td);
   }
   const actions=document.createElement('td'),remove=document.createElement('button');remove.type='button';remove.className='session-builder-remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+row.name);

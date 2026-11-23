@@ -1441,16 +1441,18 @@ function downloadSettingsConflictDraft(){
 }
 $('settingsConflictDownload')?.addEventListener('click',downloadSettingsConflictDraft);
 $('settingsConflictDismiss')?.addEventListener('click',()=>$('settingsConflictNotice').hidden=true);
-function markCategoryDirty(){
+function markCategoryDirty(delay=850){
  if(!isOwner)return;
  categoryDirty=true;cloudChangeSerial++;
  if(settingsRevisionConflict){const saved=preserveSettingsConflictDraft();showSettingsConflictNotice(true,saved);cloudNotice('Settings changed in another tab. Your edits have not been saved.');return}
  cloudNotice('Saving settings automatically…');
  clearTimeout(cloudSaveTimer);
- if(activeAccount&&cloudReady)cloudSaveTimer=setTimeout(()=>{void saveCloudCategories()},850);
- else cloudNotice('Changes saved in this browser; practice workspace will sync when connected.');
+ if(activeAccount&&cloudReady)cloudSaveTimer=setTimeout(()=>{void saveCloudCategories()},delay);
+ else cloudNotice('Changes are not yet saved to the practice workspace. Keep this page open until connected.');
 }
 function scheduleCloudSave(){markCategoryDirty()}
+// Prevent a refresh from silently discarding settings still waiting to reach the workspace.
+window.addEventListener('beforeunload',event=>{if(categoryDirty){event.preventDefault();event.returnValue='';}});
 
 async function saveCloudCategories(options={}){
  if(!isOwner)return false;

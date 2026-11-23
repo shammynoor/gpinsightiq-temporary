@@ -5,7 +5,7 @@ const lastSave=source.slice(source.lastIndexOf('async function saveCloudCategori
 function setup({storageFails=false,conflict=true}={}){
  const store=new Map(),elements=new Map(),calls=[],notices=[],timers=[];let current={version:9,sessionBuilderTypes:[{name:'Local edit'}]};
  const element=id=>{if(!elements.has(id))elements.set(id,{hidden:true,textContent:'',addEventListener(){}});return elements.get(id)};
- const context={console,Map,JSON,Error,Date,Blob,URL,document:{},isOwner:true,cloudReady:true,cloudBusy:false,activeAccount:{id:'a'},cloudSaveTimer:null,iqSettingsRevision:7,
+ const context={console,Map,JSON,Error,Date,Blob,URL,window:{addEventListener:(event,fn)=>{context.unloadHandler=fn}},document:{},isOwner:true,cloudReady:true,cloudBusy:false,activeAccount:{id:'a'},cloudSaveTimer:null,iqSettingsRevision:7,
   iqLocalStorage:{getItem:key=>store.get(key),setItem:(key,value)=>{if(storageFails)throw Error('Storage unavailable');store.set(key,value)}},
   analyticsSettingsSnapshot:()=>JSON.stringify(current),validateCloudCategories:()=>{},cloudNotice:text=>notices.push(text),$ :element,
   setTimeout:fn=>{timers.push(fn);return timers.length},clearTimeout:()=>{},
@@ -38,3 +38,5 @@ test('database migration keeps access and revision checks but uses a non-retryab
   assert.match(body,/errcode='P0001'/);assert.doesNotMatch(body,/errcode='40001'/);
  }
 });
+
+test('refresh warns only while shared settings are unsaved',async()=>{const h=setup({conflict:false});let prevented=false;const event={preventDefault(){prevented=true}};h.context.unloadHandler(event);assert.equal(prevented,false);h.context.markCategoryDirty();h.context.unloadHandler(event);assert.equal(prevented,true);await h.context.saveCloudCategories();prevented=false;h.context.unloadHandler(event);assert.equal(prevented,false);});

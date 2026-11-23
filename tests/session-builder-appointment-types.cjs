@@ -15,5 +15,6 @@ test('appointment choices persist independently, keep legacy defaults, and follo
  assert.match(byId('sessionBuilderPlanStatus').textContent,/not yet applied/);
  context.window.renameSessionBuilderSetting('appointmentTypes','Routine','Routine renamed');assert.deepEqual(Array.from(context.sessionBuilderTypes[0].appointmentTypes),['Same Day','Routine renamed']);
  context.groupUrgencyNames=['Same Day','Within 3 Days','Routine renamed'];context.window.renderSessionBuilder();const next=byId('sessionBuilderBody').children[0].children[2].children[0];assert.deepEqual(Array.from(next.children[1].children, label=>label.children[0].checked),[true,false,true]);
+ context.clinicianGroupNames=[];context.consultCategoryNames=[];context.window.syncSessionBuilderSettings();assert.deepEqual(Array.from(context.sessionBuilderTypes[0].clinicianTypes),['GP']);assert.equal(context.sessionBuilderTypes[0].appointmentsByMode.Phone,5);context.clinicianGroupNames=['GP'];context.consultCategoryNames=['Phone'];context.window.renderSessionBuilder();assert.equal(byId('sessionBuilderBody').children[0].children[1].children[0].value,'GP');
  assert.throws(()=>context.window.validateSessionBuilderTypes([{id:'x',name:'x',appointmentsByMode:{},appointmentTypes:['Routine','routine']}]),/only once/);
 });
