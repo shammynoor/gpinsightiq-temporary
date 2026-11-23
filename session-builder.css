@@ -83,3 +83,11 @@
 #sessionBuilderPage .session-builder-appointment-options{display:flex;flex-direction:column;gap:4px;max-height:210px;overflow-y:auto;padding:8px;border:1px solid #d4e2eb;border-radius:7px;background:white;margin-top:4px}
 #sessionBuilderPage .session-builder-appointment-options label{display:flex;align-items:center;gap:8px;padding:5px 3px;margin:0;font-size:12px;font-weight:400;cursor:pointer}
 #sessionBuilderPage .session-builder-appointment-options input{width:16px;height:16px;min-height:0;margin:0;padding:0;accent-color:#1268a8;flex:0 0 16px}
+
+#sessionBuilderPage .session-builder-plan-table{min-width:950px;table-layout:fixed;font-variant-numeric:tabular-nums}
+#sessionBuilderPage .session-builder-capacity-table{min-width:850px;table-layout:fixed;font-variant-numeric:tabular-nums}
+#sessionBuilderPage .session-builder-plan-table th:nth-child(n),#sessionBuilderPage .session-builder-capacity-table th:nth-child(n){min-width:0;width:auto;text-align:center}
+#sessionBuilderPage .session-builder-plan-table thead tr:first-child th:first-child,#sessionBuilderPage .session-builder-plan-table tbody th:first-child,#sessionBuilderPage .session-builder-plan-table tfoot th:first-child,#sessionBuilderPage .session-builder-capacity-table th:first-child{width:170px;text-align:left}
+#sessionBuilderPage .session-builder-plan-table td,#sessionBuilderPage .session-builder-capacity-table td{text-align:center;padding:10px 5px}
+#sessionBuilderPage .session-builder-plan-table tfoot th,#sessionBuilderPage .session-builder-plan-table tfoot td{background:#edf3f8;font-weight:700}
+#sessionBuilderPage .session-builder-capacity-heading{margin-top:24px;margin-bottom:10px}
