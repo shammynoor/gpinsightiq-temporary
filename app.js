@@ -191,7 +191,7 @@ let slotReportCoverage=[],settingsRefreshing=false;
 let analyticsRoles={};
 try{analyticsRoles=JSON.parse(iqLocalStorage.getItem("appointment-dashboard-categories-v1")||"{}").analyticsRoles||{}}catch(_){}
 function ensureAnalyticsRoles(){return analyticsRoles=GPCorrectness.roles(analyticsRoles,groupUrgencyNames,clinicianGroupNames,appointmentCategoryFor)}
-function appointmentCalculationRole(name){if(!groupUrgencyNames.includes(name))return "other";if(!Object.hasOwn(analyticsRoles.appointmentTypes||{},name))ensureAnalyticsRoles();return analyticsRoles.appointmentTypes[name]?.kind||"other"}
+function appointmentCalculationRole(name){if(!groupUrgencyNames.includes(name)||String(appointmentCategoryFor(name)||'').trim().toLowerCase()==='planned care')return "other";if(!Object.hasOwn(analyticsRoles.appointmentTypes||{},name))ensureAnalyticsRoles();return analyticsRoles.appointmentTypes[name]?.kind||"other"}
 function isDoctorPlanningGroup(name){if(!Object.hasOwn(analyticsRoles.clinicianGroups||{},name))ensureAnalyticsRoles();return !!analyticsRoles.clinicianGroups[name]?.doctor}
 function renameAnalyticsRole(dimension,oldName,newName){ensureAnalyticsRoles();GPCorrectness.renameRole(analyticsRoles,dimension,oldName,newName);if(dimension==='clinicianGroups'||dimension==='appointmentTypes')window.renameSessionBuilderSetting?.(dimension,oldName,newName)}
 function refreshPrimaryApptTypeBoxes(){for(const id of PRIMARY_APPT_ROOT_IDS)enhancePrimaryApptTypeBox($(id))}

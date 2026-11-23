@@ -72,7 +72,8 @@ function roles(saved,appointmentNames,clinicianNames,categoryFor=()=> ''){
   const old=Object.hasOwn(source.appointmentTypes||{},name)?source.appointmentTypes[name]:null;
   const fallback=/^routine(\b|$)/i.test(name.trim())?'routine':
    (/same.?day|urgent.?extra|within.?3.?day|^111.?referral$/i.test(name)||categoryFor(name)==='Urgent Care'?'urgent':'other');
-  appointmentTypes[name]={id:typeof old?.id==='string'?old.id:'appointment:'+encodeURIComponent(name),kind:['urgent','routine','other'].includes(old?.kind)?old.kind:fallback};
+  const planned=String(categoryFor(name)||'').trim().toLowerCase()==='planned care';
+  appointmentTypes[name]={id:typeof old?.id==='string'?old.id:'appointment:'+encodeURIComponent(name),kind:planned?'other':['urgent','routine','other'].includes(old?.kind)?old.kind:fallback};
  }
  for(const name of clinicianNames){
   const old=Object.hasOwn(source.clinicianGroups||{},name)?source.clinicianGroups[name]:null;
