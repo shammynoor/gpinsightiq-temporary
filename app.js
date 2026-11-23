@@ -1424,10 +1424,27 @@ async function loadCloudCategories(options={}){
   if(options.strict)throw e;
  }
 }
-let categoryDirty=false, cloudChangeSerial=0, cloudRetryTimer=null;
+let categoryDirty=false, cloudChangeSerial=0, cloudRetryTimer=null, settingsRevisionConflict=false;
+const SETTINGS_CONFLICT_DRAFT='gp-insight-unsaved-shared-settings-v1';
+function settingsConflictMessage(error){return /settings changed in another session/i.test(String(error?.message||''))}
+function preserveSettingsConflictDraft(){
+ try{const snapshot=JSON.parse(analyticsSettingsSnapshot());delete snapshot.folder;iqLocalStorage.setItem(SETTINGS_CONFLICT_DRAFT,JSON.stringify(snapshot));return true}catch(error){console.warn('Could not preserve the unsaved settings draft',error);return false}
+}
+function showSettingsConflictNotice(current=false,saved=true){
+ const notice=$('settingsConflictNotice'),message=$('settingsConflictMessage'),download=$('settingsConflictDownload');if(!notice||!message||!download)return;
+ notice.hidden=false;download.hidden=!saved;
+ message.textContent=current?(saved?'Settings changed in another tab. Your changes were not saved; a copy is stored on this device. Download the copy, reload, then reapply your changes.':'Settings changed in another tab. Your changes were not saved and could not be backed up. Note them before reloading.'):'An unsaved settings copy from an earlier conflict is stored on this device. Download it if needed, then reapply changes to the latest settings.';
+}
+function downloadSettingsConflictDraft(){
+ const data=iqLocalStorage.getItem(SETTINGS_CONFLICT_DRAFT);if(!data)return;
+ const url=URL.createObjectURL(new Blob([data],{type:'application/json'})),link=document.createElement('a');link.href=url;link.download='gp-insight-unsaved-settings.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('settingsConflictDownload')?.addEventListener('click',downloadSettingsConflictDraft);
+$('settingsConflictDismiss')?.addEventListener('click',()=>$('settingsConflictNotice').hidden=true);
 function markCategoryDirty(){
  if(!isOwner)return;
  categoryDirty=true;cloudChangeSerial++;
+ if(settingsRevisionConflict){const saved=preserveSettingsConflictDraft();showSettingsConflictNotice(true,saved);cloudNotice('Settings changed in another tab. Your edits have not been saved.');return}
  cloudNotice('Saving settings automatically…');
  clearTimeout(cloudSaveTimer);
  if(activeAccount&&cloudReady)cloudSaveTimer=setTimeout(()=>{void saveCloudCategories()},850);
@@ -5830,7 +5847,7 @@ async function iqStart(){
   isOwner=iqBridge.manage;folderAccessVerified=true;folderAccessDenied=false;authenticatedOnce=true;
   selectedFolder={id:iqBridge.practice.id,name:iqBridge.practice.name};
   applyAccessMode();setButtons();iqCreateUploadPanel();
-  await loadCloudCategories({strict:true});await loadFolder(true);
+  await loadCloudCategories({strict:true});try{if(iqLocalStorage.getItem(SETTINGS_CONFLICT_DRAFT))showSettingsConflictNotice(false,true)}catch(_){}await loadFolder(true);
   restoreChartCheckboxes();
   // Seed the current browser entry without adding a stop before the overview.
   window.restoreDashboardPage=page=>showPage(page,{historyMode:'restore'});
@@ -5866,7 +5883,7 @@ async function cloudFile(){
  const defaults=JSON.parse(analyticsSettingsSnapshot());defaults.practiceSettings={name:iqBridge.practice.name,anchors:{}};return defaults;
 }
 async function saveCloudCategories(){
- if(!isOwner||!cloudReady||cloudBusy)return false;
+ if(!isOwner||!cloudReady||cloudBusy||settingsRevisionConflict)return false;
  cloudBusy=true;const serial=cloudChangeSerial;
  try{
   const snapshot=JSON.parse(analyticsSettingsSnapshot());delete snapshot.folder;validateCloudCategories(snapshot);
@@ -5874,7 +5891,12 @@ async function saveCloudCategories(){
   categoryDirty=cloudChangeSerial!==serial;cloudNotice(categoryDirty?'Saving latest changes…':'Practice settings saved.');
   if(categoryDirty){clearTimeout(cloudSaveTimer);cloudSaveTimer=setTimeout(()=>void saveCloudCategories(),850);}
   return true;
- }catch(error){categoryDirty=true;cloudNotice('Settings not saved: '+error.message);return false;}
+ }catch(error){
+  categoryDirty=true;
+  if(settingsConflictMessage(error)){settingsRevisionConflict=true;clearTimeout(cloudSaveTimer);clearTimeout(cloudRetryTimer);cloudRetryTimer=null;const saved=preserveSettingsConflictDraft();showSettingsConflictNotice(true,saved);cloudNotice('Settings changed in another tab. Your edits have not been saved.');}
+  else cloudNotice('Settings not saved: '+error.message);
+  return false;
+ }
  finally{cloudBusy=false;}
 }
 async function openCSVCache(){return null;}
