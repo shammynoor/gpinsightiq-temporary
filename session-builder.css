@@ -111,3 +111,5 @@
 #sessionBuilderPage .session-clinician-table .session-clinician-group{width:auto;background:#e6f1f5;color:#22516b}
 #sessionBuilderPage .session-clinician-table tbody th:not(.session-clinician-group){background:white;color:#17395b;font-weight:600}
 #sessionBuilderPage .session-clinician-table select{width:100%;max-width:150px;padding:8px;font-size:13px}
+
+#sessionBuilderPage .session-builder-clinician-group-heading{display:block;padding:6px 3px 2px;font-size:11px;color:#355d74}

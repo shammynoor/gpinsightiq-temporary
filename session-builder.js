@@ -4,6 +4,9 @@ const byId=id=>document.getElementById(id);
 const configuredModes=()=>consultCategoryNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
 const configuredAppointmentTypes=()=>groupUrgencyNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
 const configuredGroups=()=>clinicianGroupNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
+const configuredClinicians=()=>clinicianCategoryNames.filter(name=>name&&name!=='Uncategorised'&&isDashboardToggleOption(name));
+const clinicianGroup=name=>configuredGroups().includes(clinicianGroupAssignments[name])?clinicianGroupAssignments[name]:'Uncategorised';
+const selectedClinicians=row=>Array.isArray(row.eligibleClinicians)?row.eligibleClinicians:configuredClinicians().filter(name=>(row.clinicianTypes||[]).includes(clinicianGroup(name)));
 function validateRows(rows){
  if(!Array.isArray(rows))throw Error('Session types must be a list.');
  const ids=new Set(),names=new Set();
@@ -14,6 +17,7 @@ function validateRows(rows){
   if(names.has(name))throw Error('That session type already exists.');
   if(!row.appointmentsByMode||typeof row.appointmentsByMode!=='object'||Array.isArray(row.appointmentsByMode)||Object.entries(row.appointmentsByMode).some(([mode,count])=>!mode.trim()||!Number.isSafeInteger(count)||count<0))throw Error('Appointment counts must be whole numbers of zero or more, mapped to consultation modes.');
   if(row.clinicianTypes!==undefined&&(!Array.isArray(row.clinicianTypes)||row.clinicianTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.clinicianTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.clinicianTypes.length))throw Error('Choose each eligible clinician group only once.');
+  if(row.eligibleClinicians!==undefined&&(!Array.isArray(row.eligibleClinicians)||row.eligibleClinicians.some(type=>typeof type!=='string'||!type.trim())||new Set(row.eligibleClinicians.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.eligibleClinicians.length))throw Error('Choose each eligible clinician type only once.');
   if(row.appointmentTypes!==undefined&&(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.appointmentTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.appointmentTypes.length))throw Error('Choose each appointment type only once.');
   ids.add(row.id);names.add(name);
  }
@@ -84,14 +88,17 @@ function renderSessionRequirements(){
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
  byId('sessionBuilderHistory').textContent=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine and non-urgent home-visit need use historical averages; urgent home visits use the historical mode split.':'Urgent forecast unavailable. Check report history and practice list-size settings.';
- const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true});
+ const clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
+ const configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
+ const estimate=window.SessionBuilderPlanning.estimateSessions(configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true,clinicians:clinicianMap,clinicianLimits:sessionBuilderClinicianLimits});
  if(!history.forecast)estimate.error='Urgent forecast unavailable. Check report history and practice list-size settings.';
+ if(estimate.error)estimate.rows=sessionBuilderTypes.map(row=>({id:row.id,name:row.name,group:'',periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}}));
  const warning=byId('sessionBuilderPlanWarning');
  if(warning){
   const missing=estimate.unmetDemand||[],totals=new Map();
   for(const item of missing){const key=item.name+' ('+({sameDay:'daily urgent',homeVisit:'home visit',weekly:'weekly urgent',routine:'routine'}[item.pool]||item.pool)+')';totals.set(key,(totals.get(key)||0)+item.amount);}
   warning.hidden=!estimate.error&&!totals.size;
-  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Choose a session type that can see each appointment type and enter capacity for its consultation mode. The tables below show the demand that could be allocated.':'';
+  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Check eligible clinicians, their maximum sessions, appointment types and consultation-mode capacity. The tables below show the demand that could be allocated.':'';
  }
  const body=byId('sessionBuilderPlanBody');body.replaceChildren();
  function addCells(parent,label,values,group=''){
@@ -113,7 +120,7 @@ function renderSessionRequirements(){
   const rowSplit={};if(!estimate.error)for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])mergeSplit(rowSplit,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
   mergeSplit(grandSplit,rowSplit);
   const appointmentTotal=Object.values(rowSplit).reduce((sum,value)=>sum+value,0);
-  const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0),estimate.error?null:appointmentTotal],row.group||'Choose one clinician group');
+  const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0),estimate.error?null:appointmentTotal],row.group||'Choose eligible clinicians');
   if(!estimate.error){
    for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']])appendSplit(tr.children[1+day*2+offset],estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
    appendSplit(tr.children[12],rowSplit);
@@ -131,15 +138,16 @@ function renderSessionRequirements(){
  addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null]);
  addCells(summary,'Home visits provided',[...(estimate.error?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null]);
  const shareSummary=(estimate.ruleResults||[]).filter(result=>result.strength==='must'&&result.appointmentPool==='urgent').map(result=>{const values=result.measurements.filter(m=>m.denominator>0).map(m=>m.numerator/m.denominator*100);return values.length?result.clinicianGroup+' urgent share '+fmt(Math.min(...values))+'–'+fmt(Math.max(...values))+'% (minimum '+fmt(result.minimum)+'%)':result.clinicianGroup+' urgent share has no appointments to measure';});
+ const clinicianSummary=Object.entries(estimate.clinicianCounts||{}).filter(([,count])=>count>0).map(([name,count])=>name+': '+count).join(' · ');
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Staff availability is not assessed.'+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Weekly clinician limits are applied.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;
  if(!canEditSessionBuilder()){page.classList.add('hidden');body.replaceChildren();return;}
  window.syncSessionBuilderSettings();
  const modes=configuredModes(),head=byId('sessionBuilderHead');head.replaceChildren();
- for(const label of ['Session type','Eligible clinician group','Appointment types',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
+ for(const label of ['Session type','Eligible clinicians','Appointment types',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
  byId('sessionBuilderTable').style.minWidth=Math.max(950,800+modes.length*120)+'px';
  byId('sessionBuilderModeNotice').hidden=modes.length>0;
  body.replaceChildren();
@@ -149,26 +157,31 @@ function renderSessionBuilder(){
   name.addEventListener('input',()=>name.setCustomValidity(''));
   name.addEventListener('change',()=>{try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,name:name.value.trim()}:item));name.value=name.value.trim();name.setCustomValidity('');renderSessionBuilder();}catch(error){name.setCustomValidity(error.message);name.reportValidity();}});
   nameCell.append(name);tr.append(nameCell);
-  const eligibleCell=document.createElement('td'),choices=document.createElement('select');choices.className='session-builder-clinician-select';choices.setAttribute('aria-label','Eligible clinician group for '+row.name);
-  const types=configuredGroups();
-  const empty=document.createElement('option');empty.value='';empty.textContent=types.length?'Choose clinician group':'Add groups in People Settings';choices.append(empty);
-  for(const type of types){
-   const option=document.createElement('option');option.value=type;option.textContent=type;choices.append(option);
+  const eligibleCell=document.createElement('td'),clinicianDropdown=document.createElement('details'),clinicianSummary=document.createElement('summary'),clinicianOptions=document.createElement('div');
+  clinicianDropdown.className='session-builder-appointment-dropdown';clinicianOptions.className='session-builder-appointment-options';
+  const allClinicians=configuredClinicians(),selected=new Set(selectedClinicians(row));
+  const updateClinicians=()=>{const count=allClinicians.filter(name=>selected.has(name)).length;clinicianSummary.textContent=count===0?'Choose clinicians':count===1?[...selected].find(name=>allClinicians.includes(name)):count+' clinicians selected';};
+  updateClinicians();clinicianSummary.setAttribute('aria-label','Eligible clinicians for '+row.name);clinicianDropdown.append(clinicianSummary);
+  for(const group of [...configuredGroups(),'Uncategorised']){
+   const members=allClinicians.filter(name=>clinicianGroup(name)===group);if(!members.length)continue;
+   const heading=document.createElement('strong');heading.className='session-builder-clinician-group-heading';heading.textContent=group;clinicianOptions.append(heading);
+   for(const type of members){
+    const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=selected.has(type);text.textContent=type;
+    checkbox.addEventListener('change',()=>{if(checkbox.checked)selected.add(type);else selected.delete(type);try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,eligibleClinicians:[...selected]}:item));updateClinicians();}catch(error){checkbox.checked=!checkbox.checked;if(checkbox.checked)selected.add(type);else selected.delete(type);byId('sessionBuilderSaveStatus').textContent=error.message;}});
+    label.append(checkbox,text);clinicianOptions.append(label);
+   }
   }
-  if(row.clinicianTypes?.length===1&&!types.includes(row.clinicianTypes[0])){const missing=document.createElement('option');missing.value=row.clinicianTypes[0];missing.textContent=row.clinicianTypes[0]+' (unavailable in People settings)';choices.append(missing);}
-  choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';
-  choices.addEventListener('change',()=>{try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,clinicianTypes:choices.value?[choices.value]:[]}:item));}catch(error){choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';byId('sessionBuilderSaveStatus').textContent=error.message;}});
-  eligibleCell.append(choices);tr.append(eligibleCell);
-  if(row.clinicianTypes?.length>1){const note=document.createElement('span');note.className='session-builder-group-note';note.textContent='Previously assigned to several groups. Choose one.';eligibleCell.append(note);}
+  if(!allClinicians.length){const note=document.createElement('span');note.textContent='Add clinician types in People settings.';clinicianOptions.append(note);}
+  clinicianDropdown.append(clinicianOptions);eligibleCell.append(clinicianDropdown);tr.append(eligibleCell);
   const appointmentCell=document.createElement('td'),dropdown=document.createElement('details'),summary=document.createElement('summary'),options=document.createElement('div');
   dropdown.className='session-builder-appointment-dropdown';options.className='session-builder-appointment-options';
   const appointmentTypes=configuredAppointmentTypes();
-  let selected=new Set(Array.isArray(row.appointmentTypes)?row.appointmentTypes:appointmentTypes);
-  const updateSummary=()=>{const count=appointmentTypes.filter(type=>selected.has(type)).length;summary.textContent=!appointmentTypes.length?'No appointment types':count===appointmentTypes.length?'All appointment types':count===0?'No appointment types selected':count+' selected';};
+  let appointmentSelected=new Set(Array.isArray(row.appointmentTypes)?row.appointmentTypes:appointmentTypes);
+  const updateSummary=()=>{const count=appointmentTypes.filter(type=>appointmentSelected.has(type)).length;summary.textContent=!appointmentTypes.length?'No appointment types':count===appointmentTypes.length?'All appointment types':count===0?'No appointment types selected':count+' selected';};
   updateSummary();summary.setAttribute('aria-label','Appointment types for '+row.name);dropdown.append(summary);
   for(const type of appointmentTypes){
-   const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=selected.has(type);text.textContent=type;
-   checkbox.addEventListener('change',()=>{if(checkbox.checked)selected.add(type);else selected.delete(type);try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentTypes:[...selected]}:item));updateSummary();}catch(error){checkbox.checked=!checkbox.checked;if(checkbox.checked)selected.add(type);else selected.delete(type);byId('sessionBuilderSaveStatus').textContent=error.message;}});
+   const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=appointmentSelected.has(type);text.textContent=type;
+   checkbox.addEventListener('change',()=>{if(checkbox.checked)appointmentSelected.add(type);else appointmentSelected.delete(type);try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentTypes:[...appointmentSelected]}:item));updateSummary();}catch(error){checkbox.checked=!checkbox.checked;if(checkbox.checked)appointmentSelected.add(type);else appointmentSelected.delete(type);byId('sessionBuilderSaveStatus').textContent=error.message;}});
    label.append(checkbox,text);options.append(label);
   }
   if(!appointmentTypes.length){const note=document.createElement('span');note.textContent='Add appointment types in Slot settings.';options.append(note);}
@@ -192,7 +205,7 @@ byId('navSessionBuilder')?.addEventListener('click',()=>{if(canEditSessionBuilde
 byId('sessionBuilderAddForm')?.addEventListener('submit',event=>{
  event.preventDefault();if(!canEditSessionBuilder())return;
  const input=byId('sessionBuilderNewType');input.setCustomValidity('');
- try{commit([...sessionBuilderTypes,{id:crypto.randomUUID(),name:input.value.trim(),appointmentsByMode:Object.fromEntries(configuredModes().map(mode=>[mode,0])),clinicianTypes:[]}]);input.value='';renderSessionBuilder();input.focus();}
+ try{commit([...sessionBuilderTypes,{id:crypto.randomUUID(),name:input.value.trim(),appointmentsByMode:Object.fromEntries(configuredModes().map(mode=>[mode,0])),clinicianTypes:[],eligibleClinicians:[]}]);input.value='';renderSessionBuilder();input.focus();}
  catch(error){input.setCustomValidity(error.message);input.reportValidity();}
 });
 byId('sessionBuilderNewType')?.addEventListener('input',event=>event.target.setCustomValidity(''));

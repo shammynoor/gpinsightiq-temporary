@@ -10,8 +10,9 @@ function validate(limits){
 }
 window.validateSessionBuilderClinicianLimits=validate;
 window.renameSessionBuilderClinicianType=(oldName,newName)=>{
- if(!canEditSessionBuilder()||!Object.hasOwn(sessionBuilderClinicianLimits,oldName))return;
- const next={...sessionBuilderClinicianLimits,[newName]:sessionBuilderClinicianLimits[oldName]};delete next[oldName];sessionBuilderClinicianLimits=next;
+ if(!canEditSessionBuilder())return;
+ if(Object.hasOwn(sessionBuilderClinicianLimits,oldName)){const next={...sessionBuilderClinicianLimits,[newName]:sessionBuilderClinicianLimits[oldName]};delete next[oldName];sessionBuilderClinicianLimits=next;}
+ sessionBuilderTypes=sessionBuilderTypes.map(row=>Array.isArray(row.eligibleClinicians)?{...row,eligibleClinicians:row.eligibleClinicians.map(name=>name===oldName?newName:name)}:row);
 };
 window.renderSessionBuilderClinicians=()=>{
  const body=byId('sessionBuilderClinicianBody'),empty=byId('sessionBuilderClinicianEmpty');if(!body||!empty)return;
@@ -32,7 +33,7 @@ window.renderSessionBuilderClinicians=()=>{
     select.addEventListener('change',()=>{
      if(!canEditSessionBuilder())return;const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},value=field==='max'&&select.value===''?null:Number(select.value),next={...previous,[field]:value};
      if(next.max!==null&&next.min>next.max){select.value=field==='max'&&previous.max===null?'':String(previous[field]);byId('sessionBuilderClinicianSaveStatus').textContent='Minimum cannot be greater than maximum.';return;}
-     const limits={...sessionBuilderClinicianLimits,[name]:next};validate(limits);sessionBuilderClinicianLimits=limits;markCategoryDirty(250);
+     const limits={...sessionBuilderClinicianLimits,[name]:next};validate(limits);sessionBuilderClinicianLimits=limits;markCategoryDirty(250);window.renderSessionBuilderRequirements?.();
     });cell.append(select);row.append(cell);
    }
    body.append(row);
