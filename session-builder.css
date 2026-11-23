@@ -1,0 +1,30 @@
+#sessionBuilderPage .session-builder-panel{max-width:1100px;margin:0 auto;padding:22px;background:#fff;border:1px solid #dce7f0;border-radius:14px;color:#17395b}
+#sessionBuilderPage .session-builder-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+#sessionBuilderPage h2{font-size:22px;margin:0}
+#sessionBuilderPage .session-builder-badge{font-size:11px;color:#516d85;background:#edf3f8;padding:5px 9px;border-radius:20px}
+#sessionBuilderPage .session-builder-add{display:flex;align-items:flex-end;gap:10px;margin-bottom:20px}
+#sessionBuilderPage .session-builder-add label{margin:0;flex:1;max-width:380px;font-size:12px}
+#sessionBuilderPage .session-builder-add input{display:block;margin-top:6px;font-weight:400}
+#sessionBuilderPage .session-builder-add button{width:auto;white-space:nowrap;min-height:40px;padding:10px 16px}
+#sessionBuilderPage .session-builder-table-wrap{overflow-x:auto;border:1px solid #dce7f0;border-radius:10px}
+#sessionBuilderPage table{width:100%;min-width:740px;table-layout:auto;border-collapse:collapse;margin:0;font-size:13px}
+#sessionBuilderPage th{background:#edf3f8;color:#425f75;padding:13px 12px;font-size:12px;font-weight:650;text-align:left}
+#sessionBuilderPage th:first-child{min-width:220px;width:240px}
+#sessionBuilderPage th:nth-child(2){min-width:250px;width:300px}
+#sessionBuilderPage th:nth-child(n+3){min-width:115px}
+#sessionBuilderPage th:last-child{min-width:75px;width:80px}
+#sessionBuilderPage td{padding:12px;border-bottom:1px solid #e4ecf3;text-align:left}
+#sessionBuilderPage tbody tr:last-child td{border-bottom:0}
+#sessionBuilderPage .session-builder-name{padding:8px 10px;background:#fff;font-size:13px}
+#sessionBuilderPage .session-builder-count{max-width:100px;padding:8px 10px;text-align:center;font-size:14px;font-variant-numeric:tabular-nums}
+#sessionBuilderPage .session-builder-remove{width:auto;background:transparent;color:#8c4550;font-size:12px;padding:6px 0;min-height:32px}
+#sessionBuilderPage .session-builder-empty{margin:0;padding:28px 18px;text-align:center;color:#6b8093;font-size:13px}
+#sessionBuilderPage .session-builder-save-status{margin:12px 0 0;font-size:12px;color:#60798e;min-height:16px}
+#sessionBuilderPage .session-builder-eligibility-note{font-size:12px;color:#60798e;margin:-8px 0 14px}
+#sessionBuilderPage .session-builder-clinician-options{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+#sessionBuilderPage .session-builder-clinician-option{display:flex;align-items:center;gap:6px;margin:0;font-size:12px;font-weight:400;cursor:pointer;max-width:100%}
+#sessionBuilderPage .session-builder-clinician-option input{flex:0 0 16px;width:16px;height:16px;min-height:0;padding:0;margin:0;accent-color:#1268a8}
+#sessionBuilderPage .session-builder-clinician-option span{overflow-wrap:anywhere}
+#sessionBuilderPage .session-builder-no-types{font-size:12px;color:#60798e}
+#sessionBuilderPage .session-builder-mode-notice{margin:0 0 12px;font-size:12px;color:#60798e}
+@media(max-width:650px){#sessionBuilderPage .session-builder-panel{padding:16px}#sessionBuilderPage .session-builder-add{align-items:stretch;flex-direction:column}#sessionBuilderPage .session-builder-add label{max-width:none}#sessionBuilderPage .session-builder-add button{align-self:flex-start}}

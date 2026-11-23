@@ -20,6 +20,8 @@ const SHARED_SETTINGS_FILE='weekly-demand-categories.json';
 const SHARED_TOKEN='u!'+btoa(unescape(encodeURIComponent(SHARED_FOLDER_LINK))).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
 let isOwner=false,sharedDriveId='',sharedFolderId='';
 let workforceWeeklySessions=new Map();
+let sessionBuilderTypes=[];
+function canEditSessionBuilder(){return isOwner&&iqBridge?.manage===true&&iqBridge?.practice?.role==='practice_admin'&&!iqBridge?.platformAdmin;}
 let folderAccessVerified=false,folderAccessDenied=false,authNeedsAccountSelection=false,authChecking=false;
 let dashboardIdleState=null,dashboardIdleInterval=null,dashboardLogoutRunning=false;
 try{authNeedsAccountSelection=!!iqSessionStorage.getItem('gp-insight-account-selection-required');}catch(_){}
@@ -138,6 +140,7 @@ function setupResponsiveHeader(){
 
 function applyAccessMode(){
  document.body.classList.toggle('viewer-mode',!isOwner);
+ const sessionBuilderNav=document.getElementById('navSessionBuilder');if(sessionBuilderNav)sessionBuilderNav.hidden=!canEditSessionBuilder();
  for(const id of ['navCategories','navPeople','navPracticeSettings','navStaffingPlanner','chooseFolder','sourceSetup']){const el=document.getElementById(id);if(el)el.hidden=!isOwner}
  const label=document.getElementById('accessRoleLabel');if(label)label.textContent=iqBridge?.platformAdmin?'Platform administrator':isOwner?'Practice administrator':'Practice viewer';
 }
@@ -189,7 +192,7 @@ try{analyticsRoles=JSON.parse(iqLocalStorage.getItem("appointment-dashboard-cate
 function ensureAnalyticsRoles(){return analyticsRoles=GPCorrectness.roles(analyticsRoles,groupUrgencyNames,clinicianGroupNames,appointmentCategoryFor)}
 function appointmentCalculationRole(name){if(!groupUrgencyNames.includes(name))return "other";if(!Object.hasOwn(analyticsRoles.appointmentTypes||{},name))ensureAnalyticsRoles();return analyticsRoles.appointmentTypes[name]?.kind||"other"}
 function isDoctorPlanningGroup(name){if(!Object.hasOwn(analyticsRoles.clinicianGroups||{},name))ensureAnalyticsRoles();return !!analyticsRoles.clinicianGroups[name]?.doctor}
-function renameAnalyticsRole(dimension,oldName,newName){ensureAnalyticsRoles();GPCorrectness.renameRole(analyticsRoles,dimension,oldName,newName)}
+function renameAnalyticsRole(dimension,oldName,newName){ensureAnalyticsRoles();GPCorrectness.renameRole(analyticsRoles,dimension,oldName,newName);if(dimension==='clinicianGroups')window.renameSessionBuilderSetting?.(dimension,oldName,newName)}
 function refreshPrimaryApptTypeBoxes(){for(const id of PRIMARY_APPT_ROOT_IDS)enhancePrimaryApptTypeBox($(id))}
 
 let capacityPaceCache=null;
@@ -311,6 +314,7 @@ function renderConsultModeCards(){
    const name=input.value.trim();
    if(!name||name.toLowerCase()==='uncategorised'||consultCategoryNames.some(value=>value.toLowerCase()===name.toLowerCase()&&value!==oldName)){alert('Enter a unique consultation mode.');return}
    if(oldName){
+    window.renameSessionBuilderSetting?.('consult',oldName,name);
     consultCategoryNames=consultCategoryNames.map(value=>value===oldName?name:value);
     for(const slot of Object.keys(consultAssignments))if(consultAssignments[slot]===oldName)consultAssignments[slot]=name;
     if(consultModeColours[oldName]){consultModeColours[name]=consultModeColours[oldName];delete consultModeColours[oldName]}
@@ -1296,7 +1300,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 const CLOUD_SETTINGS_NAME='weekly-demand-categories.json';
 function cloudNotice(msg){
- for(const id of ['cloudCategoryStatus','workforcePlanningSaveStatus']){
+ for(const id of ['cloudCategoryStatus','workforcePlanningSaveStatus','sessionBuilderSaveStatus']){
   const element=$(id);if(element)element.textContent=msg;
  }
 }
@@ -1339,6 +1343,7 @@ async function loadCloudCategories(options={}){
   if(options.protectEdits&&(categoryDirty||cloudBusy||readSerial!==cloudChangeSerial))throw Error('Settings changed during refresh; local edits were preserved.');
   if(data){
    validateCloudCategories(data);
+   sessionBuilderTypes=(data.sessionBuilderTypes||[]).map(row=>({...row}));
    workforceWeeklySessions=new Map((data.workforceWeeklySessions||[]).map(([type,year,value])=>[JSON.stringify([type,year]),value]));
    analyticsRoles=data.analyticsRoles||{};
    practiceSettings.sessionMinAppointments=1;
@@ -1446,6 +1451,7 @@ async function saveCloudCategories(options={}){
   practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors},sessionMinAppointments:workforceSessionMinimum()},
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
+  sessionBuilderTypes:sessionBuilderTypes.map(row=>({...row})),
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
@@ -1861,6 +1867,7 @@ function renderDropEditor(dimension){
     const index=cfg.names.indexOf(name);if(index<0)return;
     if(dimension==='urgency'||dimension==='groupUrgency')renameAnalyticsRole('appointmentTypes',name,next);
     if(dimension==='clinicianGroup')renameAnalyticsRole('clinicianGroups',name,next);
+    if(dimension==='consult')window.renameSessionBuilderSetting?.('consult',name,next);
     cfg.names[index]=next;
     if(dimension==='clinician'&&Object.prototype.hasOwnProperty.call(clinicianGroupAssignments,name)){clinicianGroupAssignments[next]=clinicianGroupAssignments[name];delete clinicianGroupAssignments[name];}
     if(dimension==='urgency'&&Object.prototype.hasOwnProperty.call(groupUrgencyAssignments,name)){groupUrgencyAssignments[next]=groupUrgencyAssignments[name];delete groupUrgencyAssignments[name];}
@@ -3228,7 +3235,7 @@ function setupTogglePriority(){
  refreshPriorityToggles();
 }
 
-function ensureFollowUpCategory(){if(!categoryNames.some(c=>c.toLowerCase().replace(/[\s-]+/g,'')==='followup'))categoryNames.push('Follow up')}ensureFollowUpCategory();function guessCategory(t){return /RED|YELLOW|AMBER|URGENT|SAME DAY|ACUTE/i.test(t)?'Urgent':/GREEN|FOLLOW UP|ROUTINE/i.test(t)?'Routine':null}function saveCategories(sync=true){ensureAnalyticsRoles();queueMicrotask(refreshPrimaryApptTypeBoxes);capacityPaceCache=null;lastConsultFilterNames=[];try{iqLocalStorage.setItem(STORAGE_KEY,JSON.stringify({categories:categoryNames,assignments,clinicianCategories:clinicianCategoryNames,clinicianAssignments,consultCategories:consultCategoryNames,consultAssignments,groupUrgencyCategories:groupUrgencyNames,groupUrgencyAssignments,urgencyGroupColours,appointmentCategoryNames,appointmentCategoryAssignments,appointmentCategoryColours,clinicianGroupCategories:clinicianGroupNames,clinicianGroupAssignments,userTypeLocum,clinicianGroupColours,clinicianTypeColours,urgencyTypeColours,purposeCategories:purposeCategoryNames,purposeColours,purposeAssignments,capacityCategories:capacityCategoryNames,capacityColours,capacityAssignments,consultModeColours,togglePriority:{...togglePriority},excludedSlotTypes:[...excludedSlotTypes]}));}catch(e){alert('Could not save settings in this browser. Please try again.')}if(sync)markCategoryDirty()}function allCategories(){return [...categoryNames,'Uncategorised']}function rebuildCategoryFilter(){const old=new Set([...slots.selectedOptions].map(o=>o.value));slots.replaceChildren();for(const c of allCategories()){const o=document.createElement('option');o.value=c;o.textContent=c;o.selected=old.has(c);slots.append(o)}}function renderEditor(){renderDropEditor('urgency');updateAvailabilityUrgencyFilter()}
+function ensureFollowUpCategory(){if(!categoryNames.some(c=>c.toLowerCase().replace(/[\s-]+/g,'')==='followup'))categoryNames.push('Follow up')}ensureFollowUpCategory();function guessCategory(t){return /RED|YELLOW|AMBER|URGENT|SAME DAY|ACUTE/i.test(t)?'Urgent':/GREEN|FOLLOW UP|ROUTINE/i.test(t)?'Routine':null}function saveCategories(sync=true){window.syncSessionBuilderSettings?.();ensureAnalyticsRoles();queueMicrotask(refreshPrimaryApptTypeBoxes);capacityPaceCache=null;lastConsultFilterNames=[];try{iqLocalStorage.setItem(STORAGE_KEY,JSON.stringify({categories:categoryNames,assignments,clinicianCategories:clinicianCategoryNames,clinicianAssignments,consultCategories:consultCategoryNames,consultAssignments,groupUrgencyCategories:groupUrgencyNames,groupUrgencyAssignments,urgencyGroupColours,appointmentCategoryNames,appointmentCategoryAssignments,appointmentCategoryColours,clinicianGroupCategories:clinicianGroupNames,clinicianGroupAssignments,userTypeLocum,clinicianGroupColours,clinicianTypeColours,urgencyTypeColours,purposeCategories:purposeCategoryNames,purposeColours,purposeAssignments,capacityCategories:capacityCategoryNames,capacityColours,capacityAssignments,consultModeColours,togglePriority:{...togglePriority},excludedSlotTypes:[...excludedSlotTypes]}));}catch(e){alert('Could not save settings in this browser. Please try again.')}if(sync)markCategoryDirty()}function allCategories(){return [...categoryNames,'Uncategorised']}function rebuildCategoryFilter(){const old=new Set([...slots.selectedOptions].map(o=>o.value));slots.replaceChildren();for(const c of allCategories()){const o=document.createElement('option');o.value=c;o.textContent=c;o.selected=old.has(c);slots.append(o)}}function renderEditor(){renderDropEditor('urgency');updateAvailabilityUrgencyFilter()}
 function renderGroupUrgencyEditor(){renderDropEditor('groupUrgency');updateAvailabilityUrgencyFilter()}document.getElementById('addCategory').onclick=()=>{const el=document.getElementById('newCategory');const c=el.value.trim();if(!c)return;if(c.toLowerCase()==='uncategorised'||categoryNames.some(x=>x.toLowerCase()===c.toLowerCase())){alert('This category name already exists or is reserved.');return}categoryNames.push(c);el.value='';saveCategories();rebuildCategoryFilter();renderEditor();renderGroupUrgencyEditor()};document.getElementById('newCategory').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('addCategory').click()});document.getElementById('slotSearch').addEventListener('input',renderEditor);
 
 /* Personal profile is private to this signed-in account and browser. */
@@ -4417,13 +4424,13 @@ $('dayView2Today')?.addEventListener('click',()=>{chooseDayView2Date(dayView2Wor
 $('dayView2Previous')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),-1));});
 $('dayView2Next')?.addEventListener('click',()=>{chooseDayView2Date(dayView2AddWorkingDays($('dayView2Date').value||dayView2LocalDate(),1));});
 
-const workspacePages=[['urgentPlanning2Page','navUrgentPlanning2','urgentPlanning2'],['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['staffingPlannerPage','navStaffingPlanner','staffingPlanner'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['sessionSettingsPage','navSessionSettings','sessionSettings'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
+const workspacePages=[['sessionBuilderPage','navSessionBuilder','sessionBuilder'],['urgentPlanning2Page','navUrgentPlanning2','urgentPlanning2'],['workforceNeedPage','navWorkforceNeed','workforceNeed'],['workforcePlanningPage','navWorkforcePlanning','workforcePlanning'],['staffingPlannerPage','navStaffingPlanner','staffingPlanner'],['homePage','navHome','home'],['routineCapacityPage','navRoutineCapacity','routineCapacity'],['chartPage','navChart','chart'],['waitingTimesPage','navWaitingTimes','waitingTimes'],['waitingOverTimePage','navWaitingTrend','waitingTrend'],['categoryPage','navCategories','categories'],['availabilityPage','navAvailability','availability'],['routineAvailabilityPage','navRoutineAvailability','routineAvailability'],['dayView2Page','navDayView2','dayView'],['bookingTimesPage','navBookingTimes','bookingTimes'],['signpostingPage','navSignposting','signposting'],['rapidHealthPage','navRapidHealth','rapidHealth'],['peoplePage','navPeople','people'],['sessionSettingsPage','navSessionSettings','sessionSettings'],['practiceSettingsPage','navPracticeSettings','practiceSettings'],['personalSettingsPage','navPersonalSettings','personalSettings']];
 function showPage(which,{historyMode='push'}={}){
  if(which==='dayView2')which='dayView';
  if(which==='chart2')which='chart';
  const forecastMode=which==='dailyForecast'?'daily':which==='weeklyForecast'?'weekly':null;
  const known=forecastMode||which==='chart2'||workspacePages.some(([, , name])=>name===which);
- if(!known||(!isOwner&&['categories','people','sessionSettings','practiceSettings','staffingPlanner'].includes(which))){
+ if(!known||(which==='sessionBuilder'&&!canEditSessionBuilder())||(!isOwner&&['categories','people','sessionSettings','practiceSettings','staffingPlanner'].includes(which))){
   if(historyMode!=='push')showPage('home',{historyMode});
   return;
  }
@@ -4450,6 +4457,7 @@ function showPage(which,{historyMode='push'}={}){
  if(which==='urgentPlanning2')window.renderUrgentPlanningCalendar?.();
  if(which==='workforceNeed')window.renderWeeklyPlanning?.();
  if(which==='workforcePlanning')window.renderWorkforcePlanning?.();
+ if(which==='sessionBuilder')window.renderSessionBuilder?.();
  if(which==='staffingPlanner')window.renderStaffingPlanner?.();
  if(which==='home'){updateHomePracticeName();window.updateHomeOverview?.();}
  if(pageName==='chart')setTimeout(()=>{refresh();scheduleChartResize()},0);
@@ -5635,7 +5643,7 @@ window.addEventListener('storage',event=>{
 
 async function renderActiveAnalyticsPage(){
  updateDashboardDateContext();refreshPrimaryApptTypeBoxes();
- const renderers={urgentPlanning2Page:()=>window.renderUrgentPlanningCalendar?.(),homePage:()=>window.updateHomeOverview?.(),workforcePlanningPage:()=>window.renderWorkforcePlanning?.(),staffingPlannerPage:()=>window.renderStaffingPlanner?.(),workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
+ const renderers={sessionBuilderPage:()=>window.renderSessionBuilder?.(),urgentPlanning2Page:()=>window.renderUrgentPlanningCalendar?.(),homePage:()=>window.updateHomeOverview?.(),workforcePlanningPage:()=>window.renderWorkforcePlanning?.(),staffingPlannerPage:()=>window.renderStaffingPlanner?.(),workforceNeedPage:()=>window.renderWeeklyPlanning?.(),chartPage:refresh,waitingTimesPage:renderWaitingTimesChart,waitingOverTimePage:renderWaitingTrendChart,availabilityPage:renderAvailabilityChart,routineAvailabilityPage:renderRoutineAvailabilityChart,dayView2Page:renderDayView2,bookingTimesPage:renderBookingTimesChart,signpostingPage:renderSignpostingChart,rapidHealthPage:renderRapidHealthTable,dailyForecastPage:()=>window.refreshForecastCharts?.(),weeklyForecastPage:()=>window.refreshForecastCharts?.(),routineCapacityPage:()=>window.renderRoutineCapacity?.()};
  for(const [id,draw] of Object.entries(renderers)){const page=$(id);if(page&&!page.classList.contains("hidden"))await draw()}
 }
 function refreshOnDateRollover(){if(document.hidden||!folderAccessVerified)return;if(updateDashboardDateContext())void renderActiveAnalyticsPage().catch(e=>showRefreshFeedback("Chart refresh failed: "+e.message))}
@@ -5661,6 +5669,7 @@ function validateCloudCategories(data){
  for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','sessionCategoryLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
   if(data[key]!==undefined&&(!object(data[key])||Object.entries(data[key]).some(([k,v])=>['__proto__','constructor','prototype'].includes(k)||typeof v!=='string')))invalid(key);
  }
+ if(data.sessionBuilderTypes!==undefined){try{window.validateSessionBuilderTypes(data.sessionBuilderTypes)}catch(_){invalid('sessionBuilderTypes')}}
  if(data.analyticsRoles!==undefined&&!object(data.analyticsRoles))invalid('analyticsRoles');
  if(data.workforceWeeklySessions!==undefined&&(!Array.isArray(data.workforceWeeklySessions)||data.workforceWeeklySessions.some(entry=>
   !Array.isArray(entry)||entry.length!==3||typeof entry[0]!=='string'||!entry[0].trim()||
@@ -5767,6 +5776,7 @@ function analyticsSettingsSnapshot(){
   practiceSettings:{name:practiceSettings.name,anchors:{...practiceSettings.anchors},sessionMinAppointments:workforceSessionMinimum()},
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
+  sessionBuilderTypes:sessionBuilderTypes.map(row=>({...row})),
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
