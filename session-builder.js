@@ -48,7 +48,7 @@ function readAverageDemand(){
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,52).filter(week=>week>=start&&week<current);
  const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
-  const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info)return null;
+  const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info||!window.SessionBuilderPlanning.isIncludedAppointmentType(name))return null;
   if(info.role==='routine')return {kind:'routine',name};
   if(info.role==='urgent'&&planningModes[name]==='weekly')return {kind:'weekly',name};
   const mode=consultAssignments[row.slot]||suggestConsultMode(row.slot)||'';

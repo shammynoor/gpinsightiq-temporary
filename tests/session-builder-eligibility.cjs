@@ -15,3 +15,5 @@ test('history retains appointment types for each demand pool',()=>{
  const d=averageDemand([{bookedDay:'2026-11-16',count:2,kind:'sameDay',name:'Same Day'},{bookedDay:'2026-11-16',count:3,kind:'routine',name:'Routine'}],['2026-11-16'],{monday:()=> '2026-11-16',classify:r=>({kind:r.kind,name:r.name})});
  assert.deepEqual(Array.from(d.types.sameDay),['Same Day']);assert.deepEqual(Array.from(d.types.routine),['Routine']);
 });
+
+test('111 referrals are excluded while urgent appointment types remain in session demand',()=>{const f=context.window.SessionBuilderPlanning.isIncludedAppointmentType;assert.equal(f('111 Referral'),false);assert.equal(f('111-referral'),false);assert.equal(f('Same Day'),true);assert.equal(f('Within 3 Days'),true);});

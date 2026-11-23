@@ -1,5 +1,6 @@
 (function(){
 'use strict';
+function isIncludedAppointmentType(name){return String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'')!=='111referral';}
 function isHomeVisit(mode){const name=String(mode).toLowerCase().replace(/[^a-z0-9]/g,'');return /homevis|domiciliary/.test(name)||['visit','visits','hv'].includes(name);}
 function averageDemand(rows,weeks,{monday,classify}){
  const covered=new Set(weeks),sameDay=[0,0,0,0,0],homeVisit=[0,0,0,0,0],types={sameDay:new Set(),homeVisit:new Set(),weekly:new Set(),routine:new Set()},byType={sameDay:{},homeVisit:{},weekly:{},routine:{}};let weekly=0,routine=0;
@@ -175,5 +176,5 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const capacitySameDay=days.map((_,day)=>sum(row=>row.days[day]*row.sameDay)),capacityHomeVisit=days.map((_,day)=>sum(row=>row.days[day]*row.homeVisit));
  return {rows,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,unmetDemand,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
 }
-window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,vectorSessions});
+window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,vectorSessions});
 })();
