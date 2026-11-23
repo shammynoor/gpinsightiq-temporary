@@ -80,22 +80,32 @@ function renderSessionRequirements(){
   if(group){const note=document.createElement('span');note.className='session-builder-plan-group';note.textContent=group;heading.append(note);}tr.append(heading);
   for(const value of values){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}parent.append(tr);return tr;
  }
+ function mergeSplit(target,split){for(const [name,value] of Object.entries(split||{}))target[name]=(target[name]||0)+value;return target;}
+ function appendSplit(cell,split){
+  const detail=document.createElement('span');detail.className='session-builder-appointment-split';
+  for(const [name,value] of Object.entries(split||{}).sort((a,b)=>b[1]-a[1])){
+   if(value<0.05)continue;const item=document.createElement('span');item.className='session-builder-split-item';item.style.color=urgencyGroupColour(name);item.textContent=name+' '+fmt(value);detail.append(item);
+  }
+  if(detail.children.length)cell.append(detail);
+ }
+ const grandSplit={};
  for(const row of estimate.rows){
   const cells=[];for(let day=0;day<5;day++)cells.push(estimate.error?null:row.periods.morning[day],estimate.error?null:row.periods.afternoon[day]);
-  const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0)],row.group||'Choose one clinician group');
-  if(!estimate.error)for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']]){
-   const split=estimate.appointmentBreakdown?.[row.id]?.[day]?.[period];if(!split)continue;
-   const detail=document.createElement('span');detail.className='session-builder-appointment-split';
-   for(const [name,value] of Object.entries(split).sort((a,b)=>b[1]-a[1])){
-    if(value<0.05)continue;const item=document.createElement('span');item.className='session-builder-split-item';item.style.color=urgencyGroupColour(name);item.textContent=name+' '+fmt(value);detail.append(item);
-   }
-   if(detail.children.length)tr.children[1+day*2+offset].append(detail);
+  const rowSplit={};if(!estimate.error)for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])mergeSplit(rowSplit,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
+  mergeSplit(grandSplit,rowSplit);
+  const appointmentTotal=Object.values(rowSplit).reduce((sum,value)=>sum+value,0);
+  const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0),estimate.error?null:appointmentTotal],row.group||'Choose one clinician group');
+  if(!estimate.error){
+   for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']])appendSplit(tr.children[1+day*2+offset],estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
+   appendSplit(tr.children[12],rowSplit);
   }
  }
- if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=12;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
+ if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=13;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
  const foot=byId('sessionBuilderPlanFoot');foot.replaceChildren();
  const totals=[];for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])totals.push(estimate.error?null:estimate.rows.reduce((sum,row)=>sum+row.periods[period][day],0));
- addCells(foot,'Total sessions',[...totals,estimate.error?null:totals.reduce((a,b)=>a+b,0)]);
+ const totalAppointments=Object.values(grandSplit).reduce((sum,value)=>sum+value,0);
+ const totalRow=addCells(foot,'Total',[...totals,estimate.error?null:totals.reduce((a,b)=>a+b,0),estimate.error?null:totalAppointments]);
+ if(!estimate.error)appendSplit(totalRow.children[12],grandSplit);
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
  addCells(summary,'Average appointments needed',[...(demand?.sameDay||Array(5).fill(null)),demand?.weekly,demand?.routine]);
  addCells(summary,estimate.unmetDemand?.length?'Capacity in partial plan':'Appointments provided',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
