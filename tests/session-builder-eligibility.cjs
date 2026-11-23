@@ -5,10 +5,11 @@ test('routine sessions go only to eligible GP, without double counting capacity'
  const demand={sameDay:[40,40,40,40,40],homeVisit:[0,0,0,0,0],weekly:20,routine:30,types:{sameDay:['Same Day'],homeVisit:[],weekly:['Within 3 Days'],routine:['Routine']}};
  const result=estimateSessions(rows,['Phone'],['GP','Team'],demand,[],{respectTypes:true});assert.equal(result.error,undefined);assert.equal(result.rows[0].routine,3);assert.equal(result.rows[1].routine,0);assert.equal(result.rows[1].weekly,1);assert.equal(result.routineCapacity,30);assert.equal(result.weeklyCapacity,20);assert.equal(result.placements.reduce((s,x)=>s+x.count,0),14);assert.deepEqual(Array.from(result.capacitySameDay),[40,40,40,40,40]);
 });
-test('rejects a pool when no session covers the active appointment types',()=>{
- const demand={sameDay:[1,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,types:{sameDay:['Same Day','Extra'],homeVisit:[],weekly:[],routine:[]}};
- const rows=[{id:'a',name:'A',clinicianTypes:['GP'],appointmentsByMode:{Phone:10},appointmentTypes:['Same Day']}];
- assert.match(estimateSessions(rows,['Phone'],['GP'],demand,[],{respectTypes:true}).error,/eligible/);
+test('splits demand across eligible session types and avoids double-counting',()=>{
+ const demand={sameDay:[15,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,types:{sameDay:['Same Day','Extra'],homeVisit:[],weekly:[],routine:[]},byType:{sameDay:{'Same Day':[10,0,0,0,0],Extra:[5,0,0,0,0]},homeVisit:{},weekly:{},routine:{}}};
+ const rows=[{id:'a',name:'A',clinicianTypes:['GP'],appointmentsByMode:{Phone:10},appointmentTypes:['Same Day']},{id:'b',name:'B',clinicianTypes:['GP'],appointmentsByMode:{Phone:5},appointmentTypes:['Extra']}];
+ const result=estimateSessions(rows,['Phone'],['GP'],demand,[],{respectTypes:true});assert.equal(result.error,undefined);assert.equal(result.rows[0].days[0],1);assert.equal(result.rows[1].days[0],1);assert.equal(result.capacitySameDay[0],15);
+ const missing=estimateSessions(rows.slice(0,1),['Phone'],['GP'],demand,[],{respectTypes:true});assert.match(missing.error,/Extra/);
 });
 test('history retains appointment types for each demand pool',()=>{
  const d=averageDemand([{bookedDay:'2026-11-16',count:2,kind:'sameDay',name:'Same Day'},{bookedDay:'2026-11-16',count:3,kind:'routine',name:'Routine'}],['2026-11-16'],{monday:()=> '2026-11-16',classify:r=>({kind:r.kind,name:r.name})});

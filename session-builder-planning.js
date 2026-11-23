@@ -2,16 +2,16 @@
 'use strict';
 function isHomeVisit(mode){const name=String(mode).toLowerCase().replace(/[^a-z0-9]/g,'');return /homevis|domiciliary/.test(name)||['visit','visits','hv'].includes(name);}
 function averageDemand(rows,weeks,{monday,classify}){
- const covered=new Set(weeks),sameDay=[0,0,0,0,0],homeVisit=[0,0,0,0,0],types={sameDay:new Set(),homeVisit:new Set(),weekly:new Set(),routine:new Set()};let weekly=0,routine=0;
+ const covered=new Set(weeks),sameDay=[0,0,0,0,0],homeVisit=[0,0,0,0,0],types={sameDay:new Set(),homeVisit:new Set(),weekly:new Set(),routine:new Set()},byType={sameDay:{},homeVisit:{},weekly:{},routine:{}};let weekly=0,routine=0;
  for(const row of rows){
   if(!row.bookedDay||!Number.isFinite(row.count)||row.count<=0||!covered.has(monday(row.bookedDay)))continue;
   const classification=classify(row),kind=typeof classification==='string'?classification:classification?.kind;if(!kind)continue;
-  if(classification?.name&&types[kind])types[kind].add(classification.name);
+  if(classification?.name&&types[kind]){const name=classification.name,dow=(new Date(row.bookedDay+'T12:00:00Z').getUTCDay()+6)%7;if(kind==='weekly'||kind==='routine'){types[kind].add(name);byType[kind][name]=(byType[kind][name]||0)+row.count;}else if(dow<5){types[kind].add(name);const days=byType[kind][name]||(byType[kind][name]=[0,0,0,0,0]);days[dow]+=row.count;}}
   if(['sameDay','daily','homeVisit'].includes(kind)){const dow=(new Date(row.bookedDay+'T12:00:00Z').getUTCDay()+6)%7;if(dow<5)(kind==='homeVisit'?homeVisit:sameDay)[dow]+=row.count;}
   else if(kind==='weekly')weekly+=row.count;else if(kind==='routine')routine+=row.count;
  }
  if(!weeks.length)return null;
- return {sameDay:sameDay.map(n=>n/weeks.length),homeVisit:homeVisit.map(n=>n/weeks.length),weekly:weekly/weeks.length,routine:routine/weeks.length,weeks:weeks.length,types:Object.fromEntries(Object.entries(types).map(([k,v])=>[k,[...v]]))};
+ return {sameDay:sameDay.map(n=>n/weeks.length),homeVisit:homeVisit.map(n=>n/weeks.length),weekly:weekly/weeks.length,routine:routine/weeks.length,weeks:weeks.length,types:Object.fromEntries(Object.entries(types).map(([k,v])=>[k,[...v]])),byType:Object.fromEntries(Object.entries(byType).map(([kind,entries])=>[kind,Object.fromEntries(Object.entries(entries).map(([name,value])=>[name,Array.isArray(value)?value.map(n=>n/weeks.length):value/weeks.length]))]))};
 }
 function vectorSessions(types,needSame,needHome){
  const same=Math.ceil(needSame),home=Math.ceil(needHome),zero=()=>Array(types.length).fill(0);
@@ -47,8 +47,8 @@ function vectorSessions(types,needSame,needHome){
  return {counts:fallback,approximate:true};
 }
 function estimateSessions(types,modes,groups,demand,rules=[],options={}){
- const eligibleType=(type,pool)=>!options.respectTypes||!Array.isArray(type.appointmentTypes)||(demand?.types?.[pool]||[]).every(name=>type.appointmentTypes.includes(name));
- const rows=types.map(type=>{let sameDay=0,homeVisit=0;for(const mode of modes){const n=type.appointmentsByMode[mode]||0;if(isHomeVisit(mode))homeVisit+=n;else sameDay+=n;}const eligible=(type.clinicianTypes||[]).filter(group=>groups.includes(group));const allCapacity=sameDay+homeVisit,allows=Object.fromEntries(['sameDay','homeVisit','weekly','routine'].map(pool=>[pool,eligibleType(type,pool)]));return {id:type.id,name:type.name,group:eligible.length===1?eligible[0]:'',sameDay:allows.sameDay?sameDay:0,homeVisit:allows.homeVisit?homeVisit:0,capacity:allCapacity,poolCapacity:{weekly:allows.weekly?(options.respectTypes?sameDay:allCapacity):0,routine:allows.routine?(options.respectTypes?sameDay:allCapacity):0},days:[0,0,0,0,0],weekly:0,routine:0,periods:{morning:Array(5).fill(0),afternoon:Array(5).fill(0)}};});
+ const eligibleType=(type,pool)=>!options.respectTypes||!Array.isArray(type.appointmentTypes)||(!(demand?.types?.[pool]||[]).length||(demand.types[pool]).some(name=>type.appointmentTypes.includes(name)));
+ const rows=types.map(type=>{let sameDay=0,homeVisit=0;for(const mode of modes){const n=type.appointmentsByMode[mode]||0;if(isHomeVisit(mode))homeVisit+=n;else sameDay+=n;}const eligible=(type.clinicianTypes||[]).filter(group=>groups.includes(group));const allCapacity=sameDay+homeVisit,allows=Object.fromEntries(['sameDay','homeVisit','weekly','routine'].map(pool=>[pool,eligibleType(type,pool)]));return {id:type.id,name:type.name,group:eligible.length===1?eligible[0]:'',sameDay:allows.sameDay?sameDay:0,homeVisit:allows.homeVisit?homeVisit:0,capacity:allCapacity,appointmentTypes:type.appointmentTypes,poolCapacity:{weekly:allows.weekly?(options.respectTypes?sameDay:allCapacity):0,routine:allows.routine?(options.respectTypes?sameDay:allCapacity):0},days:[0,0,0,0,0],weekly:0,routine:0,periods:{morning:Array(5).fill(0),afternoon:Array(5).fill(0)}};});
  if(!demand)return {rows,error:'No complete report weeks are available for calculating demand.'};
  const values=[...demand.sameDay,...demand.homeVisit,demand.weekly,demand.routine];
  if(values.length!==12||values.some(n=>!Number.isFinite(n)||n<0))return {rows,error:'Average demand is not available.'};
@@ -87,6 +87,38 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   }
  }
  let approximate=false;
+ if(options.respectTypes&&demand.byType){
+  // Flow allocates each appointment at most once, only to sessions that offer its type.
+  const flow=(pool,day,counts)=>{
+   const entries=Object.entries(demand.byType[pool]||{}).map(([name,value])=>[name,Array.isArray(value)?value[day]:value]).filter(([,value])=>value>1e-8);
+   const n=usable.length,m=entries.length,size=n+m+2,source=n+m,sink=source+1,graph=Array.from({length:size},()=>[]);
+   const edge=(a,b,cap)=>{const x={to:b,cap,rev:graph[b].length},y={to:a,cap:0,rev:graph[a].length};graph[a].push(x);graph[b].push(y);};
+   for(let i=0;i<n;i++){
+    const row=usable[i],capacity=pool==='sameDay'?row.sameDay:pool==='homeVisit'?row.homeVisit:row.poolCapacity[pool];
+    edge(source,i,(counts[i]||0)*capacity);
+    for(let j=0;j<m;j++)if(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(entries[j][0]))edge(i,n+j,1e12);
+   }
+   entries.forEach(([,need],j)=>edge(n+j,sink,need));let total=0;
+   while(true){const seen=Array(size).fill(null),queue=[source];seen[source]=[-1,-1];for(let q=0;q<queue.length&&!seen[sink];q++){const a=queue[q];for(let i=0;i<graph[a].length;i++){const e=graph[a][i];if(e.cap>1e-8&&!seen[e.to]){seen[e.to]=[a,i];queue.push(e.to);}}}if(!seen[sink])break;let amount=Infinity;for(let v=sink;v!==source;){const [a,i]=seen[v];amount=Math.min(amount,graph[a][i].cap);v=a;}for(let v=sink;v!==source;){const [a,i]=seen[v],e=graph[a][i];e.cap-=amount;graph[v][e.rev].cap+=amount;v=a;}total+=amount;}
+   return {covered:total,need:entries.reduce((sum,[,v])=>sum+v,0),missing:entries.filter(([,v],j)=>graph[n+j].find(e=>e.to===sink)?.cap>1e-8).map(([name])=>name)};
+  };
+  const allocate=(pools,day,initial,place)=>{
+   const counts=initial.slice();
+   for(let iteration=0;iteration<10000;iteration++){
+    const states=pools.map(pool=>flow(pool,day,counts));if(states.every(state=>state.need-state.covered<1e-7))return null;
+    let best=-1,gain=0;
+    for(let i=0;i<usable.length;i++){counts[i]++;const score=pools.reduce((sum,pool,j)=>sum+flow(pool,day,counts).covered-states[j].covered,0);counts[i]--;if(score>gain+1e-8){gain=score;best=i;}}
+    if(best<0)return 'No eligible session type has capacity for: '+[...new Set(states.flatMap(state=>state.missing))].join(', ')+'. Check appointment types and consultation-mode capacity.';
+    counts[best]++;place(usable[best]);
+   }
+   return 'Demand is too large to calculate a session plan. Check session capacities.';
+  };
+  for(let day=0;day<5;day++){
+   const error=allocate(['sameDay','homeVisit'],day,usable.map(row=>row.days[day]),row=>add(row,day,choosePeriod(day),'daily',1));if(error)return {rows,error};
+  }
+  for(const pool of ['weekly','routine']){let index=0;const error=allocate([pool],0,usable.map(()=>0),row=>{const day=index++%5;add(row,day,choosePeriod(day),pool,1);});if(error)return {rows,error};}
+  approximate=true;
+ }else{
  for(let day=0;day<5;day++){
   const same=rows.reduce((s,r)=>s+r.days[day]*r.sameDay,0),home=rows.reduce((s,r)=>s+r.days[day]*r.homeVisit,0);
   const result=vectorSessions(usable,Math.max(0,demand.sameDay[day]-same),Math.max(0,demand.homeVisit[day]-home));
@@ -98,6 +130,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   const leaders=usable.filter(row=>row.poolCapacity[field]===max),n=Math.ceil(demand[field]/max);
   // Spread weekly pools across weekdays without claiming a daily demand forecast.
   for(let i=0;i<n;i++){const day=i%5;add(leaders[i%leaders.length],day,choosePeriod(day),field,1);}
+ }
  }
  const share=(rule,day,period)=>{
   let numerator=0,denominator=0;

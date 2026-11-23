@@ -35,7 +35,7 @@ window.renameSessionBuilderSetting=(kind,oldName,newName)=>{
 };
 function commit(rows){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
- validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty(250);renderSessionRequirements();
+ validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty(250);try{renderSessionRequirements();}catch(error){console.error('Session requirements could not be updated',error);const status=byId('sessionBuilderPlanStatus');if(status)status.textContent='Could not update session requirements: '+error.message;}
 }
 let demandCache=null;
 function readAverageDemand(){
@@ -86,7 +86,7 @@ function renderSessionRequirements(){
  addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null]);
  addCells(summary,'Home visits provided',[...(estimate.error?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null]);
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.error||('Each session is assigned to one demand pool. For each demand pool, at least one session type must cover all appointment types in that pool. Separate eligibility within a pool is not yet modelled. Staff availability is not assessed.'+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' Large demand uses a feasible capacity-led estimate.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.error||('Each session is assigned to one demand pool. Appointment types are assigned only to eligible sessions. Staff availability is not assessed.'+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;
