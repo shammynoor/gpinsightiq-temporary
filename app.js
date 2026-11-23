@@ -21,6 +21,7 @@ const SHARED_TOKEN='u!'+btoa(unescape(encodeURIComponent(SHARED_FOLDER_LINK))).r
 let isOwner=false,sharedDriveId='',sharedFolderId='';
 let workforceWeeklySessions=new Map();
 let sessionBuilderTypes=[];
+let sessionBuilderRules=[];
 function canEditSessionBuilder(){return isOwner&&iqBridge?.manage===true&&iqBridge?.practice?.role==='practice_admin'&&!iqBridge?.platformAdmin;}
 let folderAccessVerified=false,folderAccessDenied=false,authNeedsAccountSelection=false,authChecking=false;
 let dashboardIdleState=null,dashboardIdleInterval=null,dashboardLogoutRunning=false;
@@ -1300,7 +1301,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 const CLOUD_SETTINGS_NAME='weekly-demand-categories.json';
 function cloudNotice(msg){
- for(const id of ['cloudCategoryStatus','workforcePlanningSaveStatus','sessionBuilderSaveStatus']){
+ for(const id of ['cloudCategoryStatus','workforcePlanningSaveStatus','sessionBuilderSaveStatus','sessionBuilderRulesSaveStatus']){
   const element=$(id);if(element)element.textContent=msg;
  }
 }
@@ -1344,6 +1345,7 @@ async function loadCloudCategories(options={}){
   if(data){
    validateCloudCategories(data);
    sessionBuilderTypes=(data.sessionBuilderTypes||[]).map(row=>({...row}));
+   sessionBuilderRules=(data.sessionBuilderRules||[]).map(rule=>({...rule,days:[...rule.days]}));
    workforceWeeklySessions=new Map((data.workforceWeeklySessions||[]).map(([type,year,value])=>[JSON.stringify([type,year]),value]));
    analyticsRoles=data.analyticsRoles||{};
    practiceSettings.sessionMinAppointments=1;
@@ -1452,6 +1454,7 @@ async function saveCloudCategories(options={}){
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
   sessionBuilderTypes:sessionBuilderTypes.map(row=>({...row})),
+  sessionBuilderRules:sessionBuilderRules.map(rule=>({...rule,days:[...rule.days]})),
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},
@@ -5669,6 +5672,7 @@ function validateCloudCategories(data){
  for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','sessionCategoryLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
   if(data[key]!==undefined&&(!object(data[key])||Object.entries(data[key]).some(([k,v])=>['__proto__','constructor','prototype'].includes(k)||typeof v!=='string')))invalid(key);
  }
+ if(data.sessionBuilderRules!==undefined){try{window.validateSessionBuilderRules(data.sessionBuilderRules)}catch(_){invalid('sessionBuilderRules')}}
  if(data.sessionBuilderTypes!==undefined){try{window.validateSessionBuilderTypes(data.sessionBuilderTypes)}catch(_){invalid('sessionBuilderTypes')}}
  if(data.analyticsRoles!==undefined&&!object(data.analyticsRoles))invalid('analyticsRoles');
  if(data.workforceWeeklySessions!==undefined&&(!Array.isArray(data.workforceWeeklySessions)||data.workforceWeeklySessions.some(entry=>
@@ -5777,6 +5781,7 @@ function analyticsSettingsSnapshot(){
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
   sessionBuilderTypes:sessionBuilderTypes.map(row=>({...row})),
+  sessionBuilderRules:sessionBuilderRules.map(rule=>({...rule,days:[...rule.days]})),
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
   assignments:{...assignments},

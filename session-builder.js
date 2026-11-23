@@ -28,6 +28,7 @@ window.renameSessionBuilderSetting=(kind,oldName,newName)=>{
  sessionBuilderTypes=sessionBuilderTypes.map(row=>kind==='consult'
   ?{...row,appointmentsByMode:Object.fromEntries(Object.entries(row.appointmentsByMode).map(([mode,count])=>[mode===oldName?newName:mode,count]))}
   :kind==='clinicianGroups'?{...row,clinicianTypes:(row.clinicianTypes||[]).map(name=>name===oldName?newName:name)}:row);
+ if(kind==='clinicianGroups')window.renameSessionBuilderRuleGroup?.(oldName,newName);
 };
 function commit(rows){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
@@ -120,6 +121,7 @@ function renderSessionBuilder(){
  }
  byId('sessionBuilderEmpty').hidden=sessionBuilderTypes.length>0;
  renderSessionRequirements();
+ window.restoreSessionBuilderTab?.();
 }
 window.renderSessionBuilder=renderSessionBuilder;
 byId('navSessionBuilder')?.addEventListener('click',()=>{if(canEditSessionBuilder())showPage('sessionBuilder');});
