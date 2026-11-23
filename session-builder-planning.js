@@ -175,16 +175,22 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const appointmentBreakdown={};
  if(flowForBreakdown){
   const addBreakdown=(id,day,period,name,value)=>{if(value<=1e-8)return;const periods=appointmentBreakdown[id]||(appointmentBreakdown[id]=Array.from({length:5},()=>({morning:{},afternoon:{}})));const cell=periods[day][period];cell[name]=(cell[name]||0)+value;};
+  const splitWhole=(total,weights)=>{
+   const positive=weights.filter(([,value])=>value>1e-8),sum=positive.reduce((n,[,value])=>n+value,0);
+   if(!sum)return [['Unallocated',total]];
+   const parts=positive.map(([name,weight])=>{const exact=total*weight/sum,whole=Math.floor(exact);return {name,whole,fraction:exact-whole};});
+   let remainder=total-parts.reduce((n,part)=>n+part.whole,0);parts.sort((a,b)=>b.fraction-a.fraction||a.name.localeCompare(b.name));
+   for(let i=0;i<remainder;i++)parts[i%parts.length].whole++;return parts.map(part=>[part.name,part.whole]);
+  };
   const distribute=(pool,day)=>{
    const daily=pool==='sameDay'||pool==='homeVisit',counts=usable.map(row=>daily?row.days[day]:row[pool]),result=flowForBreakdown(pool,day,counts);
    usable.forEach((row,index)=>{
-    const rowCount=counts[index];if(!rowCount)return;
+    if(!counts[index])return;
+    const capacity=pool==='sameDay'?row.sameDay:pool==='homeVisit'?row.homeVisit:row.poolCapacity[pool];if(!capacity)return;
     const targetPlacements=placements.filter(p=>p.id===row.id&&p.pool===(daily?'daily':pool)&&(!daily||p.day===day));
-    for(const [name,value] of Object.entries(result.allocations[index])){
-     const mix=pool==='sameDay'?Object.entries(demand.byType.sameDay||{}).map(([type,days])=>[type,days[day]]).filter(([,n])=>n>0):[[name,1]],mixTotal=mix.reduce((sum,[,n])=>sum+n,0);
-     if(!mixTotal)continue;
-     for(const placement of targetPlacements)for(const [type,weight] of mix)addBreakdown(row.id,placement.day,placement.period,type,value*placement.count/rowCount*weight/mixTotal);
-    }
+    let weights=pool==='sameDay'?Object.entries(demand.byType.sameDay||{}).map(([type,days])=>[type,days[day]]):Object.entries(result.allocations[index]);
+    if(!weights.some(([,value])=>value>1e-8)&&pool!=='sameDay')weights=Object.entries(demand.byType[pool]||{}).filter(([name])=>!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(name)).map(([name,value])=>[name,Array.isArray(value)?value[day]:value]);
+    for(const placement of targetPlacements)for(const [name,value] of splitWhole(placement.count*capacity,weights))addBreakdown(row.id,placement.day,placement.period,name,value);
    });
   };
   for(let day=0;day<5;day++){distribute('sameDay',day);distribute('homeVisit',day);}
