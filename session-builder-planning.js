@@ -48,7 +48,7 @@ function vectorSessions(types,needSame,needHome){
  return {counts:fallback,approximate:true};
 }
 function estimateSessions(types,modes,groups,demand,rules=[],options={}){
- const eligibleType=(type,pool)=>!options.respectTypes||!Array.isArray(type.appointmentTypes)||(!(demand?.types?.[pool]||[]).length||(demand.types[pool]).some(name=>type.appointmentTypes.includes(name)));
+ const eligibleType=(type,pool)=>{const names=pool==='sameDay'?(demand?.eligibleDailyTypes||demand?.types?.sameDay||[]):(demand?.types?.[pool]||[]);return !options.respectTypes||!Array.isArray(type.appointmentTypes)||!names.length||names.some(name=>type.appointmentTypes.includes(name));};
  const rows=types.map(type=>{let sameDay=0,homeVisit=0;for(const mode of modes){const n=type.appointmentsByMode[mode]||0;if(isHomeVisit(mode))homeVisit+=n;else sameDay+=n;}const eligible=(type.clinicianTypes||[]).filter(group=>groups.includes(group));const allCapacity=sameDay+homeVisit,allows=Object.fromEntries(['sameDay','homeVisit','weekly','routine'].map(pool=>[pool,eligibleType(type,pool)]));return {id:type.id,name:type.name,group:eligible.length===1?eligible[0]:'',sameDay:allows.sameDay?sameDay:0,homeVisit:allows.homeVisit?homeVisit:0,capacity:allCapacity,appointmentTypes:type.appointmentTypes,poolCapacity:{weekly:allows.weekly?(options.respectTypes?sameDay:allCapacity):0,routine:allows.routine?(options.respectTypes?sameDay:allCapacity):0},days:[0,0,0,0,0],weekly:0,routine:0,periods:{morning:Array(5).fill(0),afternoon:Array(5).fill(0)}};});
  if(!demand)return {rows,error:'No complete report weeks are available for calculating demand.'};
  const values=[...demand.sameDay,...demand.homeVisit,demand.weekly,demand.routine];
@@ -91,13 +91,13 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  if(options.respectTypes&&demand.byType){
   // Flow allocates each appointment at most once, only to sessions that offer its type.
   const flow=(pool,day,counts)=>{
-   const entries=Object.entries(demand.byType[pool]||{}).map(([name,value])=>[name,Array.isArray(value)?value[day]:value]).filter(([,value])=>value>1e-8);
+   const entries=pool==='sameDay'?[['Same-day urgent',demand.sameDay[day]]].filter(([,value])=>value>1e-8):Object.entries(demand.byType[pool]||{}).map(([name,value])=>[name,Array.isArray(value)?value[day]:value]).filter(([,value])=>value>1e-8);
    const n=usable.length,m=entries.length,size=n+m+2,source=n+m,sink=source+1,graph=Array.from({length:size},()=>[]);
    const edge=(a,b,cap)=>{const x={to:b,cap,rev:graph[b].length},y={to:a,cap:0,rev:graph[a].length};graph[a].push(x);graph[b].push(y);};
    for(let i=0;i<n;i++){
     const row=usable[i],capacity=pool==='sameDay'?row.sameDay:pool==='homeVisit'?row.homeVisit:row.poolCapacity[pool];
     edge(source,i,(counts[i]||0)*capacity);
-    for(let j=0;j<m;j++)if(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(entries[j][0]))edge(i,n+j,1e12);
+    for(let j=0;j<m;j++)if(pool==='sameDay'?row.sameDay>0:!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(entries[j][0]))edge(i,n+j,1e12);
    }
    entries.forEach(([,need],j)=>edge(n+j,sink,need));let total=0;
    while(true){const seen=Array(size).fill(null),queue=[source];seen[source]=[-1,-1];for(let q=0;q<queue.length&&!seen[sink];q++){const a=queue[q];for(let i=0;i<graph[a].length;i++){const e=graph[a][i];if(e.cap>1e-8&&!seen[e.to]){seen[e.to]=[a,i];queue.push(e.to);}}}if(!seen[sink])break;let amount=Infinity;for(let v=sink;v!==source;){const [a,i]=seen[v];amount=Math.min(amount,graph[a][i].cap);v=a;}for(let v=sink;v!==source;){const [a,i]=seen[v],e=graph[a][i];e.cap-=amount;graph[v][e.rev].cap+=amount;v=a;}total+=amount;}
