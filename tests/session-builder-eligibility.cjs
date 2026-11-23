@@ -40,3 +40,22 @@ test('required sessions with no demand show unallocated capacity without inventi
  const rules=[{id:'required',enabled:true,kind:'minimum',sessionTypeId:'gp',scope:'morning',days:[1],minimum:1,strength:'must'}];
  const result=estimateSessions(rows,['Phone'],['GP'],demand,rules,{respectTypes:true});assert.equal(result.appointmentBreakdown.gp[0].morning.Unallocated,10);assert.equal(result.totalCapacity,10);
 });
+test('daily urgent splits respect session selections and GP share excludes routine slots',()=>{
+ const rows=[{id:'gp',name:'Standard GP',clinicianTypes:['GP'],appointmentsByMode:{Phone:10},appointmentTypes:['Extra','111 Referral','Routine']},{id:'uct',name:'UCT',clinicianTypes:['Urgent Care Team'],appointmentsByMode:{Phone:20},appointmentTypes:['Same Day']}];
+ const demand={sameDay:[100,100,100,100,100],homeVisit:[0,0,0,0,0],weekly:0,routine:400,eligibleDailyTypes:['Same Day','Extra','111 Referral'],types:{sameDay:['Same Day','Extra','111 Referral'],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{'Same Day':[60,60,60,60,60],Extra:[20,20,20,20,20],'111 Referral':[20,20,20,20,20]},homeVisit:{},weekly:{},routine:{Routine:400}}};
+ const rules=[{id:'gp-share',enabled:true,kind:'share',scope:'day',days:[1,2,3,4,5],minimum:20,clinicianGroup:'GP',denominator:'pair',comparisonGroup:'Urgent Care Team',strength:'must'}];
+ const result=estimateSessions(rows,['Phone'],['GP','Urgent Care Team'],demand,rules,{respectTypes:true});assert.equal(result.error,undefined);assert.equal(context.window.SessionBuilderPlanning.sharePool(rules[0]),'urgent');
+ for(let day=0;day<5;day++){
+  const totals={gp:0,uct:0};for(const id of ['gp','uct'])for(const period of ['morning','afternoon'])for(const [name,n] of Object.entries(result.appointmentBreakdown[id]?.[day]?.[period]||{})){
+   if(id==='uct')assert.equal(name,'Same Day');if(id==='gp'&&name!=='Routine')assert.ok(['Extra','111 Referral'].includes(name));if(name!=='Routine')totals[id]+=n;
+  }
+  assert.ok(totals.gp*100>=20*(totals.gp+totals.uct),JSON.stringify({day,totals}));
+ }
+ assert.ok(result.ruleResults[0].ok);
+});
+test('an urgent share cannot be met by routine-only GP appointments',()=>{
+ const rows=[{id:'gp',name:'GP',clinicianTypes:['GP'],appointmentsByMode:{Phone:10},appointmentTypes:['Routine']},{id:'uct',name:'UCT',clinicianTypes:['Urgent Care Team'],appointmentsByMode:{Phone:10},appointmentTypes:['Same Day']}];
+ const demand={sameDay:[50,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:100,eligibleDailyTypes:['Same Day'],types:{sameDay:['Same Day'],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{'Same Day':[50,0,0,0,0]},homeVisit:{},weekly:{},routine:{Routine:100}}};
+ const rules=[{id:'share',enabled:true,kind:'share',scope:'day',days:[1],minimum:20,clinicianGroup:'GP',denominator:'pair',comparisonGroup:'Urgent Care Team',strength:'must'}];
+ assert.match(estimateSessions(rows,['Phone'],['GP','Urgent Care Team'],demand,rules,{respectTypes:true}).error,/No plan found/);
+});

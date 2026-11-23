@@ -14,6 +14,7 @@ function validateRules(rules){
   if(!Number.isFinite(rule.minimum)||rule.kind==='minimum'&&(!Number.isSafeInteger(rule.minimum)||rule.minimum<1)||rule.kind==='share'&&(rule.minimum<0||rule.minimum>100))throw Error('Use a whole number of sessions, or a percentage between zero and 100.');
   if(rule.kind==='minimum'&&typeof rule.sessionTypeId!=='string')throw Error('Choose a session type.');
   if(rule.kind==='share'&&(typeof rule.clinicianGroup!=='string'||!['all','pair'].includes(rule.denominator)||typeof rule.comparisonGroup!=='string'))throw Error('Choose a clinician group and appointment denominator.');
+  if(rule.appointmentPool!==undefined&&!['all','urgent'].includes(rule.appointmentPool))throw Error('Choose all or urgent appointments.');
  }
  return true;
 }
@@ -57,7 +58,7 @@ function inspectRules(){
   const pools=new Map();
   for(const rule of sessionBuilderRules){
    if(!rule.enabled||rule.strength!=='must'||rule.kind!=='share'||!rule.days.includes(day)||rule.scope!==period&&(period==='day'||rule.scope!=='both')||issuesFor(rule,sessionBuilderTypes,groups).length)continue;
-   const key=rule.denominator==='all'?'all':JSON.stringify([rule.clinicianGroup,rule.comparisonGroup].sort());
+   const key=window.SessionBuilderPlanning.sharePool(rule)+':'+(rule.denominator==='all'?'all':JSON.stringify([rule.clinicianGroup,rule.comparisonGroup].sort()));
    if(!pools.has(key))pools.set(key,new Map());const lower=pools.get(key);lower.set(rule.clinicianGroup,Math.max(lower.get(rule.clinicianGroup)||0,rule.minimum));
   }
   for(const lower of pools.values()){const total=[...lower.values()].reduce((sum,n)=>sum+n,0);
@@ -92,6 +93,7 @@ function renderSessionBuilderRules(){
    clause.append(text('% of appointments by'),select('Required clinician group for rule '+ruleNumber,[['','Choose clinician group'],...groups.map(group=>[group,group])],rule.clinicianGroup,value=>{
     commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,clinicianGroup:value,denominator:item.comparisonGroup===value?'all':item.denominator,comparisonGroup:item.comparisonGroup===value?'':item.comparisonGroup}:item));renderSessionBuilderRules();
    }));
+   const pool=document.createElement('div');pool.className='session-rule-denominator';pool.append(text('Count'),select('Appointment type for rule '+ruleNumber,[['urgent','Urgent appointments'],['all','All appointments']],window.SessionBuilderPlanning.sharePool(rule),value=>patch(rule,'appointmentPool',value)));clause.append(pool);
    const denominator=document.createElement('div');denominator.className='session-rule-denominator';denominator.append(text('Percentage of'));
    const pairs=groups.filter(group=>group!==rule.clinicianGroup).map(group=>[group,rule.clinicianGroup+' + '+group+' appointments']);
    denominator.append(select('Appointment denominator for rule '+ruleNumber,[['','All appointments'],...pairs],rule.denominator==='pair'?rule.comparisonGroup:'',value=>{
