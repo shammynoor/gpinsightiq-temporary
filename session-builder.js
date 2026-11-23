@@ -38,14 +38,18 @@ function readAverageDemand(){
  const today=dayView2LondonClock().date,current=GPCorrectness.monday(today),start=GPCorrectness.shift(current,-364),end=GPCorrectness.shift(current,-1);
  const history=historicalBookingRecords();
  const planningModes=window.gpChartPreferences?.read()?.forecastPlanningModes||{};
- const roles=new Map(groupUrgencyNames.filter(isDashboardToggleOption).map(name=>[name,appointmentCalculationRole(name)]));
- const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments]);
+ const roles=new Map(groupUrgencyNames.filter(isDashboardToggleOption).map(name=>[name,{role:appointmentCalculationRole(name),category:appointmentCategoryFor(name).toLowerCase().replace(/[^a-z]/g,'')}]));
+ const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames]);
  if(demandCache?.history===history&&demandCache.coverage===slotReportCoverage&&demandCache.key===key)return demandCache.result;
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,52).filter(week=>week>=start&&week<current);
  const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
-  const name=capacityUrgencyCategory(row.slot),role=roles.get(name);
-  return role==='urgent'?(planningModes[name]==='weekly'?'weekly':'daily'):role==='routine'?'routine':null;
+  const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info)return null;
+  if(info.role==='routine')return 'routine';
+  if(info.role==='urgent'&&planningModes[name]==='weekly')return 'weekly';
+  const mode=consultAssignments[row.slot]||suggestConsultMode(row.slot)||'';
+  if(info.category==='homevisiting'||info.role==='urgent'&&window.SessionBuilderPlanning.isHomeVisit(mode))return 'homeVisit';
+  return info.role==='urgent'?'sameDay':null;
  }});
  const result={demand,start,end,weeks:weeks.length};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
@@ -55,28 +59,29 @@ function renderSessionRequirements(){
  const history=readAverageDemand(),demand=history.demand;
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
- for(let i=0;i<5;i++)byId('sessionBuilderNeed'+i).textContent=fmt(demand?.daily[i]);
+ for(let i=0;i<5;i++){byId('sessionBuilderSameDayNeed'+i).textContent=fmt(demand?.sameDay[i]);byId('sessionBuilderHomeVisitNeed'+i).textContent=fmt(demand?.homeVisit[i]);}
  byId('sessionBuilderWeeklyNeed').textContent=fmt(demand?.weekly);byId('sessionBuilderRoutineNeed').textContent=fmt(demand?.routine);
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
  byId('sessionBuilderHistory').textContent='Last 52 completed weeks: '+dateLabel(history.start)+'–'+dateLabel(history.end)+' · '+history.weeks+' complete covered week'+(history.weeks===1?'':'s')+' used. Zero-booking days in those weeks are included.';
  const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),demand);
  const body=byId('sessionBuilderPlanBody');body.replaceChildren();
- function addRow(parent,label,values,group=''){
+ function addRow(parent,label,values,weekly,routine,group='',split=false){
   const tr=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';heading.textContent=label;
   if(group){const note=document.createElement('span');note.className='session-builder-plan-group';note.textContent=group;heading.append(note);}tr.append(heading);
-  for(const value of values){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}
-  for(let i=0;i<2;i++){const td=document.createElement('td');td.textContent='—';td.setAttribute('aria-label','Weekly allocation covered by weekday sessions');tr.append(td);}parent.append(tr);return tr;
+  for(const value of values){const td=document.createElement('td');if(!split)td.colSpan=2;td.textContent=fmt(value);tr.append(td);}
+  for(const value of [weekly,routine]){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}parent.append(tr);return tr;
  }
- for(const row of estimate.rows)addRow(body,row.name,estimate.error?Array(5).fill(null):row.days,row.group||'Choose one clinician group');
- if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=8;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
+ for(const row of estimate.rows)addRow(body,row.name,estimate.error?Array(5).fill(null):row.days,estimate.error?null:row.weekly,estimate.error?null:row.routine,row.group||'Choose one clinician group');
+ if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=13;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
  const foot=byId('sessionBuilderPlanFoot');foot.replaceChildren();
- addRow(foot,'Total sessions',estimate.days||Array(5).fill(null));
- addRow(foot,'Appointment capacity',estimate.capacity||Array(5).fill(null));
+ addRow(foot,'Total sessions',estimate.days||Array(5).fill(null),estimate.weeklySessions,estimate.routineSessions);
+ const capacities=Array.from({length:5},(_,i)=>[estimate.capacitySameDay?.[i],estimate.capacityHomeVisit?.[i]]).flat();
+ addRow(foot,'Total appointment capacity',capacities,estimate.weeklyCapacity,estimate.routineCapacity,'',true);
  const caption=byId('sessionBuilderPlanStatus');
  if(estimate.error)caption.textContent=estimate.error;
  else{
   const unused=estimate.rows.filter(row=>!row.group||!row.capacity).map(row=>row.name);
-  caption.textContent=fmt(estimate.totalCapacity)+' appointment slots for '+fmt(estimate.totalNeed)+' average weekly need. Uses whole sessions, favouring the highest-capacity types; equal-capacity types share the requirement. Weekly allocations are covered within the weekday sessions. Staff availability is not assessed.'+(unused.length?' Not used (choose one group and enter capacity): '+unused.join(', ')+'.':'');
+  caption.textContent='Daily session counts cover both same-day and home-visit need; their capacity is split underneath. Urgent weekly and routine allocations use separate sessions, so capacity is not counted twice. Staff availability is not assessed.'+(estimate.approximate?' Large demand uses a feasible capacity-led estimate.':'')+(unused.length?' Not used (choose one group and enter capacity): '+unused.join(', ')+'.':'');
  }
 }
 function renderSessionBuilder(){
