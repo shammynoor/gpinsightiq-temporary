@@ -21,6 +21,7 @@ const SHARED_TOKEN='u!'+btoa(unescape(encodeURIComponent(SHARED_FOLDER_LINK))).r
 let isOwner=false,sharedDriveId='',sharedFolderId='';
 let workforceWeeklySessions=new Map();
 let sessionBuilderTypes=[];
+let sessionBuilderClinicianLimits={};
 let sessionBuilderRules=[];
 function canEditSessionBuilder(){return isOwner&&iqBridge?.manage===true&&iqBridge?.practice?.role==='practice_admin'&&!iqBridge?.platformAdmin;}
 let folderAccessVerified=false,folderAccessDenied=false,authNeedsAccountSelection=false,authChecking=false;
@@ -496,6 +497,7 @@ function renderPeopleGroups(){
  const renameType=(oldName,newName)=>{
   if(newName===oldName){renderPeopleGroups();return}
   if(!nameValid(newName,clinicianCategoryNames)){alert('Please enter a unique detailed clinician type.');return}
+  window.renameSessionBuilderClinicianType?.(oldName,newName);
   clinicianCategoryNames=clinicianCategoryNames.map(n=>n===oldName?newName:n);
   for(const [key,value] of workforceWeeklySessions){
    const [type,year]=JSON.parse(key);
@@ -1301,7 +1303,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 const CLOUD_SETTINGS_NAME='weekly-demand-categories.json';
 function cloudNotice(msg){
- for(const id of ['cloudCategoryStatus','workforcePlanningSaveStatus','sessionBuilderSaveStatus','sessionBuilderRulesSaveStatus']){
+ for(const id of ['cloudCategoryStatus','workforcePlanningSaveStatus','sessionBuilderSaveStatus','sessionBuilderRulesSaveStatus','sessionBuilderClinicianSaveStatus']){
   const element=$(id);if(element)element.textContent=msg;
  }
 }
@@ -1345,6 +1347,7 @@ async function loadCloudCategories(options={}){
   if(data){
    validateCloudCategories(data);
    sessionBuilderTypes=(data.sessionBuilderTypes||[]).map(row=>({...row}));
+   sessionBuilderClinicianLimits=Object.fromEntries(Object.entries(data.sessionBuilderClinicianLimits||{}).map(([name,limits])=>[name,{...limits}]));
    sessionBuilderRules=(data.sessionBuilderRules||[]).map(rule=>({...rule,days:[...rule.days]}));
    workforceWeeklySessions=new Map((data.workforceWeeklySessions||[]).map(([type,year,value])=>[JSON.stringify([type,year]),value]));
    analyticsRoles=data.analyticsRoles||{};
@@ -1473,6 +1476,7 @@ async function saveCloudCategories(options={}){
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
   sessionBuilderTypes:sessionBuilderTypes.map(row=>({...row})),
+  sessionBuilderClinicianLimits:Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limits])=>[name,{...limits}])),
   sessionBuilderRules:sessionBuilderRules.map(rule=>({...rule,days:[...rule.days]})),
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),
@@ -1889,6 +1893,7 @@ function renderDropEditor(dimension){
     const index=cfg.names.indexOf(name);if(index<0)return;
     if(dimension==='urgency'||dimension==='groupUrgency')renameAnalyticsRole('appointmentTypes',name,next);
     if(dimension==='clinicianGroup')renameAnalyticsRole('clinicianGroups',name,next);
+    if(dimension==='clinician')window.renameSessionBuilderClinicianType?.(name,next);
     if(dimension==='consult')window.renameSessionBuilderSetting?.('consult',name,next);
     cfg.names[index]=next;
     if(dimension==='clinician'&&Object.prototype.hasOwnProperty.call(clinicianGroupAssignments,name)){clinicianGroupAssignments[next]=clinicianGroupAssignments[name];delete clinicianGroupAssignments[name];}
@@ -5693,6 +5698,7 @@ function validateCloudCategories(data){
  }
  if(data.sessionBuilderRules!==undefined){try{window.validateSessionBuilderRules(data.sessionBuilderRules)}catch(_){invalid('sessionBuilderRules')}}
  if(data.sessionBuilderTypes!==undefined){try{window.validateSessionBuilderTypes(data.sessionBuilderTypes)}catch(_){invalid('sessionBuilderTypes')}}
+ if(data.sessionBuilderClinicianLimits!==undefined){try{window.validateSessionBuilderClinicianLimits(data.sessionBuilderClinicianLimits)}catch(_){invalid('sessionBuilderClinicianLimits')}}
  if(data.analyticsRoles!==undefined&&!object(data.analyticsRoles))invalid('analyticsRoles');
  if(data.workforceWeeklySessions!==undefined&&(!Array.isArray(data.workforceWeeklySessions)||data.workforceWeeklySessions.some(entry=>
   !Array.isArray(entry)||entry.length!==3||typeof entry[0]!=='string'||!entry[0].trim()||
@@ -5800,6 +5806,7 @@ function analyticsSettingsSnapshot(){
   userTypeLocum:{...userTypeLocum},
   sessionCategoryLocum:{...sessionCategoryLocum},
   sessionBuilderTypes:sessionBuilderTypes.map(row=>({...row})),
+  sessionBuilderClinicianLimits:Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limits])=>[name,{...limits}])),
   sessionBuilderRules:sessionBuilderRules.map(rule=>({...rule,days:[...rule.days]})),
   clinicianGroupColours:{...clinicianGroupColours},clinicianTypeColours:{...clinicianTypeColours},urgencyTypeColours:{...urgencyTypeColours},
   categories:categoryNames.slice(),

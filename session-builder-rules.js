@@ -124,6 +124,7 @@ const tabs=[['clinician','Clinician'],['types','Types'],['rules','Rules'],['plan
 function applyTab(name){
  if(!canEditSessionBuilder())return;
  for(const [key,id] of tabs){const active=name===key,button=byId('sessionBuilder'+id+'Tab');button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;byId('sessionBuilder'+id+'Panel').hidden=!active;}
+ if(name==='clinician')window.renderSessionBuilderClinicians?.();
  if(name==='rules')renderSessionBuilderRules();
  if(name==='planner')window.renderSessionBuilderRequirements?.();
 }

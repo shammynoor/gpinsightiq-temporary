@@ -102,3 +102,12 @@
 
 #sessionBuilderPage .session-builder-tabs .session-builder-planner-tab{background:#def3ee;color:#075d54;font-weight:750;border:1px solid #abd8cc}
 #sessionBuilderPage .session-builder-tabs .session-builder-planner-tab[aria-selected=true]{background:#087e6d;color:#fff;border-color:#087e6d}
+
+#sessionBuilderPage .session-clinician-title{font-size:16px;margin:0 0 6px}
+#sessionBuilderPage .session-clinician-help{font-size:12px;color:#60798e;margin:0 0 14px}
+#sessionBuilderPage .session-clinician-table{min-width:440px;max-width:800px;table-layout:fixed}
+#sessionBuilderPage .session-clinician-table th:nth-child(n){min-width:0;width:auto}
+#sessionBuilderPage .session-clinician-table th:first-child{width:50%}
+#sessionBuilderPage .session-clinician-table .session-clinician-group{width:auto;background:#e6f1f5;color:#22516b}
+#sessionBuilderPage .session-clinician-table tbody th:not(.session-clinician-group){background:white;color:#17395b;font-weight:600}
+#sessionBuilderPage .session-clinician-table select{width:100%;max-width:150px;padding:8px;font-size:13px}
