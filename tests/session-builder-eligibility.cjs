@@ -22,3 +22,15 @@ test('history retains appointment types for each demand pool',()=>{
 });
 
 test('111 referrals are excluded while urgent appointment types remain in session demand',()=>{const f=context.window.SessionBuilderPlanning.isIncludedAppointmentType;assert.equal(f('111 Referral'),false);assert.equal(f('111-referral'),false);assert.equal(f('Same Day'),true);assert.equal(f('Within 3 Days'),true);});
+test('estimated appointment splits sum to demand without duplicating appointments',()=>{
+ const rows=[{id:'gp',name:'GP',clinicianTypes:['GP'],appointmentsByMode:{Phone:10},appointmentTypes:['Same Day','Routine','Within 3 Days']}];
+ const demand={sameDay:[15,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:4,routine:6,types:{sameDay:['Same Day','Within 3 Days'],homeVisit:[],weekly:['Within 3 Days'],routine:['Routine']},byType:{sameDay:{'Same Day':[10,0,0,0,0],'Within 3 Days':[5,0,0,0,0]},homeVisit:{},weekly:{'Within 3 Days':4},routine:{Routine:6}}};
+ const result=estimateSessions(rows,['Phone'],['GP'],demand,[],{respectTypes:true});assert.equal(result.error,undefined);
+ const totals={};for(const periods of result.appointmentBreakdown.gp)for(const period of ['morning','afternoon'])for(const [name,value] of Object.entries(periods[period]))totals[name]=(totals[name]||0)+value;
+ assert.ok(Math.abs(totals['Same Day']-10)<1e-6);assert.ok(Math.abs(totals['Within 3 Days']-9)<1e-6);assert.ok(Math.abs(totals.Routine-6)<1e-6);
+});
+test('unmet appointment types never appear as allocated appointments',()=>{
+ const rows=[{id:'gp',name:'GP',clinicianTypes:['GP'],appointmentsByMode:{Phone:10},appointmentTypes:['Same Day']}];
+ const demand={sameDay:[0,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:6,types:{sameDay:[],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{},homeVisit:{},weekly:{},routine:{Routine:6}}};
+ const result=estimateSessions(rows,['Phone'],['GP'],demand,[],{respectTypes:true});assert.equal(result.unmetDemand[0].name,'Routine');assert.equal(result.appointmentBreakdown.gp,undefined);
+});

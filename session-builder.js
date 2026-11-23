@@ -78,11 +78,19 @@ function renderSessionRequirements(){
  function addCells(parent,label,values,group=''){
   const tr=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';heading.textContent=label;
   if(group){const note=document.createElement('span');note.className='session-builder-plan-group';note.textContent=group;heading.append(note);}tr.append(heading);
-  for(const value of values){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}parent.append(tr);
+  for(const value of values){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}parent.append(tr);return tr;
  }
  for(const row of estimate.rows){
   const cells=[];for(let day=0;day<5;day++)cells.push(estimate.error?null:row.periods.morning[day],estimate.error?null:row.periods.afternoon[day]);
-  addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0)],row.group||'Choose one clinician group');
+  const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0)],row.group||'Choose one clinician group');
+  if(!estimate.error)for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']]){
+   const split=estimate.appointmentBreakdown?.[row.id]?.[day]?.[period];if(!split)continue;
+   const detail=document.createElement('span');detail.className='session-builder-appointment-split';
+   for(const [name,value] of Object.entries(split).sort((a,b)=>b[1]-a[1])){
+    if(value<0.05)continue;const item=document.createElement('span');item.className='session-builder-split-item';item.style.color=urgencyGroupColour(name);item.textContent=name+' '+fmt(value);detail.append(item);
+   }
+   if(detail.children.length)tr.children[1+day*2+offset].append(detail);
+  }
  }
  if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=12;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
  const foot=byId('sessionBuilderPlanFoot');foot.replaceChildren();
@@ -94,7 +102,7 @@ function renderSessionRequirements(){
  addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null]);
  addCells(summary,'Home visits provided',[...(estimate.error?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null]);
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.error||('Each session is assigned to one demand pool. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Staff availability is not assessed.'+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures estimate appointments by type; daily urgent splits follow the historical mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Staff availability is not assessed.'+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;

@@ -87,22 +87,23 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    add(row,day,scope==='day'?choosePeriod(day):scope,'daily',missing);
   }
  }
- let approximate=false;
+ let approximate=false,flowForBreakdown=null;
  if(options.respectTypes&&demand.byType){
   // Flow allocates each appointment at most once, only to sessions that offer its type.
   const flow=(pool,day,counts)=>{
    const entries=pool==='sameDay'?[['Same-day urgent',demand.sameDay[day]]].filter(([,value])=>value>1e-8):Object.entries(demand.byType[pool]||{}).map(([name,value])=>[name,Array.isArray(value)?value[day]:value]).filter(([,value])=>value>1e-8);
-   const n=usable.length,m=entries.length,size=n+m+2,source=n+m,sink=source+1,graph=Array.from({length:size},()=>[]);
-   const edge=(a,b,cap)=>{const x={to:b,cap,rev:graph[b].length},y={to:a,cap:0,rev:graph[a].length};graph[a].push(x);graph[b].push(y);};
+   const n=usable.length,m=entries.length,size=n+m+2,source=n+m,sink=source+1,graph=Array.from({length:size},()=>[]),links=Array.from({length:n},()=>Array(m).fill(null));
+   const edge=(a,b,cap)=>{const x={to:b,cap,rev:graph[b].length},y={to:a,cap:0,rev:graph[a].length};graph[a].push(x);graph[b].push(y);return x;};
    for(let i=0;i<n;i++){
     const row=usable[i],capacity=pool==='sameDay'?row.sameDay:pool==='homeVisit'?row.homeVisit:row.poolCapacity[pool];
     edge(source,i,(counts[i]||0)*capacity);
-    for(let j=0;j<m;j++)if(pool==='sameDay'?row.sameDay>0:!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(entries[j][0]))edge(i,n+j,1e12);
+    for(let j=0;j<m;j++)if(pool==='sameDay'?row.sameDay>0:!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(entries[j][0]))links[i][j]=edge(i,n+j,entries[j][1]);
    }
    entries.forEach(([,need],j)=>edge(n+j,sink,need));let total=0;
    while(true){const seen=Array(size).fill(null),queue=[source];seen[source]=[-1,-1];for(let q=0;q<queue.length&&!seen[sink];q++){const a=queue[q];for(let i=0;i<graph[a].length;i++){const e=graph[a][i];if(e.cap>1e-8&&!seen[e.to]){seen[e.to]=[a,i];queue.push(e.to);}}}if(!seen[sink])break;let amount=Infinity;for(let v=sink;v!==source;){const [a,i]=seen[v];amount=Math.min(amount,graph[a][i].cap);v=a;}for(let v=sink;v!==source;){const [a,i]=seen[v],e=graph[a][i];e.cap-=amount;graph[v][e.rev].cap+=amount;v=a;}total+=amount;}
-   return {covered:total,need:entries.reduce((sum,[,v])=>sum+v,0),missing:entries.map(([name],j)=>({name,amount:graph[n+j].find(e=>e.to===sink)?.cap||0})).filter(entry=>entry.amount>1e-8)};
+   return {allocations:links.map(row=>Object.fromEntries(row.map((link,j)=>[entries[j][0],link?graph[link.to][link.rev].cap:0]).filter(([,value])=>value>1e-8))),covered:total,need:entries.reduce((sum,[,v])=>sum+v,0),missing:entries.map(([name],j)=>({name,amount:graph[n+j].find(e=>e.to===sink)?.cap||0})).filter(entry=>entry.amount>1e-8)};
   };
+  flowForBreakdown=flow;
   const allocate=(pools,day,initial,place)=>{
    const counts=initial.slice();
    for(let iteration=0;iteration<10000;iteration++){
@@ -171,10 +172,28 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  });
  const unmet=ruleResults.filter(result=>result.strength==='must'&&!result.ok);
  if(unmet.length)return {rows,ruleResults,error:'No plan found that meets all required rules. '+unmet[0].failures[0]+' Review conflicting rules or available session types.'};
+ const appointmentBreakdown={};
+ if(flowForBreakdown){
+  const addBreakdown=(id,day,period,name,value)=>{if(value<=1e-8)return;const periods=appointmentBreakdown[id]||(appointmentBreakdown[id]=Array.from({length:5},()=>({morning:{},afternoon:{}})));const cell=periods[day][period];cell[name]=(cell[name]||0)+value;};
+  const distribute=(pool,day)=>{
+   const daily=pool==='sameDay'||pool==='homeVisit',counts=usable.map(row=>daily?row.days[day]:row[pool]),result=flowForBreakdown(pool,day,counts);
+   usable.forEach((row,index)=>{
+    const rowCount=counts[index];if(!rowCount)return;
+    const targetPlacements=placements.filter(p=>p.id===row.id&&p.pool===(daily?'daily':pool)&&(!daily||p.day===day));
+    for(const [name,value] of Object.entries(result.allocations[index])){
+     const mix=pool==='sameDay'?Object.entries(demand.byType.sameDay||{}).map(([type,days])=>[type,days[day]]).filter(([,n])=>n>0):[[name,1]],mixTotal=mix.reduce((sum,[,n])=>sum+n,0);
+     if(!mixTotal)continue;
+     for(const placement of targetPlacements)for(const [type,weight] of mix)addBreakdown(row.id,placement.day,placement.period,type,value*placement.count/rowCount*weight/mixTotal);
+    }
+   });
+  };
+  for(let day=0;day<5;day++){distribute('sameDay',day);distribute('homeVisit',day);}
+  distribute('weekly',0);distribute('routine',0);
+ }
  const sum=fn=>rows.reduce((s,row)=>s+fn(row),0);
  const days=Array.from({length:5},(_,day)=>sum(row=>row.days[day]));
  const capacitySameDay=days.map((_,day)=>sum(row=>row.days[day]*row.sameDay)),capacityHomeVisit=days.map((_,day)=>sum(row=>row.days[day]*row.homeVisit));
- return {rows,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,unmetDemand,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
+ return {rows,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,appointmentBreakdown,unmetDemand,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
 }
 window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,vectorSessions});
 })();
