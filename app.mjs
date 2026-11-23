@@ -117,7 +117,7 @@ function renderAnalytics(){
   users:()=>{check();if(!canManage(practice))throw Error('Practice administrator required.');openUsersApprovals();},
   signOut:()=>run(async()=>{await analyticsFrame?.contentWindow?.clearPracticeReportCache?.();await targetBackend.logout();user=null;context=null;practice=null;report=null;render();})
  };
- analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=session-builder-rules-v1';$('analyticsHost').replaceChildren(analyticsFrame);
+ analyticsFrameKey=workspaceKey;analyticsFrame=node('iframe');analyticsFrame.title='Practice Activity, Capacity, Forecast and Workforce IQ';analyticsFrame.className='analytics-frame';analyticsFrame.src='dashboard.html?v=session-builder-enforced-v1';$('analyticsHost').replaceChildren(analyticsFrame);
 }
 function renderHome(content){
  const metrics=node('div',undefined,'metric-row');

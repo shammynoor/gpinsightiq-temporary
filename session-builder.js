@@ -64,7 +64,7 @@ function renderSessionRequirements(){
  byId('sessionBuilderWeeklyNeed').textContent=fmt(demand?.weekly);byId('sessionBuilderRoutineNeed').textContent=fmt(demand?.routine);
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
  byId('sessionBuilderHistory').textContent='Last 52 completed weeks: '+dateLabel(history.start)+'–'+dateLabel(history.end)+' · '+history.weeks+' complete covered week'+(history.weeks===1?'':'s')+' used. Zero-booking days in those weeks are included.';
- const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),demand);
+ const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),demand,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules);
  const body=byId('sessionBuilderPlanBody');body.replaceChildren();
  function addRow(parent,label,values,weekly,routine,group='',split=false){
   const tr=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';heading.textContent=label;
@@ -72,7 +72,14 @@ function renderSessionRequirements(){
   for(const value of values){const td=document.createElement('td');if(!split)td.colSpan=2;td.textContent=fmt(value);tr.append(td);}
   for(const value of [weekly,routine]){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}parent.append(tr);return tr;
  }
- for(const row of estimate.rows)addRow(body,row.name,estimate.error?Array(5).fill(null):row.days,estimate.error?null:row.weekly,estimate.error?null:row.routine,row.group||'Choose one clinician group');
+ for(const row of estimate.rows){
+   const tr=addRow(body,row.name,estimate.error?Array(5).fill(null):row.days,estimate.error?null:row.weekly,estimate.error?null:row.routine,row.group||'Choose one clinician group');
+   if(!estimate.error&&estimate.ruleResults?.length)for(let day=0;day<5;day++){
+    const note=document.createElement('span');note.className='session-builder-plan-group';
+    const daily=period=>estimate.placements.filter(p=>p.id===row.id&&p.day===day&&p.period===period&&p.pool==='daily').reduce((s,p)=>s+p.count,0);
+    note.textContent='AM '+daily('morning')+' · PM '+daily('afternoon');tr.children[day+1].append(note);
+   }
+  }
  if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=13;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
  const foot=byId('sessionBuilderPlanFoot');foot.replaceChildren();
  addRow(foot,'Total sessions',estimate.days||Array(5).fill(null),estimate.weeklySessions,estimate.routineSessions);
@@ -81,8 +88,8 @@ function renderSessionRequirements(){
  const caption=byId('sessionBuilderPlanStatus');
  if(estimate.error)caption.textContent=estimate.error;
  else{
-  const unused=estimate.rows.filter(row=>!row.group||!row.capacity).map(row=>row.name);
-  caption.textContent='Daily session counts cover both same-day and home-visit need; their capacity is split underneath. Urgent weekly and routine allocations use separate sessions, so capacity is not counted twice. Staff availability is not assessed.'+(estimate.approximate?' Large demand uses a feasible capacity-led estimate.':'')+(unused.length?' Not used (choose one group and enter capacity): '+unused.join(', ')+'.':'');
+  const unused=estimate.rows.filter(row=>!row.group||!row.capacity&&!row.days.some(n=>n>0)).map(row=>row.name);
+  caption.textContent='Daily session counts cover both same-day and home-visit need; their capacity is split underneath. Urgent weekly and routine allocations use separate sessions, so capacity is not counted twice. Staff availability is not assessed.'+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Daily AM/PM session placement is shown above. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' Large demand uses a feasible capacity-led estimate.':'')+(unused.length?' Not used (choose one group and enter capacity): '+unused.join(', ')+'.':'');
  }
 }
 function renderSessionBuilder(){
@@ -124,6 +131,7 @@ function renderSessionBuilder(){
  window.restoreSessionBuilderTab?.();
 }
 window.renderSessionBuilder=renderSessionBuilder;
+window.renderSessionBuilderRequirements=renderSessionRequirements;
 byId('navSessionBuilder')?.addEventListener('click',()=>{if(canEditSessionBuilder())showPage('sessionBuilder');});
 byId('sessionBuilderAddForm')?.addEventListener('submit',event=>{
  event.preventDefault();if(!canEditSessionBuilder())return;

@@ -35,7 +35,7 @@ window.renameSessionBuilderRuleGroup=(oldName,newName)=>{
 };
 function commit(rules){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
- validateRules(rules);sessionBuilderRules=rules.map(rule=>({...rule,days:[...rule.days]}));markCategoryDirty();
+ validateRules(rules);sessionBuilderRules=rules.map(rule=>({...rule,days:[...rule.days]}));markCategoryDirty();window.renderSessionBuilderRequirements?.();
 }
 function select(label,options,value,onChange){
  const input=document.createElement('select');input.setAttribute('aria-label',label);
