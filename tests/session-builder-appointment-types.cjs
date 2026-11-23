@@ -1,0 +1,19 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const vm=require('node:vm');
+const fs=require('node:fs');
+test('appointment choices persist independently, keep legacy defaults, and follow renames',()=>{
+ class Element{constructor(tag='div'){this.tagName=tag;this.children=[];this.events={};this.dataset={};this.style={};this.classList={add(){}};this.value='';this.textContent='';} append(...items){this.children.push(...items)} replaceChildren(...items){this.children=items} setAttribute(){} addEventListener(type,fn){this.events[type]=fn} }
+ const elements=new Map(); const byId=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id)};
+ const context={document:{getElementById:byId,createElement:tag=>new Element(tag)},window:{},console,Intl,Date,Set,Map,Object,Array,Number,JSON,Error,crypto:{randomUUID:()=> 'new'},consultCategoryNames:['Phone'],clinicianGroupNames:['GP'],groupUrgencyNames:['Same Day','Within 3 Days','Routine'],isDashboardToggleOption:()=>true,canEditSessionBuilder:()=>true,sessionBuilderTypes:[{id:'1',name:'Morning',appointmentsByMode:{Phone:5},clinicianTypes:['GP']},{id:'2',name:'Afternoon',appointmentsByMode:{Phone:4},clinicianTypes:['GP']}],markCategoryDirty(){context.dirty=(context.dirty||0)+1},dayView2LondonClock:()=>({date:'2026-11-23'}),GPCorrectness:{monday:x=>x,shift:()=> '2026-01-01',completeWeeks:()=>[]},historicalBookingRecords:()=>[],slotReportCoverage:[],excludedSlotTypes:new Set(),assignments:{},groupUrgencyAssignments:{},consultAssignments:{},appointmentCalculationRole:()=> 'urgent',appointmentCategoryFor:()=> 'Urgent'};
+ context.window.SessionBuilderPlanning={averageDemand:()=>null,estimateSessions:()=>({rows:[],error:'No data'})};
+ vm.createContext(context);vm.runInContext(fs.readFileSync('session-builder.js','utf8'),context);context.window.renderSessionBuilder();
+ const rows=byId('sessionBuilderBody').children,dropdown=rows[0].children[2].children[0];
+ assert.equal(dropdown.children[0].textContent,'All appointment types');
+ const checkboxes=dropdown.children[1].children.map(label=>label.children[0]);assert.equal(checkboxes.length,3);assert.ok(checkboxes.every(c=>c.checked));
+ checkboxes[1].checked=false;checkboxes[1].events.change();assert.deepEqual(Array.from(context.sessionBuilderTypes[0].appointmentTypes),['Same Day','Routine']);assert.equal(context.sessionBuilderTypes[1].appointmentTypes,undefined);assert.equal(dropdown.children[0].textContent,'2 selected');assert.equal(context.dirty,1);
+ assert.match(byId('sessionBuilderPlanStatus').textContent,/not yet applied/);
+ context.window.renameSessionBuilderSetting('appointmentTypes','Routine','Routine renamed');assert.deepEqual(Array.from(context.sessionBuilderTypes[0].appointmentTypes),['Same Day','Routine renamed']);
+ context.groupUrgencyNames=['Same Day','Within 3 Days','Routine renamed'];context.window.renderSessionBuilder();const next=byId('sessionBuilderBody').children[0].children[2].children[0];assert.deepEqual(Array.from(next.children[1].children, label=>label.children[0].checked),[true,false,true]);
+ assert.throws(()=>context.window.validateSessionBuilderTypes([{id:'x',name:'x',appointmentsByMode:{},appointmentTypes:['Routine','routine']}]),/only once/);
+});

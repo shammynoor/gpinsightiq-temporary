@@ -2,6 +2,7 @@
 'use strict';
 const byId=id=>document.getElementById(id);
 const configuredModes=()=>consultCategoryNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
+const configuredAppointmentTypes=()=>groupUrgencyNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
 const configuredGroups=()=>clinicianGroupNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
 function validateRows(rows){
  if(!Array.isArray(rows))throw Error('Session types must be a list.');
@@ -13,6 +14,7 @@ function validateRows(rows){
   if(names.has(name))throw Error('That session type already exists.');
   if(!row.appointmentsByMode||typeof row.appointmentsByMode!=='object'||Array.isArray(row.appointmentsByMode)||Object.entries(row.appointmentsByMode).some(([mode,count])=>!mode.trim()||!Number.isSafeInteger(count)||count<0))throw Error('Appointment counts must be whole numbers of zero or more, mapped to consultation modes.');
   if(row.clinicianTypes!==undefined&&(!Array.isArray(row.clinicianTypes)||row.clinicianTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.clinicianTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.clinicianTypes.length))throw Error('Choose each eligible clinician group only once.');
+  if(row.appointmentTypes!==undefined&&(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.appointmentTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.appointmentTypes.length))throw Error('Choose each appointment type only once.');
   ids.add(row.id);names.add(name);
  }
  return true;
@@ -27,7 +29,7 @@ window.renameSessionBuilderSetting=(kind,oldName,newName)=>{
  if(!canEditSessionBuilder())return;
  sessionBuilderTypes=sessionBuilderTypes.map(row=>kind==='consult'
   ?{...row,appointmentsByMode:Object.fromEntries(Object.entries(row.appointmentsByMode).map(([mode,count])=>[mode===oldName?newName:mode,count]))}
-  :kind==='clinicianGroups'?{...row,clinicianTypes:(row.clinicianTypes||[]).map(name=>name===oldName?newName:name)}:row);
+  :kind==='clinicianGroups'?{...row,clinicianTypes:(row.clinicianTypes||[]).map(name=>name===oldName?newName:name)}:kind==='appointmentTypes'&&Array.isArray(row.appointmentTypes)?{...row,appointmentTypes:row.appointmentTypes.map(name=>name===oldName?newName:name)}:row);
  if(kind==='clinicianGroups')window.renameSessionBuilderRuleGroup?.(oldName,newName);
 };
 function commit(rows){
@@ -91,14 +93,15 @@ function renderSessionRequirements(){
   const unused=estimate.rows.filter(row=>!row.group||!row.capacity&&!row.days.some(n=>n>0)).map(row=>row.name);
   caption.textContent='Daily session counts cover both same-day and home-visit need; their capacity is split underneath. Urgent weekly and routine allocations use separate sessions, so capacity is not counted twice. Staff availability is not assessed.'+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Daily AM/PM session placement is shown above. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' Large demand uses a feasible capacity-led estimate.':'')+(unused.length?' Not used (choose one group and enter capacity): '+unused.join(', ')+'.':'');
  }
+ if(sessionBuilderTypes.some(row=>Array.isArray(row.appointmentTypes)&&configuredAppointmentTypes().some(type=>!row.appointmentTypes.includes(type))))caption.textContent+=' Appointment type selections are saved but are not yet applied to these session estimates.';
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;
  if(!canEditSessionBuilder()){page.classList.add('hidden');body.replaceChildren();return;}
  window.syncSessionBuilderSettings();
  const modes=configuredModes(),head=byId('sessionBuilderHead');head.replaceChildren();
- for(const label of ['Session type','Eligible clinician group',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
- byId('sessionBuilderTable').style.minWidth=Math.max(740,570+modes.length*120)+'px';
+ for(const label of ['Session type','Eligible clinician group','Appointment types',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
+ byId('sessionBuilderTable').style.minWidth=Math.max(950,800+modes.length*120)+'px';
  byId('sessionBuilderModeNotice').hidden=modes.length>0;
  body.replaceChildren();
  for(const row of sessionBuilderTypes){
@@ -117,6 +120,19 @@ function renderSessionBuilder(){
   choices.addEventListener('change',()=>{try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,clinicianTypes:choices.value?[choices.value]:[]}:item));}catch(error){choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';byId('sessionBuilderSaveStatus').textContent=error.message;}});
   eligibleCell.append(choices);tr.append(eligibleCell);
   if(row.clinicianTypes?.length>1){const note=document.createElement('span');note.className='session-builder-group-note';note.textContent='Previously assigned to several groups. Choose one.';eligibleCell.append(note);}
+  const appointmentCell=document.createElement('td'),dropdown=document.createElement('details'),summary=document.createElement('summary'),options=document.createElement('div');
+  dropdown.className='session-builder-appointment-dropdown';options.className='session-builder-appointment-options';
+  const appointmentTypes=configuredAppointmentTypes();
+  let selected=new Set(Array.isArray(row.appointmentTypes)?row.appointmentTypes:appointmentTypes);
+  const updateSummary=()=>{const count=appointmentTypes.filter(type=>selected.has(type)).length;summary.textContent=!appointmentTypes.length?'No appointment types':count===appointmentTypes.length?'All appointment types':count===0?'No appointment types selected':count+' selected';};
+  updateSummary();summary.setAttribute('aria-label','Appointment types for '+row.name);dropdown.append(summary);
+  for(const type of appointmentTypes){
+   const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=selected.has(type);text.textContent=type;
+   checkbox.addEventListener('change',()=>{if(checkbox.checked)selected.add(type);else selected.delete(type);try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentTypes:[...selected]}:item));updateSummary();}catch(error){checkbox.checked=!checkbox.checked;if(checkbox.checked)selected.add(type);else selected.delete(type);byId('sessionBuilderSaveStatus').textContent=error.message;}});
+   label.append(checkbox,text);options.append(label);
+  }
+  if(!appointmentTypes.length){const note=document.createElement('span');note.textContent='Add appointment types in Slot settings.';options.append(note);}
+  dropdown.append(options);appointmentCell.append(dropdown);tr.append(appointmentCell);
   for(const mode of modes){
    const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.required=true;input.inputMode='numeric';input.value=String(row.appointmentsByMode[mode]??0);input.className='session-builder-count';input.setAttribute('aria-label',mode+' appointments for '+row.name);
    input.addEventListener('input',()=>input.setCustomValidity(''));
