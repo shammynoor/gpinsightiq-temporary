@@ -91,3 +91,6 @@
 #sessionBuilderPage .session-builder-plan-table td,#sessionBuilderPage .session-builder-capacity-table td{text-align:center;padding:10px 5px}
 #sessionBuilderPage .session-builder-plan-table tfoot th,#sessionBuilderPage .session-builder-plan-table tfoot td{background:#edf3f8;font-weight:700}
 #sessionBuilderPage .session-builder-capacity-heading{margin-top:24px;margin-bottom:10px}
+
+#sessionBuilderPage .session-builder-plan-warning{padding:12px 14px;border:1px solid #e7ba78;background:#fff4e1;color:#684214;border-radius:9px;margin:0 0 14px;font-size:13px;line-height:1.45;font-weight:600}
+#sessionBuilderPage .session-builder-plan-warning[hidden]{display:none}

@@ -66,6 +66,13 @@ function renderSessionRequirements(){
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
  byId('sessionBuilderHistory').textContent='Last 52 completed weeks: '+dateLabel(history.start)+'–'+dateLabel(history.end)+' · '+history.weeks+' complete covered weeks used.';
  const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),demand,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true});
+ const warning=byId('sessionBuilderPlanWarning');
+ if(warning){
+  const missing=estimate.unmetDemand||[],totals=new Map();
+  for(const item of missing){const key=item.name+' ('+({sameDay:'daily urgent',homeVisit:'home visit',weekly:'weekly urgent',routine:'routine'}[item.pool]||item.pool)+')';totals.set(key,(totals.get(key)||0)+item.amount);}
+  warning.hidden=!estimate.error&&!totals.size;
+  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Choose a session type that can see each appointment type and enter capacity for its consultation mode. The tables below show the demand that could be allocated.':'';
+ }
  const body=byId('sessionBuilderPlanBody');body.replaceChildren();
  function addCells(parent,label,values,group=''){
   const tr=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';heading.textContent=label;
@@ -82,7 +89,7 @@ function renderSessionRequirements(){
  addCells(foot,'Total sessions',[...totals,estimate.error?null:totals.reduce((a,b)=>a+b,0)]);
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
  addCells(summary,'Average appointments needed',[...(demand?.sameDay||Array(5).fill(null)),demand?.weekly,demand?.routine]);
- addCells(summary,'Appointments provided',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
+ addCells(summary,estimate.unmetDemand?.length?'Capacity in partial plan':'Appointments provided',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
  addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null]);
  addCells(summary,'Home visits provided',[...(estimate.error?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null]);
  const caption=byId('sessionBuilderPlanStatus');

@@ -69,7 +69,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  if(!usable.length&&values.some(n=>n>0))return {rows,error:'Choose one clinician group and enter appointment counts for at least one session type.'};
  // Sessions are assigned once to a capacity pool and to an AM/PM period.
  // Weekly and routine pools never contribute to daily appointment capacity.
- const placements=[];
+ const placements=[],unmetDemand=[];
  const count=(row,day,period)=>period==='day'?row.periods.morning[day]+row.periods.afternoon[day]:row.periods[period][day];
  const choosePeriod=day=>rows.reduce((s,r)=>s+r.periods.morning[day],0)<=rows.reduce((s,r)=>s+r.periods.afternoon[day],0)?'morning':'afternoon';
  const add=(row,day,period,pool,n)=>{
@@ -100,7 +100,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    }
    entries.forEach(([,need],j)=>edge(n+j,sink,need));let total=0;
    while(true){const seen=Array(size).fill(null),queue=[source];seen[source]=[-1,-1];for(let q=0;q<queue.length&&!seen[sink];q++){const a=queue[q];for(let i=0;i<graph[a].length;i++){const e=graph[a][i];if(e.cap>1e-8&&!seen[e.to]){seen[e.to]=[a,i];queue.push(e.to);}}}if(!seen[sink])break;let amount=Infinity;for(let v=sink;v!==source;){const [a,i]=seen[v];amount=Math.min(amount,graph[a][i].cap);v=a;}for(let v=sink;v!==source;){const [a,i]=seen[v],e=graph[a][i];e.cap-=amount;graph[v][e.rev].cap+=amount;v=a;}total+=amount;}
-   return {covered:total,need:entries.reduce((sum,[,v])=>sum+v,0),missing:entries.filter(([,v],j)=>graph[n+j].find(e=>e.to===sink)?.cap>1e-8).map(([name])=>name)};
+   return {covered:total,need:entries.reduce((sum,[,v])=>sum+v,0),missing:entries.map(([name],j)=>({name,amount:graph[n+j].find(e=>e.to===sink)?.cap||0})).filter(entry=>entry.amount>1e-8)};
   };
   const allocate=(pools,day,initial,place)=>{
    const counts=initial.slice();
@@ -108,7 +108,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
     const states=pools.map(pool=>flow(pool,day,counts));if(states.every(state=>state.need-state.covered<1e-7))return null;
     let best=-1,gain=0;
     for(let i=0;i<usable.length;i++){counts[i]++;const score=pools.reduce((sum,pool,j)=>sum+flow(pool,day,counts).covered-states[j].covered,0);counts[i]--;if(score>gain+1e-8){gain=score;best=i;}}
-    if(best<0)return 'No eligible session type has capacity for: '+[...new Set(states.flatMap(state=>state.missing))].join(', ')+'. Check appointment types and consultation-mode capacity.';
+    if(best<0){states.forEach((state,i)=>state.missing.forEach(item=>unmetDemand.push({pool:pools[i],day,...item})));return null;}
     counts[best]++;place(usable[best]);
    }
    return 'Demand is too large to calculate a session plan. Check session capacities.';
@@ -173,7 +173,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const sum=fn=>rows.reduce((s,row)=>s+fn(row),0);
  const days=Array.from({length:5},(_,day)=>sum(row=>row.days[day]));
  const capacitySameDay=days.map((_,day)=>sum(row=>row.days[day]*row.sameDay)),capacityHomeVisit=days.map((_,day)=>sum(row=>row.days[day]*row.homeVisit));
- return {rows,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
+ return {rows,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,unmetDemand,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
 }
 window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,vectorSessions});
 })();
