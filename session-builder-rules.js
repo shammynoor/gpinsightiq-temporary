@@ -118,15 +118,17 @@ byId('sessionBuilderAddRule')?.addEventListener('click',()=>{
  commit([...sessionBuilderRules,{id:crypto.randomUUID(),enabled:true,kind,scope:'both',days:[1,2,3,4,5],minimum:kind==='share'?40:1,sessionTypeId:sessionBuilderTypes[0]?.id||'',clinicianGroup:configuredGroups()[0]||'',denominator:'all',comparisonGroup:'',strength:'must'}]);renderSessionBuilderRules();
 });
 byId('sessionBuilderValidateRules')?.addEventListener('click',showValidation);
+const tabs=[['clinician','Clinician'],['types','Types'],['rules','Rules'],['planner','Planner']];
 function applyTab(name){
  if(!canEditSessionBuilder())return;
- for(const tab of ['Types','Rules']){const active=(name==='rules')===(tab==='Rules');byId('sessionBuilder'+tab+'Tab').setAttribute('aria-selected',String(active));byId('sessionBuilder'+tab+'Panel').hidden=!active;}
+ for(const [key,id] of tabs){const active=name===key,button=byId('sessionBuilder'+id+'Tab');button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;byId('sessionBuilder'+id+'Panel').hidden=!active;}
  if(name==='rules')renderSessionBuilderRules();
+ if(name==='planner')window.renderSessionBuilderRequirements?.();
 }
-window.restoreSessionBuilderTab=()=>applyTab(window.gpChartPreferences?.read()?.sessionBuilderTab==='rules'?'rules':'types');
+window.restoreSessionBuilderTab=()=>{const saved=window.gpChartPreferences?.read()?.sessionBuilderTab;applyTab(tabs.some(([key])=>key===saved)?saved:'types');};
 function chooseTab(name){if(!canEditSessionBuilder())return;window.gpChartPreferences?.write('sessionBuilderTab',name);applyTab(name);}
-for(const name of ['types','rules']){
- const id=name==='types'?'Types':'Rules',button=byId('sessionBuilder'+id+'Tab');button?.addEventListener('click',()=>chooseTab(name));
- button?.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)||!canEditSessionBuilder())return;event.preventDefault();const next=event.key==='Home'?'types':event.key==='End'?'rules':name==='types'?'rules':'types';chooseTab(next);byId('sessionBuilder'+(next==='types'?'Types':'Rules')+'Tab').focus();});
+for(const [index,[name,id]] of tabs.entries()){
+ const button=byId('sessionBuilder'+id+'Tab');button?.addEventListener('click',()=>chooseTab(name));
+ button?.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)||!canEditSessionBuilder())return;event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;chooseTab(tabs[next][0]);byId('sessionBuilder'+tabs[next][1]+'Tab').focus();});
 }
 })();

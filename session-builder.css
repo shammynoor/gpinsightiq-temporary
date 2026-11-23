@@ -99,3 +99,6 @@
 #sessionBuilderPage .session-builder-split-item{display:block}
 
 #sessionBuilderPage .session-builder-plan-table thead tr:first-child th:last-child{width:120px}
+
+#sessionBuilderPage .session-builder-tabs .session-builder-planner-tab{background:#def3ee;color:#075d54;font-weight:750;border:1px solid #abd8cc}
+#sessionBuilderPage .session-builder-tabs .session-builder-planner-tab[aria-selected=true]{background:#087e6d;color:#fff;border-color:#087e6d}
