@@ -272,16 +272,16 @@ function forecastHistoryPolicy(panel,selectedWeekday){
  const special=weekday===6||weekday===7;
  return {weekday,special,excludeHolidayWeeks:!special};
 }
-function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityGroups=null,allHistory=false,capacitySourcePage='availabilityPage',recencyHalfLife=13}={}){
+function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityGroups=null,allHistory=false,capacitySourcePage='availabilityPage',recencyHalfLife=13,sessionPlanner=false}={}){
  if(!capacityGroups){
   updateForecastHorizonLabels();
   syncForecastPreferences();
  }
  const root=$('dailyForecastHistoryChart'),summary=$('dailyForecastHistorySummary'),select=$('dailyForecastWeekday');
  if(!root||!summary||!select)return;
- const panel=capacityGroups?'capacity':predictions||planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
+ const panel=sessionPlanner?'planner':capacityGroups?'capacity':predictions||planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
- const locumPage=capacityGroups?capacitySourcePage:planningOnly?'workforceNeedPage':'dailyForecastPage';
+ const locumPage=sessionPlanner?'sessionBuilderPage':capacityGroups?capacitySourcePage:planningOnly?'workforceNeedPage':'dailyForecastPage';
  const signature=JSON.stringify([pastBlockedAsBooked,capacitySnapshotClock()?.date,locumPage,locumFilterSelections.get(locumPage),userTypeLocum,sessionCategoryLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
  const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups,allHistory,capacitySourcePage,recencyHalfLife]):signature;
  const cached=forecastRenderCache[panel];
@@ -294,7 +294,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
   remainingWeeklyAppointmentTarget=null;
  }
  if(panel==='analytics')root.replaceChildren();
- if(!capacityGroups){renderDailyUrgencyFilters();renderUrgencyPlanningModes();}
+ if(!capacityGroups&&!sessionPlanner){renderDailyUrgencyFilters();renderUrgencyPlanningModes();}
  const today=forecastLocalDate(),end=shift(today,-1);
  const firstAppointment=GPCorrectness.firstAppointmentDate(slotReportCoverage);
  if(!firstAppointment||firstAppointment>end){
@@ -307,9 +307,9 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
  const workingDay=d=>{const dow=new Date(d+'T12:00:00Z').getUTCDay();return dow>=1&&dow<=5&&!holidayDates.has(d)};
  const adjacentWorkingDay=(holiday,direction)=>{let d=shift(holiday,direction);while(!workingDay(d))d=shift(d,direction);return d};
  const eventDates=direction=>[...new Set([...holidayDates].map(h=>adjacentWorkingDay(h,direction)))].sort();
- const groups=capacityGroups||forecastUrgencyNames().filter(forecastUrgencyEnabled);
+ const groups=capacityGroups||(sessionPlanner?forecastUrgencyNames():forecastUrgencyNames().filter(forecastUrgencyEnabled));
  if(panel==='predictions')weeklyPlanningGroups=new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly'));
- const adjust=$('dailyForecastAdjustListSize')?.checked===true;const populationMonths=adjust?practiceMonths():[];const referencePopulation=populationMonths.length?listSizeAtMonth(populationMonths[populationMonths.length-1]):null;
+ const adjust=sessionPlanner||$('dailyForecastAdjustListSize')?.checked===true;const populationMonths=adjust?practiceMonths():[];const referencePopulation=populationMonths.length?listSizeAtMonth(populationMonths[populationMonths.length-1]):null;
  const populationCache=new Map();const forecastAdjust=(day,count)=>{if(!adjust||!referencePopulation)return count;const month=day.slice(0,7);if(!populationCache.has(month))populationCache.set(month,listSizeAtMonth(month));return count*referencePopulation/Math.max(1,populationCache.get(month))};
  const normalise=capacitySourcePage==='homePage'?createListSizeAdjuster(true):forecastAdjust;
  const totals=new Map(),parts=new Map(),allWeekdayTotals=new Map();
@@ -356,9 +356,10 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
  // The table uses a forward calendar horizon, not the last observed weekday plus three weeks.
  const needsRoot=$('dailyForecastNeedsTable');
  let predictionSeries;
- if(capacityGroups||(needsRoot&&panel==='predictions')){
-  const dailyGroups=capacityGroups?[]:groups.filter(name=>!weeklyPlanningGroups.has(name));
-  const weeklyGroups=capacityGroups?[]:[...weeklyPlanningGroups];
+ if(capacityGroups||sessionPlanner||(needsRoot&&panel==='predictions')){
+  const selectedWeekly=sessionPlanner?new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly')):weeklyPlanningGroups;
+  const dailyGroups=capacityGroups?[]:groups.filter(name=>!selectedWeekly.has(name));
+  const weeklyGroups=capacityGroups?[]:[...selectedWeekly];
   // Build the fitting calendar once, shared by every urgency and error calculation.
   const fittingDays=new Map(Array.from({length:5},(_,i)=>[i+1,[]]));
   for(let d=start;d<=end;d=shift(d,1)){
@@ -486,6 +487,21 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
    }
    forecastRenderCache.capacity={records,signature:cacheKey,capacityPrediction};
    return capacityPrediction;
+  }
+  if(sessionPlanner){
+   if(!referencePopulation)return null;
+   const first=shift(monday(today),7),weeks=[];
+   for(let i=0;i<26;i++){
+    const weekStart=shift(first,i*7),weekDays=Array.from({length:7},(_,j)=>shift(weekStart,j));
+    if(weekDays.some(day=>holidayDates.has(day)))continue;
+    const daily=Array.from({length:5},(_,j)=>{const day=weekDays[j];return Object.fromEntries(dailyGroups.map(name=>[name,predict(name,j+1,day)]));});
+    const weekly=Object.fromEntries(weeklyGroups.map(name=>[name,weekDays.slice(0,5).reduce((sum,day,j)=>{const value=predictWeekly(name,j+1,day);return value===undefined?NaN:sum+value;},0)]));
+    if(daily.some(parts=>Object.values(parts).some(value=>!Number.isFinite(value)))||Object.values(weekly).some(value=>!Number.isFinite(value)))return null;
+    weeks.push({weekStart,daily,weekly});
+   }
+   if(!weeks.length)return null;
+   const result={weeks,dailyGroups,weeklyGroups,listAdjusted:!!referencePopulation,historyStart:start,historyEnd:end};
+   forecastRenderCache.planner={records,signature:cacheKey,predictionSeries:result};return result;
   }
   needsRoot.replaceChildren();
   const nextMonday=shift(today,(8-new Date(today+'T12:00:00Z').getUTCDay())%7);
@@ -808,6 +824,7 @@ function selectForecastTab(tab){
  // Chart dimensions require a visible container before SVG measurements.
  requestAnimationFrame(renderHistoricalWeekday);
 }
+window.getSessionBuilderUrgentForecast=()=>renderHistoricalWeekday({sessionPlanner:true});
 window.getUrgentCapacityPredictor=groups=>renderHistoricalWeekday({capacityGroups:groups});
 // Homepage forecast shares the existing fitted model and uses all uploaded history.
 window.getHomeOverviewPredictor=groups=>Array.isArray(groups)&&groups.length?renderHistoricalWeekday({capacityGroups:groups,allHistory:true,capacitySourcePage:'homePage',recencyHalfLife:6}):null;

@@ -43,7 +43,7 @@ function readAverageDemand(){
  const history=historicalBookingRecords();
  const planningModes=window.gpChartPreferences?.read()?.forecastPlanningModes||{};
  const roles=new Map(groupUrgencyNames.filter(isDashboardToggleOption).map(name=>[name,{role:appointmentCalculationRole(name),category:appointmentCategoryFor(name).toLowerCase().replace(/[^a-z]/g,'')}]));
- const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames]);
+ const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames,typeof practiceSettings==='undefined'?null:practiceSettings,byId('dailyForecastHistory')?.value]);
  if(demandCache?.history===history&&demandCache.coverage===slotReportCoverage&&demandCache.key===key)return demandCache.result;
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,52).filter(week=>week>=start&&week<current);
  const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
@@ -56,7 +56,25 @@ function readAverageDemand(){
   return info.role==='urgent'?{kind:'sameDay',name}:null;
  }});
  if(demand)demand.eligibleDailyTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.role==='urgent'&&info.category!=='homevisiting'&&planningModes[name]!=='weekly').map(([name])=>name);
- const result={demand,start,end,weeks:weeks.length};demandCache={history,coverage:slotReportCoverage,key,result};return result;
+ const forecast=window.getSessionBuilderUrgentForecast?.();
+ if(demand&&forecast?.weeks?.length){
+  const count=forecast.weeks.length,historicalDaily=demand.byType.sameDay,historicalHome=demand.byType.homeVisit;
+  const projected=Object.fromEntries(forecast.dailyGroups.map(name=>[name,Array.from({length:5},(_,day)=>forecast.weeks.reduce((sum,week)=>sum+(week.daily[day][name]||0),0)/count)]));
+  const forecastHome={};
+  for(const [name,days] of Object.entries(projected)){
+   const home=historicalHome[name];if(!home)continue;
+   forecastHome[name]=days.map((value,day)=>{const h=home[day]||0,d=historicalDaily[name]?.[day]||0;return h+d>0?value*h/(h+d):0;});
+  }
+  demand.urgentForecastDaily=Array.from({length:5},(_,day)=>Object.values(projected).reduce((sum,days)=>sum+days[day],0));
+  demand.byType.sameDay=Object.fromEntries(Object.entries(projected).map(([name,days])=>[name,days.map((value,day)=>Math.max(0,value-(forecastHome[name]?.[day]||0)))]));
+  demand.byType.homeVisit={...historicalHome,...forecastHome};
+  demand.sameDay=Array.from({length:5},(_,day)=>Object.values(demand.byType.sameDay).reduce((sum,days)=>sum+days[day],0));
+  demand.homeVisit=Array.from({length:5},(_,day)=>Object.values(demand.byType.homeVisit).reduce((sum,days)=>sum+days[day],0));
+  demand.weekly=forecast.weeks.reduce((sum,week)=>sum+Object.values(week.weekly).reduce((a,b)=>a+b,0),0)/count;
+  demand.byType.weekly=Object.fromEntries(forecast.weeklyGroups.map(name=>[name,forecast.weeks.reduce((sum,week)=>sum+(week.weekly[name]||0),0)/count]));
+  demand.types.sameDay=[...forecast.dailyGroups];demand.types.homeVisit=Object.keys(demand.byType.homeVisit);demand.types.weekly=[...forecast.weeklyGroups];demand.eligibleDailyTypes=[...forecast.dailyGroups];
+ }
+ const result={demand,start,end,weeks:weeks.length,forecast};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
 function renderSessionRequirements(){
  const root=byId('sessionBuilderRequirements');if(!root)return;
@@ -65,8 +83,9 @@ function renderSessionRequirements(){
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- byId('sessionBuilderHistory').textContent='Last 52 completed weeks: '+dateLabel(history.start)+'–'+dateLabel(history.end)+' · '+history.weeks+' complete covered weeks used.';
- const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),demand,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true});
+ byId('sessionBuilderHistory').textContent=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine and non-urgent home-visit need use historical averages; urgent home visits use the historical mode split.':'Urgent forecast unavailable. Check report history and practice list-size settings.';
+ const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true});
+ if(!history.forecast)estimate.error='Urgent forecast unavailable. Check report history and practice list-size settings.';
  const warning=byId('sessionBuilderPlanWarning');
  if(warning){
   const missing=estimate.unmetDemand||[],totals=new Map();
@@ -107,12 +126,12 @@ function renderSessionRequirements(){
  const totalRow=addCells(foot,'Total',[...totals,estimate.error?null:totals.reduce((a,b)=>a+b,0),estimate.error?null:totalAppointments]);
  if(!estimate.error)appendSplit(totalRow.children[12],grandSplit);
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
- addCells(summary,'Average appointments needed',[...(demand?.sameDay||Array(5).fill(null)),demand?.weekly,demand?.routine]);
- addCells(summary,estimate.unmetDemand?.length?'Capacity in partial plan':'Appointments provided',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
+ addCells(summary,'Daily urgent forecast (includes urgent home visits)',[...(history.forecast?demand?.urgentForecastDaily||Array(5).fill(null):Array(5).fill(null)),history.forecast?demand?.weekly:null,demand?.routine]);
+ addCells(summary,estimate.unmetDemand?.length?'Appointments provided (partial plan; daily excludes home visits)':'Appointments provided (daily excludes home visits)',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
  addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null]);
  addCells(summary,'Home visits provided',[...(estimate.error?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null]);
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures show planned appointment slots by type; daily urgent slots are split using the historical mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Staff availability is not assessed.'+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Staff availability is not assessed.'+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;

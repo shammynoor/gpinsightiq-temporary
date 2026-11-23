@@ -12,7 +12,7 @@ test('appointment choices persist independently, keep legacy defaults, and follo
  assert.equal(dropdown.children[0].textContent,'All appointment types');
  const checkboxes=dropdown.children[1].children.map(label=>label.children[0]);assert.equal(checkboxes.length,3);assert.ok(checkboxes.every(c=>c.checked));
  checkboxes[1].checked=false;checkboxes[1].events.change();assert.deepEqual(Array.from(context.sessionBuilderTypes[0].appointmentTypes),['Same Day','Routine']);assert.equal(context.sessionBuilderTypes[1].appointmentTypes,undefined);assert.equal(dropdown.children[0].textContent,'2 selected');assert.equal(context.dirty,1);
- assert.match(byId('sessionBuilderPlanStatus').textContent,/No data/);
+ assert.match(byId('sessionBuilderPlanStatus').textContent,/Urgent forecast unavailable/);
  context.window.renameSessionBuilderSetting('appointmentTypes','Routine','Routine renamed');assert.deepEqual(Array.from(context.sessionBuilderTypes[0].appointmentTypes),['Same Day','Routine renamed']);
  context.groupUrgencyNames=['Same Day','Within 3 Days','Routine renamed'];context.window.renderSessionBuilder();const next=byId('sessionBuilderBody').children[0].children[2].children[0];assert.deepEqual(Array.from(next.children[1].children, label=>label.children[0].checked),[true,false,true]);
  context.clinicianGroupNames=[];context.consultCategoryNames=[];context.window.syncSessionBuilderSettings();assert.deepEqual(Array.from(context.sessionBuilderTypes[0].clinicianTypes),['GP']);assert.equal(context.sessionBuilderTypes[0].appointmentsByMode.Phone,5);context.clinicianGroupNames=['GP'];context.consultCategoryNames=['Phone'];context.window.renderSessionBuilder();assert.equal(byId('sessionBuilderBody').children[0].children[1].children[0].value,'GP');
