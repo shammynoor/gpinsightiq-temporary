@@ -98,7 +98,7 @@ function renderSessionRequirements(){
   const missing=estimate.unmetDemand||[],totals=new Map();
   for(const item of missing){const key=item.name+' ('+({sameDay:'daily urgent',homeVisit:'home visit',weekly:'weekly urgent',routine:'routine'}[item.pool]||item.pool)+')';totals.set(key,(totals.get(key)||0)+item.amount);}
   warning.hidden=!estimate.error&&!totals.size;
-  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Check eligible clinicians, their maximum sessions, appointment types and consultation-mode capacity. The tables below show the demand that could be allocated.':'';
+  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Check eligible clinicians, their working patterns and maximum sessions, appointment types and consultation-mode capacity. The tables below show the demand that could be allocated.':'';
  }
  const body=byId('sessionBuilderPlanBody');body.replaceChildren();
  function addCells(parent,label,values,group=''){
@@ -122,7 +122,12 @@ function renderSessionRequirements(){
   const appointmentTotal=Object.values(rowSplit).reduce((sum,value)=>sum+value,0);
   const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0),estimate.error?null:appointmentTotal],row.group||'Choose eligible clinicians');
   if(!estimate.error){
-   for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']])appendSplit(tr.children[1+day*2+offset],estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
+   for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']]){
+    const cell=tr.children[1+day*2+offset],assigned=new Map();
+    for(const placement of estimate.placements||[])if(placement.sourceId===row.id&&placement.day===day&&placement.period===period&&placement.clinician)assigned.set(placement.clinician,(assigned.get(placement.clinician)||0)+placement.count);
+    if(assigned.size){const details=document.createElement('span');details.className='session-builder-assigned-clinicians';details.textContent=[...assigned].map(([name,count])=>name+' '+count).join(' · ');cell.append(details);}
+    appendSplit(cell,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
+   }
    appendSplit(tr.children[12],rowSplit);
   }
  }
@@ -140,7 +145,7 @@ function renderSessionRequirements(){
  const shareSummary=(estimate.ruleResults||[]).filter(result=>result.strength==='must'&&result.appointmentPool==='urgent').map(result=>{const values=result.measurements.filter(m=>m.denominator>0).map(m=>m.numerator/m.denominator*100);return values.length?result.clinicianGroup+' urgent share '+fmt(Math.min(...values))+'–'+fmt(Math.max(...values))+'% (minimum '+fmt(result.minimum)+'%)':result.clinicianGroup+' urgent share has no appointments to measure';});
  const clinicianSummary=Object.entries(estimate.clinicianCounts||{}).filter(([,count])=>count>0).map(([name,count])=>name+': '+count).join(' · ');
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Weekly clinician limits are applied.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.error||('Each session is assigned to one demand pool. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Other demand is assigned to eligible sessions. Weekly clinician limits and working patterns are applied.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;

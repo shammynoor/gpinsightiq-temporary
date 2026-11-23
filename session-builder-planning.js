@@ -76,16 +76,19 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  // Weekly and routine pools never contribute to daily appointment capacity.
  const placements=[],unmetDemand=[];
  const count=(row,day,period)=>period==='day'?row.periods.morning[day]+row.periods.afternoon[day]:row.periods[period][day];
- const choosePeriod=day=>rows.reduce((s,r)=>s+r.periods.morning[day],0)<=rows.reduce((s,r)=>s+r.periods.afternoon[day],0)?'morning':'afternoon';
+ const dayShort=['Mon','Tue','Wed','Thu','Fri'];
+ const available=(row,day,period)=>{if(!constrained)return true;const pattern=clinicianLimits[row.clinician]?.workingPattern;return !Array.isArray(pattern)||pattern.includes(dayShort[day]+' '+(period==='morning'?'AM':'PM'));};
+ const choosePeriod=(day,row)=>{const morning=!row||available(row,day,'morning'),afternoon=!row||available(row,day,'afternoon');if(!morning&&!afternoon)return null;if(!morning)return 'afternoon';if(!afternoon)return 'morning';return rows.reduce((s,r)=>s+r.periods.morning[day],0)<=rows.reduce((s,r)=>s+r.periods.afternoon[day],0)?'morning':'afternoon';};
+ const availableSlot=(row,start=0)=>{for(let i=0;i<5;i++){const day=(start+i)%5,period=choosePeriod(day,row);if(period)return {day,period};}return null;};
  const room=row=>!constrained?Infinity:row.clinician?Math.max(0,(clinicianLimits[row.clinician]?.max??Infinity)-(clinicianCounts[row.clinician]||0)):0;
  const add=(row,day,period,pool,n)=>{
-  if(!n)return true;if(room(row)<n)return false;if(constrained)clinicianCounts[row.clinician]=(clinicianCounts[row.clinician]||0)+n;row.periods[period][day]+=n;
+  if(!n)return true;if(room(row)<n||!period||!available(row,day,period))return false;if(constrained)clinicianCounts[row.clinician]=(clinicianCounts[row.clinician]||0)+n;row.periods[period][day]+=n;
   if(pool==='daily')row.days[day]+=n;else row[pool]+=n;
   placements.push({id:row.id,sourceId:row.sourceId,clinician:row.clinician,day,period,pool,count:n});return true;
  };
  if(constrained){
   if(!demand.byType)return {rows,error:'A detailed demand forecast is required to apply clinician limits.'};
-  for(const [name,limit] of Object.entries(clinicianLimits)){if(!Object.hasOwn(options.clinicians,name))continue;const minimum=limit.min||0;if(!minimum)continue;const candidates=rows.filter(row=>row.clinician===name).sort((a,b)=>b.capacity-a.capacity);if(!candidates.length)return {rows,error:'No eligible session type is configured for '+name+' (minimum '+minimum+' sessions).'};for(let i=0;i<minimum;i++){const candidate=candidates.find(row=>room(row)>0);if(!candidate)return {rows,error:'The minimum sessions for '+name+' cannot be met within the clinician maximum.'};const day=i%5,pool=(candidate.sameDay>0&&demand.sameDay.some(n=>n>0))||(candidate.homeVisit>0&&demand.homeVisit.some(n=>n>0))?'daily':candidate.poolCapacity.routine>0&&demand.routine>0?'routine':candidate.poolCapacity.weekly>0&&demand.weekly>0?'weekly':'daily';add(candidate,day,choosePeriod(day),pool,1);}}
+  for(const [name,limit] of Object.entries(clinicianLimits)){if(!Object.hasOwn(options.clinicians,name))continue;const minimum=limit.min||0;if(!minimum)continue;const candidates=rows.filter(row=>row.clinician===name).sort((a,b)=>b.capacity-a.capacity);if(!candidates.length)return {rows,error:'No eligible session type is configured for '+name+' (minimum '+minimum+' sessions).'};for(let i=0;i<minimum;i++){const candidate=candidates.find(row=>room(row)>0&&availableSlot(row,i%5));if(!candidate)return {rows,error:'The minimum sessions for '+name+' cannot be met with the clinician maximum and working pattern.'};const {day,period}=availableSlot(candidate,i%5),pool=(candidate.sameDay>0&&demand.sameDay.some(n=>n>0))||(candidate.homeVisit>0&&demand.homeVisit.some(n=>n>0))?'daily':candidate.poolCapacity.routine>0&&demand.routine>0?'routine':candidate.poolCapacity.weekly>0&&demand.weekly>0?'weekly':'daily';add(candidate,day,period,pool,1);}}
  }
  // Seed required minima first. Shared scopes use the existing count, so duplicate
  // rules and whole-day rules cannot accidentally add the same obligation twice.
@@ -93,7 +96,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   const candidates=rows.filter(row=>row.sourceId===rule.sessionTypeId&&row.group);
   for(const d of rule.days)for(const scope of periods(rule)){
    const day=d-1,missing=Math.max(0,rule.minimum-candidates.reduce((sum,row)=>sum+count(row,day,scope),0));
-   for(let i=0;i<missing;i++){const row=candidates.filter(row=>room(row)>0).sort((a,b)=>room(b)-room(a))[0];if(!row)return {rows,error:'Required sessions cannot be scheduled within clinician maximums. Check Planning Rules and Clinician Setup.'};add(row,day,scope==='day'?choosePeriod(day):scope,'daily',1);}
+   for(let i=0;i<missing;i++){const row=candidates.filter(row=>room(row)>0&&(scope==='day'?choosePeriod(day,row):available(row,day,scope))).sort((a,b)=>room(b)-room(a))[0];if(!row)return {rows,error:'Required sessions cannot be scheduled within clinician maximums and working patterns. Check Planning Rules and Clinician Setup.'};add(row,day,scope==='day'?choosePeriod(day,row):scope,'daily',1);}
   }
  }
  let approximate=false,flowForBreakdown=null;
@@ -113,21 +116,21 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    return {allocations:links.map(row=>Object.fromEntries(row.map((link,j)=>[entries[j][0],link?graph[link.to][link.rev].cap:0]).filter(([,value])=>value>1e-8))),covered:total,need:entries.reduce((sum,[,v])=>sum+v,0),missing:entries.map(([name],j)=>({name,amount:graph[n+j].find(e=>e.to===sink)?.cap||0})).filter(entry=>entry.amount>1e-8)};
   };
   flowForBreakdown=flow;
-  const allocate=(pools,day,initial,place)=>{
+  const allocate=(pools,day,initial,place,canPlace)=>{
    const counts=initial.slice();
    for(let iteration=0;iteration<10000;iteration++){
     const states=pools.map(pool=>flow(pool,day,counts));if(states.every(state=>state.need-state.covered<1e-7))return null;
     let best=-1,gain=0;
-    for(let i=0;i<usable.length;i++){if(room(usable[i])<1)continue;counts[i]++;const score=pools.reduce((sum,pool,j)=>sum+flow(pool,day,counts).covered-states[j].covered,0);counts[i]--;if(score>gain+1e-8){gain=score;best=i;}}
+    for(let i=0;i<usable.length;i++){if(room(usable[i])<1||!canPlace(usable[i]))continue;counts[i]++;const score=pools.reduce((sum,pool,j)=>sum+flow(pool,day,counts).covered-states[j].covered,0);counts[i]--;if(score>gain+1e-8){gain=score;best=i;}}
     if(best<0){states.forEach((state,i)=>state.missing.forEach(item=>unmetDemand.push({pool:pools[i],day,...item})));return null;}
     counts[best]++;place(usable[best]);
    }
    return 'Demand is too large to calculate a session plan. Check session capacities.';
   };
   for(let day=0;day<5;day++){
-   const error=allocate(['sameDay','homeVisit'],day,usable.map(row=>row.days[day]),row=>add(row,day,choosePeriod(day),'daily',1));if(error)return {rows,error};
+   const error=allocate(['sameDay','homeVisit'],day,usable.map(row=>row.days[day]),row=>add(row,day,choosePeriod(day,row),'daily',1),row=>!!choosePeriod(day,row));if(error)return {rows,error};
   }
-  for(const pool of ['weekly','routine']){let index=0;const error=allocate([pool],0,usable.map(row=>row[pool]),row=>{const day=index++%5;add(row,day,choosePeriod(day),pool,1);});if(error)return {rows,error};}
+  for(const pool of ['weekly','routine']){let index=0;const error=allocate([pool],0,usable.map(row=>row[pool]),row=>{const slot=availableSlot(row,index++%5);add(row,slot.day,slot.period,pool,1);},row=>!!availableSlot(row));if(error)return {rows,error};}
   approximate=true;
  }else{
  for(let day=0;day<5;day++){
@@ -190,13 +193,13 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   let changed=false;
   for(const rule of shares)for(const d of rule.days)for(const period of periods(rule)){
    const day=d-1,state=share(rule,day,period);if(state.ok)continue;
-   const urgent=sharePool(rule)==='urgent';const candidates=usable.filter(row=>row.group===rule.clinicianGroup&&room(row)>0&&(!urgent||row.sameDay>0)).sort((a,b)=>(urgent?b.sameDay-a.sameDay:b.capacity-a.capacity));
+   const urgent=sharePool(rule)==='urgent';const candidates=usable.filter(row=>row.group===rule.clinicianGroup&&room(row)>0&&(period==='day'?choosePeriod(day,row):available(row,day,period))&&(!urgent||row.sameDay>0)).sort((a,b)=>(urgent?b.sameDay-a.sameDay:b.capacity-a.capacity));
    const row=candidates[0];if(!row)continue;
    const addedCapacity=urgent?row.sameDay:row.capacity;
    const required=rule.minimum===100?(state.denominator===state.numerator?1:Infinity):Math.max(1,Math.ceil((rule.minimum*state.denominator-100*state.numerator)/((100-rule.minimum)*addedCapacity)-1e-10));
    if(!Number.isFinite(required)||added+required>10000)continue;
    const allowed=Math.min(required,room(row));if(!allowed)continue;
-   add(row,day,period==='day'?choosePeriod(day):period,'daily',allowed);if(flowForBreakdown)appointmentBreakdown=buildBreakdown();added+=allowed;changed=true;repaired=true;
+   add(row,day,period==='day'?choosePeriod(day,row):period,'daily',allowed);if(flowForBreakdown)appointmentBreakdown=buildBreakdown();added+=allowed;changed=true;repaired=true;
   }
   if(!changed)break;
  }

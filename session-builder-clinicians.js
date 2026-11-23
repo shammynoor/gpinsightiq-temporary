@@ -46,7 +46,7 @@ window.renderSessionBuilderClinicians=()=>{
    updateSummary();summary.setAttribute('aria-label','Working pattern for '+name);dropdown.append(summary);
    for(const period of periods){
     const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=selected.has(period);text.textContent=period;
-    checkbox.addEventListener('change',()=>{if(!canEditSessionBuilder())return;if(checkbox.checked)selected.add(period);else selected.delete(period);const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,workingPattern:periods.filter(item=>selected.has(item))}};validate(limits);sessionBuilderClinicianLimits=limits;updateSummary();markCategoryDirty(250);});
+    checkbox.addEventListener('change',()=>{if(!canEditSessionBuilder())return;if(checkbox.checked)selected.add(period);else selected.delete(period);const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,workingPattern:periods.filter(item=>selected.has(item))}};validate(limits);sessionBuilderClinicianLimits=limits;updateSummary();markCategoryDirty(250);window.renderSessionBuilderRequirements?.();});
     label.append(checkbox,text);options.append(label);
    }
    dropdown.append(options);patternCell.append(dropdown);row.append(patternCell);
