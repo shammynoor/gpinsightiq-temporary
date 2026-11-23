@@ -31,14 +31,60 @@ window.renameSessionBuilderSetting=(kind,oldName,newName)=>{
 };
 function commit(rows){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
- validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty();
+ validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty();renderSessionRequirements();
+}
+let demandCache=null;
+function readAverageDemand(){
+ const today=dayView2LondonClock().date,current=GPCorrectness.monday(today),start=GPCorrectness.shift(current,-364),end=GPCorrectness.shift(current,-1);
+ const history=historicalBookingRecords();
+ const planningModes=window.gpChartPreferences?.read()?.forecastPlanningModes||{};
+ const roles=new Map(groupUrgencyNames.filter(isDashboardToggleOption).map(name=>[name,appointmentCalculationRole(name)]));
+ const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments]);
+ if(demandCache?.history===history&&demandCache.coverage===slotReportCoverage&&demandCache.key===key)return demandCache.result;
+ const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,52).filter(week=>week>=start&&week<current);
+ const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
+  if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
+  const name=capacityUrgencyCategory(row.slot),role=roles.get(name);
+  return role==='urgent'?(planningModes[name]==='weekly'?'weekly':'daily'):role==='routine'?'routine':null;
+ }});
+ const result={demand,start,end,weeks:weeks.length};demandCache={history,coverage:slotReportCoverage,key,result};return result;
+}
+function renderSessionRequirements(){
+ const root=byId('sessionBuilderRequirements');if(!root)return;
+ if(!canEditSessionBuilder()){root.hidden=true;return;}root.hidden=false;
+ const history=readAverageDemand(),demand=history.demand;
+ const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
+ const fmt=value=>Number.isFinite(value)?format.format(value):'—';
+ for(let i=0;i<5;i++)byId('sessionBuilderNeed'+i).textContent=fmt(demand?.daily[i]);
+ byId('sessionBuilderWeeklyNeed').textContent=fmt(demand?.weekly);byId('sessionBuilderRoutineNeed').textContent=fmt(demand?.routine);
+ const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
+ byId('sessionBuilderHistory').textContent='Last 52 completed weeks: '+dateLabel(history.start)+'–'+dateLabel(history.end)+' · '+history.weeks+' complete covered week'+(history.weeks===1?'':'s')+' used. Zero-booking days in those weeks are included.';
+ const estimate=window.SessionBuilderPlanning.estimateSessions(sessionBuilderTypes,configuredModes(),configuredGroups(),demand);
+ const body=byId('sessionBuilderPlanBody');body.replaceChildren();
+ function addRow(parent,label,values,group=''){
+  const tr=document.createElement('tr'),heading=document.createElement('th');heading.scope='row';heading.textContent=label;
+  if(group){const note=document.createElement('span');note.className='session-builder-plan-group';note.textContent=group;heading.append(note);}tr.append(heading);
+  for(const value of values){const td=document.createElement('td');td.textContent=fmt(value);tr.append(td);}
+  for(let i=0;i<2;i++){const td=document.createElement('td');td.textContent='—';td.setAttribute('aria-label','Weekly allocation covered by weekday sessions');tr.append(td);}parent.append(tr);return tr;
+ }
+ for(const row of estimate.rows)addRow(body,row.name,estimate.error?Array(5).fill(null):row.days,row.group||'Choose one clinician group');
+ if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=8;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
+ const foot=byId('sessionBuilderPlanFoot');foot.replaceChildren();
+ addRow(foot,'Total sessions',estimate.days||Array(5).fill(null));
+ addRow(foot,'Appointment capacity',estimate.capacity||Array(5).fill(null));
+ const caption=byId('sessionBuilderPlanStatus');
+ if(estimate.error)caption.textContent=estimate.error;
+ else{
+  const unused=estimate.rows.filter(row=>!row.group||!row.capacity).map(row=>row.name);
+  caption.textContent=fmt(estimate.totalCapacity)+' appointment slots for '+fmt(estimate.totalNeed)+' average weekly need. Uses whole sessions, favouring the highest-capacity types; equal-capacity types share the requirement. Weekly allocations are covered within the weekday sessions. Staff availability is not assessed.'+(unused.length?' Not used (choose one group and enter capacity): '+unused.join(', ')+'.':'');
+ }
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;
  if(!canEditSessionBuilder()){page.classList.add('hidden');body.replaceChildren();return;}
  window.syncSessionBuilderSettings();
  const modes=configuredModes(),head=byId('sessionBuilderHead');head.replaceChildren();
- for(const label of ['Session type','Eligible clinician groups',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
+ for(const label of ['Session type','Eligible clinician group',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
  byId('sessionBuilderTable').style.minWidth=Math.max(740,570+modes.length*120)+'px';
  byId('sessionBuilderModeNotice').hidden=modes.length>0;
  body.replaceChildren();
@@ -48,20 +94,16 @@ function renderSessionBuilder(){
   name.addEventListener('input',()=>name.setCustomValidity(''));
   name.addEventListener('change',()=>{try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,name:name.value.trim()}:item));name.value=name.value.trim();name.setCustomValidity('');renderSessionBuilder();}catch(error){name.setCustomValidity(error.message);name.reportValidity();}});
   nameCell.append(name);tr.append(nameCell);
-  const eligibleCell=document.createElement('td'),choices=document.createElement('div');choices.className='session-builder-clinician-options';choices.setAttribute('role','group');choices.setAttribute('aria-label','Eligible clinician types for '+row.name);
+  const eligibleCell=document.createElement('td'),choices=document.createElement('select');choices.className='session-builder-clinician-select';choices.setAttribute('aria-label','Eligible clinician group for '+row.name);
   const types=configuredGroups();
-  if(!types.length){const empty=document.createElement('span');empty.className='session-builder-no-types';empty.textContent='Add clinician groups in People settings.';choices.append(empty);}
+  const empty=document.createElement('option');empty.value='';empty.textContent=types.length?'Choose clinician group':'Add groups in People Settings';choices.append(empty);
   for(const type of types){
-   const label=document.createElement('label');label.className='session-builder-clinician-option';
-   const check=document.createElement('input');check.type='checkbox';check.checked=(row.clinicianTypes||[]).includes(type);check.setAttribute('aria-label',type+' can deliver '+row.name);
-   const text=document.createElement('span');text.textContent=type;
-   check.addEventListener('change',()=>{
-    try{commit(sessionBuilderTypes.map(item=>{if(item.id!==row.id)return item;const selected=new Set(item.clinicianTypes||[]);if(check.checked)selected.add(type);else selected.delete(type);return {...item,clinicianTypes:[...selected]};}));}
-    catch(error){check.checked=!check.checked;byId('sessionBuilderSaveStatus').textContent=error.message;}
-   });
-   label.append(check,text);choices.append(label);
+   const option=document.createElement('option');option.value=type;option.textContent=type;choices.append(option);
   }
+  choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';
+  choices.addEventListener('change',()=>{try{commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,clinicianTypes:choices.value?[choices.value]:[]}:item));}catch(error){choices.value=row.clinicianTypes?.length===1?row.clinicianTypes[0]:'';byId('sessionBuilderSaveStatus').textContent=error.message;}});
   eligibleCell.append(choices);tr.append(eligibleCell);
+  if(row.clinicianTypes?.length>1){const note=document.createElement('span');note.className='session-builder-group-note';note.textContent='Previously assigned to several groups. Choose one.';eligibleCell.append(note);}
   for(const mode of modes){
    const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.required=true;input.inputMode='numeric';input.value=String(row.appointmentsByMode[mode]??0);input.className='session-builder-count';input.setAttribute('aria-label',mode+' appointments for '+row.name);
    input.addEventListener('input',()=>input.setCustomValidity(''));
@@ -72,6 +114,7 @@ function renderSessionBuilder(){
   remove.addEventListener('click',()=>{if(!canEditSessionBuilder())return;commit(sessionBuilderTypes.filter(item=>item.id!==row.id));renderSessionBuilder();});actions.append(remove);tr.append(actions);body.append(tr);
  }
  byId('sessionBuilderEmpty').hidden=sessionBuilderTypes.length>0;
+ renderSessionRequirements();
 }
 window.renderSessionBuilder=renderSessionBuilder;
 byId('navSessionBuilder')?.addEventListener('click',()=>{if(canEditSessionBuilder())showPage('sessionBuilder');});

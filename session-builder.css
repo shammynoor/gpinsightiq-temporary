@@ -28,3 +28,20 @@
 #sessionBuilderPage .session-builder-no-types{font-size:12px;color:#60798e}
 #sessionBuilderPage .session-builder-mode-notice{margin:0 0 12px;font-size:12px;color:#60798e}
 @media(max-width:650px){#sessionBuilderPage .session-builder-panel{padding:16px}#sessionBuilderPage .session-builder-add{align-items:stretch;flex-direction:column}#sessionBuilderPage .session-builder-add label{max-width:none}#sessionBuilderPage .session-builder-add button{align-self:flex-start}}
+#sessionBuilderPage .session-builder-clinician-select{padding:8px 10px;font-size:13px;width:100%;min-width:0}
+#sessionBuilderPage .session-builder-group-note{display:block;font-size:11px;color:#8c4550;margin-top:5px}
+#sessionBuilderPage .session-builder-requirements{margin-top:24px}
+#sessionBuilderPage .session-builder-requirements h3{font-size:16px;margin:0 0 7px}
+#sessionBuilderPage .session-builder-history,#sessionBuilderPage .session-builder-plan-status{margin:0 0 12px;font-size:12px;color:#60798e;line-height:1.4}
+#sessionBuilderPage .session-builder-plan-status{margin-top:10px;margin-bottom:0}
+#sessionBuilderPage .session-builder-demand-table{min-width:900px;table-layout:fixed;font-variant-numeric:tabular-nums}
+#sessionBuilderPage .session-builder-demand-table th:nth-child(n){min-width:0;width:auto}
+#sessionBuilderPage .session-builder-demand-table th:first-child{width:23%}
+#sessionBuilderPage .session-builder-demand-table thead th:nth-last-child(2),#sessionBuilderPage .session-builder-demand-table thead th:last-child{width:13%}
+#sessionBuilderPage .session-builder-demand-table th,#sessionBuilderPage .session-builder-demand-table td{padding:11px 8px;text-align:center}
+#sessionBuilderPage .session-builder-demand-table th:first-child{text-align:left}
+#sessionBuilderPage .session-builder-demand-table tbody th{background:white;color:#17395b;font-weight:400}
+#sessionBuilderPage .session-builder-demand-table .session-builder-average-row td:nth-last-child(2),#sessionBuilderPage .session-builder-demand-table .session-builder-average-row td:last-child{background:#edf3f8;font-weight:600}
+#sessionBuilderPage .session-builder-demand-table .session-builder-plan-divider th{background:#edf3f8;font-weight:600;border-top:1px solid #dce7f0}
+#sessionBuilderPage .session-builder-demand-table tfoot th,#sessionBuilderPage .session-builder-demand-table tfoot td{background:#edf3f8;font-weight:600}
+#sessionBuilderPage .session-builder-plan-group{display:block;font-size:11px;color:#60798e;margin-top:3px}
