@@ -1179,7 +1179,7 @@ function chartControlKey(el){
  if(/^(demandRange|waitingRange|waitingTrendRange)(Start|End)$/.test(el.id))return null;
  const page=el.closest('[id$="Page"]');
  // Session Locum values are shared practice settings, not personal chart preferences.
- if(!page||page.id==='personalSettingsPage'||page.id==='sessionSettingsPage')return null;
+ if(!page||['personalSettingsPage','sessionSettingsPage','sessionBuilderPage'].includes(page.id))return null;
  if(['categoryPage','practiceSettingsPage','peoplePage'].includes(page.id)&&!/(Search|Filter|UnassignedOnly)$/.test(el.id))return null;
  const type=el.tagName==='SELECT'?'select':el.type;
  if(!['checkbox','radio','select','range','date','month','number','search','text'].includes(type))return null;
