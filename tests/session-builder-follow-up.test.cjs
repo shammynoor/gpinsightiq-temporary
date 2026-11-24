@@ -15,7 +15,7 @@ test('follow-ups add eligible sessions to the plan and never reuse routine capac
  const rows=[session('urgent',['Same Day','Within 3 Days']),session('routine',['Routine']),session('follow-up',['Follow-Up'])];
  const p=model().window.SessionBuilderPlanning.estimateSessions(rows,['Phone'],['GP'],d,[],{respectTypes:true});
  assert.equal(p.error,undefined);assert.equal(p.unmetDemand.length,0);assert.equal(p.plannedCapacity,30);assert.equal(p.plannedSessions,3);assert.equal(p.routineCapacity,20);assert.equal(p.rows[2].planned,3);assert.equal(p.rows[1].planned,0);assert.equal(p.totalNeed,65);assert.equal(p.totalCapacity,70);
- const split=Object.values(p.appointmentBreakdown).flatMap(days=>days.flatMap(day=>[day.morning,day.afternoon])).reduce((n,cell)=>n+(cell['Follow-Up']||0),0);assert.equal(split,30);
+ const split=Object.values(p.appointmentBreakdown).flatMap(days=>days.flatMap(day=>[day.morning,day.afternoon])).reduce((n,cell)=>n+(cell['Planned care']||0),0);assert.equal(split,30);
  assert.equal(p.placements.reduce((n,s)=>n+s.count,0),7);
 });
 test('follow-up shortages remain explicit under clinician limits and type eligibility',()=>{
@@ -40,6 +40,25 @@ test('renderer keeps follow-up history when urgent forecast is applied and displ
  c.window.gpChartPreferences={read:()=>({})};c.window.getSessionBuilderUrgentForecast=()=>({weeks:[{daily:Array.from({length:5},()=>({'Same Day':10})),weekly:{}}],dailyGroups:['Same Day'],weeklyGroups:[],listAdjusted:true});
  vm.runInContext(fs.readFileSync('session-builder.js','utf8'),c);c.window.renderSessionBuilderRequirements();
  const summary=byId('sessionBuilderCapacityBody').children;assert.equal(summary[0].children.length,9);assert.equal(summary[0].children[8].textContent,'30');assert.equal(summary[1].children[8].textContent,'30');assert.equal(summary[0].children[7].textContent,'20');assert.equal(summary[2].children[8].textContent,'—');
- assert.match(byId('sessionBuilderHistory').textContent,/52 completed weeks/);assert.match(byId('sessionBuilderPlanFoot').children[0].children[12].children[0].children.map(x=>x.textContent).join(','),/Follow-Up 30/);
- const html=fs.readFileSync('dashboard.html','utf8');assert.match(html,/<th scope="col">Routine allocation<\/th><th scope="col">Follow-up allocation<\/th>/);
+ assert.match(byId('sessionBuilderHistory').textContent,/52 completed weeks/);assert.match(byId('sessionBuilderPlanFoot').children[0].children[12].children[0].children.map(x=>x.textContent).join(','),/Planned care 30/);
+ const html=fs.readFileSync('dashboard.html','utf8');assert.match(html,/<th scope="col">Routine allocation<\/th><th scope="col">Planned care allocation<\/th>/);
+});
+test('any configured planned-care session covers the pooled demand, including extra follow-ups',()=>{
+ const d=empty();d.planned=12.3;d.types.planned=['Urgent Extra Follow-up'];d.byType.planned={'Urgent Extra Follow-up':12.3};d.eligiblePlannedTypes=['Follow-Up','Urgent Extra Follow-up'];
+ const p=model().window.SessionBuilderPlanning.estimateSessions([session('follow-up',['Follow-Up'])],['Phone'],['GP'],d,[],{respectTypes:true});
+ assert.equal(p.error,undefined);assert.equal(p.unmetDemand.length,0);assert.equal(p.plannedCapacity,20);assert.equal(p.rows[0].planned,2);
+ const cells=Object.values(p.appointmentBreakdown).flatMap(days=>days.flatMap(day=>[day.morning,day.afternoon]));
+ assert.equal(cells.reduce((n,cell)=>n+(cell['Planned care']||0),0),20);assert.ok(cells.every(cell=>!Object.hasOwn(cell,'Urgent Extra Follow-up')));
+});
+test('a planned-care percentage rule accepts capacity from any planned-care subtype',()=>{
+ const d=empty();d.sameDay[0]=10;d.planned=10;d.types.sameDay=['Same Day'];d.byType.sameDay={'Same Day':[10,0,0,0,0]};d.types.planned=['Follow-up Extra'];d.byType.planned={'Follow-up Extra':10};d.eligiblePlannedTypes=['Follow-Up','Follow-up Extra'];
+ const rule={id:'mix',kind:'mix',enabled:true,strength:'must',scope:'week',days:[1,2,3,4,5],minimum:50,comparison:'exact',shareSubject:{kind:'group',name:'GP'},appointmentTypes:['Follow-up Extra']};
+ const p=model().window.SessionBuilderPlanning.estimateSessions([session('gp',['Same Day','Follow-Up'])],['Phone'],['GP'],d,[rule],{respectTypes:true,appointmentPools:{'Same Day':'sameDay','Follow-Up':'planned','Follow-up Extra':'planned'}});
+ assert.equal(p.error,undefined);assert.equal(p.ruleResults[0].ok,true);assert.equal(p.plannedCapacity,10);assert.equal(p.totalCapacity,20);assert.equal(p.unmetDemand.length,0);
+});
+test('true planned-care shortages are reported once as pooled care, not as missing subtypes',()=>{
+ const d=empty();d.planned=12.3;d.byType.planned={'Follow-up Extra':12.3};d.types.planned=['Follow-up Extra'];d.eligiblePlannedTypes=['Follow-Up','Follow-up Extra'];
+ const p=model().window.SessionBuilderPlanning.estimateSessions([session('gp',['Follow-Up'])],['Phone'],['GP'],d,[],{respectTypes:true,clinicians:{'GP Partner':'GP'},clinicianLimits:{'GP Partner':{max:1}}});
+ assert.equal(p.error,undefined);assert.equal(p.unmetDemand.length,1);assert.equal(p.unmetDemand[0].pool,'planned');assert.equal(p.unmetDemand[0].name,'Planned care');assert.ok(Math.abs(p.unmetDemand[0].amount-2.3)<1e-7);
+ const aggregate={...d,byType:{...d.byType,planned:{}}};const q=model().window.SessionBuilderPlanning.estimateSessions([session('gp',['Follow-Up'])],['Phone'],['GP'],aggregate,[],{respectTypes:true,clinicians:{'GP Partner':'GP'},clinicianLimits:{'GP Partner':{max:1}}});assert.equal(q.unmetDemand.length,1);
 });
