@@ -104,7 +104,7 @@ async function renderSessionRequirements(settings={}){
  if(reset){
   if(requirementsSolving)return;
   const run=++requirementsRun;args[5]={...args[5],solveRequest:run};
-  setPlannerBusy(true);if(solveStatus)solveStatus.textContent='Solving planner — allowing up to 10 seconds…';
+  setPlannerBusy(true);if(solveStatus)solveStatus.textContent='Solving planner — allowing up to 20 seconds…';
   try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args):window.SessionBuilderPlanning.estimateSessions(...args));}
   catch(error){estimate={rows:[],error:'Could not calculate workforce costs. Refresh the page and try again.'};}
   finally{if(run===requirementsRun)setPlannerBusy(false);}

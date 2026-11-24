@@ -5,11 +5,11 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=allocation-guard-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-20-seconds-v1');
  const job={key,worker,promise,resolve};pending=job;
  const finish=result=>{worker.terminate();clearTimeout(job.timer);if(pending===job)pending=null;completed={key,result};resolve(result);};
  worker.onmessage=event=>finish(event.data);worker.onerror=()=>finish({rows:[],error:'The background cost optimiser failed to load. Refresh the page.'});
- job.timer=setTimeout(()=>finish({rows:[],error:'Cost optimisation exceeded the calculation limit. Review the settings and try again.'}),11000);
+ job.timer=setTimeout(()=>finish({rows:[],error:'Cost optimisation exceeded the calculation limit. Review the settings and try again.'}),21000);
  worker.postMessage(args);return promise;
 }
 function estimate(types,modes,groups,demand,rules=[],options={}){
@@ -18,7 +18,7 @@ function estimate(types,modes,groups,demand,rules=[],options={}){
  const result=solve(types,modes,groups,demand,rules,options);cached={key,result};return result;
 }
 function solve(types,modes,groups,demand,rules,options){
- const deadline=Date.now()+10000;
+ const deadline=Date.now()+20000;
  const fail=error=>({rows:[],error,costOptimised:true});
  if(!demand)return fail('Demand is unavailable for cost optimisation.');
  if(!window.solver?.Solve)return fail('The cost optimisation solver could not load. Refresh the page.');

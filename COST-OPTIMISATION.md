@@ -36,7 +36,7 @@ they do not force fractional allocations. Required percentage rules remain exact
 
 Missing annual rates stop cost optimisation. An explicitly entered zero is allowed.
 The model is solved only when Reset planner is clicked. It runs in a background
-worker with a shared ten-second budget for the primary cost search and any second
+worker with a shared twenty-second budget for the primary cost search and any second
 pass reducing session count without increasing the best annual cost. A spinner and
 disabled reset button indicate progress; the current result stays visible.
 Every returned result is independently checked against all model constraints and
