@@ -87,3 +87,12 @@ test('AM/PM provision comes from actual allocations and reconciles with each dai
  const p=run([t],d,{GP:{annualRate:10000,workingPattern:['Mon PM']}});assert.equal(p.error,undefined);assert.equal(p.capacitySameDayByPeriod.morning[0],0);assert.equal(p.capacitySameDayByPeriod.afternoon[0],10);assert.equal(p.capacityHomeVisit[0],2);
  for(let day=0;day<5;day++)assert.equal(p.capacitySameDayByPeriod.morning[day]+p.capacitySameDayByPeriod.afternoon[day],p.capacitySameDay[day]);
 });
+test('zero-rate weekly urgent plans do not allocate thousands of unnecessary appointments',()=>{
+ const d=empty();d.weekly=270;d.types.weekly=['Within 3 Days'];d.byType.weekly={'Within 3 Days':270};
+ const p=run([type('free',['GP'],13,['Within 3 Days'])],d,{GP:{annualRate:0}});assert.equal(p.error,undefined);assert.ok(p.weeklyCapacity>=270);assert.ok(p.weeklyCapacity<=338);assert.ok(p.clinicianCounts.GP<50);
+});
+test('rejects an oversized weekly allocation even if the solver reports it as feasible',()=>{
+ const d=empty();d.weekly=270;d.types.weekly=['Within 3 Days'];d.byType.weekly={'Within 3 Days':270};const original=c.window.solver.Solve;
+ c.window.solver.Solve=function(model,...args){const result=original.call(this,model,...args),get=result.generateSolutionSet.bind(result);result.generateSolutionSet=()=>{const solution=get(),entry=Object.entries(model.constraints).find(([,v])=>v.min===270&&v.max===338);assert.ok(entry,'weekly need has an upper bound');const id=Object.keys(model.variables).find(id=>model.variables[id].cost===0&&model.variables[id][entry[0]]===1);assert.ok(id);solution[id]=19537;return solution;};return result;};
+ try{const p=run([type('guard',['GP'],13,['Within 3 Days'])],d,{GP:{annualRate:0}});assert.match(p.error,/No valid costed plan/);}finally{c.window.solver.Solve=original;}
+});
