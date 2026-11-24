@@ -2,7 +2,7 @@
 
 The planner minimises annual workforce cost with mixed-integer programming. Each
 decision variable is a whole recurring weekly session, assigned to a session type,
-clinician type, weekday and AM/PM period. Cost is the assigned clinician's saved
+clinician type and weekday; internal period slots are aggregated in the display. Cost is the assigned clinician's saved
 annualised sessional rate multiplied by the weekly session count, without another
 52-week multiplier. The cost column shows actual assignments rather than equal
 splits across eligible clinician types.
@@ -17,12 +17,10 @@ Allocation can be any configured appointment type. Planned-care selections use t
 shared Planned care pool. Targets can be even or custom percentages (totalling
 100% across selected weekdays), with a tolerance in percentage points. Must meet
 rules enforce each day's share of the weekly selected allocation, and disallow
-that allocation on unselected days. Prefer rules minimise appointments outside
-these ranges among plans no more expensive than the best annual cost found.
-If preferred distributions are enabled, up to two seconds of the shared solve
-budget is reserved for balancing. Remaining time can reduce session count without
-increasing cost or worsening the best balance found. All allocations stay whole
-and must still cover each demand target. Changes apply only on Reset planner.
+that allocation on unselected days. Prefer rules minimise appointments outside these ranges after cost, productive
+capacity, session count and allocated-appointment totals have been considered.
+The preferred distribution cannot increase those earlier totals. All allocations
+stay whole and must still cover each demand target. Changes apply only on Reset planner.
 
 Session counts and costs describe contracted recurring weekly commitments.
 Average productive appointment capacity is reduced by
@@ -36,8 +34,9 @@ they do not force fractional allocations. Required percentage rules remain exact
 
 Missing annual rates stop cost optimisation. An explicitly entered zero is allowed.
 The model is solved only when Reset planner is clicked. It runs in a background
-worker with a shared twenty-second budget for the primary cost search and any second
-pass reducing session count without increasing the best annual cost. A spinner and
+worker with a shared twenty-second budget. The primary search minimises annual cost;
+a reserved refinement reduces productive capacity without increasing the best cost found.
+Unnecessary appointment allocations are removed while preserving required rules. A spinner and
 disabled reset button indicate progress; the current result stays visible.
 Every returned result is independently checked against all model constraints and
 integer session bounds before display. A time-limited feasible incumbent is marked
