@@ -5,7 +5,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=cost-excess-priority-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=session-spread-rule-v1');
  const job={key,worker,promise,resolve};pending=job;
  const finish=result=>{worker.terminate();clearTimeout(job.timer);if(pending===job)pending=null;completed={key,result};resolve(result);};
  worker.onmessage=event=>finish(event.data);worker.onerror=()=>finish({rows:[],error:'The background cost optimiser failed to load. Refresh the page.'});
@@ -100,7 +100,24 @@ function solve(types,modes,groups,demand,rules,options){
  const selected=(r,a)=>r.kind==='mix'||r.appointmentPool==='selected'?(r.appointmentTypes||[]).map(normal).includes(a.name):api.sharePool(r)==='urgent'?a.pool==='sameDay'||a.pool==='weekly':true;
  const ruleExpressions=[],distributionPenalties=[];
  for(const rule of active){
-  if(!['minimum','share','mix','distribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||!Number.isFinite(rule.minimum)||rule.minimum<0)return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||!Number.isFinite(rule.minimum)||rule.minimum<0)return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(rule.kind==='sessionDistribution'){
+   if(rule.scope!=='week'||typeof rule.sessionTypeId!=='string'||!Number.isInteger(rule.sessionTolerance)||rule.sessionTolerance<1||rule.sessionTolerance>500)return fail('Invalid session spread rule.');
+   if(rule.sessionTypeId&&!types.some(type=>type.id===rule.sessionTypeId))return fail('The session spread rule refers to a missing session type.');
+   const targetTypes=rule.sessionTypeId?types.filter(type=>type.id===rule.sessionTypeId):types;
+   for(const type of targetTypes){
+    const chosen=slots.filter(slot=>slot.sourceId===type.id),weekly=chosen.map(slot=>slot.id);
+    for(let day=0;day<5;day++){
+     const daily=chosen.filter(slot=>slot.day===day).map(slot=>slot.id),selectedDay=rule.days.includes(day+1),tolerance=selectedDay?rule.sessionTolerance:0,weight=selectedDay?1/rule.days.length:0;
+     ruleExpressions.push({rule,sessionDistribution:true,sessionName:type.name,day,numerator:daily,denominator:weekly,weight,tolerance});
+     const upperConstraint=constraint({max:tolerance}),lowerConstraint=constraint({min:-tolerance});
+     for(const id of daily){coefficient(id,upperConstraint,1);coefficient(id,lowerConstraint,1);}
+     for(const id of weekly){coefficient(id,upperConstraint,-weight);coefficient(id,lowerConstraint,-weight);}
+     if(rule.strength==='prefer'){const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);}
+    }
+   }
+   continue;
+  }
   if(rule.kind==='distribution'){
    if(!window.SessionBuilderDistribution)return fail('The weekly distribution rules could not load. Refresh the page.');
    const issue=window.SessionBuilderDistribution.issue(rule,[...configured.keys()]);if(issue)return fail('Weekly distribution: '+issue);
@@ -214,6 +231,11 @@ function solve(types,modes,groups,demand,rules,options){
  const ruleResults=active.map(rule=>{
   const failures=[],measurements=[];
   for(const expression of ruleExpressions.filter(e=>e.rule===rule)){
+   if(expression.sessionDistribution){
+    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(solution[id]||0),0),target=denominator*expression.weight;
+    if(Math.abs(numerator-target)>expression.tolerance+1e-5)failures.push(expression.sessionName+' · '+daysShort[expression.day]+': outside the session spread target.');
+    measurements.push({sessionType:expression.sessionName,day:expression.day,numerator,denominator,target,tolerance:expression.tolerance});continue;
+   }
    if(expression.distribution){
     const numerator=expression.numerator.reduce((n,id)=>n+Math.round(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(solution[id]||0),0);
     if(numerator<expression.lower*denominator-1e-5||numerator>expression.upper*denominator+1e-5)failures.push(daysShort[expression.day]+': outside the '+expression.target+'% target ±'+expression.tolerance+' percentage points.');

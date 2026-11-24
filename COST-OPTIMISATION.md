@@ -17,7 +17,7 @@ Allocation can be any configured appointment type. Planned-care selections use t
 shared Planned care pool. Targets can be even or custom percentages (totalling
 100% across selected weekdays), with a tolerance in percentage points. Must meet
 rules enforce each day's share of the weekly selected allocation, and disallow
-that allocation on unselected days. Prefer rules minimise appointments outside these ranges after cost, productive
+that allocation on unselected days. Session spread is a separate, optional rule: it balances each selected session type across the chosen weekdays within a configurable whole-session tolerance. No session spread rule is added automatically. Prefer rules minimise appointments outside these ranges after cost, productive
 capacity, session count and allocated-appointment totals have been considered.
 The preferred distribution cannot increase those earlier totals. All allocations
 stay whole and must still cover each demand target. Changes apply only on Reset planner.

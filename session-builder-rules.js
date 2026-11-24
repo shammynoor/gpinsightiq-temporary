@@ -11,10 +11,11 @@ function validateRules(rules){
  const ids=new Set();
  for(const rule of rules){
   if(!rule||typeof rule!=='object'||Array.isArray(rule)||typeof rule.id!=='string'||!rule.id||ids.has(rule.id))throw Error('Planning rules require unique identifiers.');ids.add(rule.id);
-  if(typeof rule.enabled!=='boolean'||!['minimum','share','mix','distribution'].includes(rule.kind)||!scopes.some(([key])=>key===rule.scope)||!['must','prefer'].includes(rule.strength))throw Error('Invalid planning rule type, period or strength.');
+  if(typeof rule.enabled!=='boolean'||!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!scopes.some(([key])=>key===rule.scope)||!['must','prefer'].includes(rule.strength))throw Error('Invalid planning rule type, period or strength.');
   if(!Array.isArray(rule.days)||!rule.days.length||rule.days.some(day=>!Number.isInteger(day)||day<1||day>5)||new Set(rule.days).size!==rule.days.length)throw Error('Choose at least one weekday.');
   if(!Number.isFinite(rule.minimum)||rule.kind==='minimum'&&(!Number.isSafeInteger(rule.minimum)||rule.minimum<1)||rule.kind!=='minimum'&&(rule.minimum<0||rule.minimum>100))throw Error('Use a whole number of sessions, or a percentage between zero and 100.');
   if(rule.kind==='distribution')window.SessionBuilderDistribution.validate(rule);
+  if(rule.kind==='sessionDistribution'&&(rule.scope!=='week'||typeof rule.sessionTypeId!=='string'||!Number.isInteger(rule.sessionTolerance)||rule.sessionTolerance<1||rule.sessionTolerance>500))throw Error('Choose weekly session spread and a tolerance of at least one session.');
   if(rule.kind==='minimum'&&typeof rule.sessionTypeId!=='string')throw Error('Choose a session type.');
   if(rule.kind==='share'&&(typeof rule.clinicianGroup!=='string'||!['all','pair'].includes(rule.denominator)||typeof rule.comparisonGroup!=='string'))throw Error('Choose a clinician group and appointment denominator.');
   if(rule.appointmentPool!==undefined&&!['all','urgent','selected'].includes(rule.appointmentPool))throw Error('Choose all or urgent appointments.');
@@ -31,6 +32,7 @@ function issuesFor(rule,types,groups){
  if(!rule.enabled)return [];
  const issues=[];
  if(rule.kind==='distribution'){const issue=window.SessionBuilderDistribution.issue(rule,groupUrgencyNames);return issue?[issue]:[];}
+ if(rule.kind==='sessionDistribution')return rule.sessionTypeId&&!types.some(type=>type.id===rule.sessionTypeId)?['The session type has been removed; choose another.']:[];
  if(rule.kind==='minimum'&&!types.some(type=>type.id===rule.sessionTypeId))issues.push('Choose an existing session type.');
  if(rule.kind==='share'||rule.kind==='mix'){
   const planning=window.SessionBuilderPlanning,subject=planning.shareSubject(rule),denominators=rule.kind==='mix'?[]:planning.shareDenominators(rule),clinicians=typeof clinicianCategoryNames==='undefined'?[]:clinicianCategoryNames;
@@ -96,6 +98,7 @@ window.inspectSessionBuilderRules=inspectRules;
 const openRules=new Set();
 function ruleSummary(rule){
  const when=(presets.find(([, ,days])=>JSON.stringify([...rule.days].sort())===JSON.stringify(days))?.[1]||'Selected days')+' · '+(visibleScopes.find(([key])=>key===dayScope(rule.scope))?.[1]||'Each day'),strength=rule.strength==='must'?'Must meet':'Prefer';
+ if(rule.kind==='sessionDistribution'){const name=rule.sessionTypeId?sessionBuilderTypes.find(type=>type.id===rule.sessionTypeId)?.name||'Removed session type':'Each session type';return name+' · roughly even spread · ±'+rule.sessionTolerance+' session'+(rule.sessionTolerance===1?'':'s')+' · '+when+' · '+strength;}
  if(rule.kind==='distribution'){
   const allocation=rule.appointmentTypes?.[0]||'Choose allocation',spread=rule.distributionMode==='custom'?rule.days.map(day=>['Mon','Tue','Wed','Thu','Fri'][day-1]+' '+(rule.distributionTargets?.[day]||0)+'%').join(', '):'Even spread';
   return allocation+' · '+spread+' · ±'+(rule.distributionTolerance??5)+' percentage points · '+when+' · '+strength;
@@ -113,16 +116,22 @@ function renderSessionBuilderRules(){
   const ruleNumber=sessionBuilderRules.indexOf(rule)+1;
   const outer=document.createElement('tr'),outerCell=document.createElement('td'),details=document.createElement('details'),summary=document.createElement('summary'),row=document.createElement('div');outer.dataset.ruleId=rule.id;outerCell.colSpan=5;details.className='session-rule-card';details.open=openRules.has(rule.id);summary.textContent=(rule.enabled?'':'Off · ')+ruleSummary(rule);details.append(summary);row.className='session-rule-controls';details.addEventListener('toggle',()=>{if(details.open)openRules.add(rule.id);else openRules.delete(rule.id);});
   const enabled=document.createElement('div'),toggle=document.createElement('input');toggle.type='checkbox';toggle.checked=rule.enabled;toggle.setAttribute('aria-label','Enable rule '+(sessionBuilderRules.indexOf(rule)+1));toggle.addEventListener('change',()=>{try{patch(rule,'enabled',toggle.checked)}catch(error){toggle.checked=!toggle.checked;byId('sessionBuilderRulesSaveStatus').textContent=error.message;}});enabled.append(toggle);row.append(enabled);
-  const when=document.createElement('div');when.append(select('Period for rule '+ruleNumber,rule.kind==='distribution'?[['week','Each week']]:visibleScopes,dayScope(rule.scope),value=>patch(rule,'scope',value)));
+  const when=document.createElement('div');when.append(select('Period for rule '+ruleNumber,['distribution','sessionDistribution'].includes(rule.kind)?[['week','Each week']]:visibleScopes,dayScope(rule.scope),value=>patch(rule,'scope',value)));
   const preset=presets.find(([, ,days])=>JSON.stringify([...rule.days].sort())===JSON.stringify(days));
   const dayOptions=presets.map(([key,label])=>[key,label]);if(!preset)dayOptions.push(['custom','Custom: '+rule.days.map(day=>['Mon','Tue','Wed','Thu','Fri'][day-1]).join(', ')]);
   when.append(select('Weekdays for rule '+ruleNumber,dayOptions,preset?.[0]||'custom',key=>{const choice=presets.find(([id])=>id===key);if(choice){if(rule.kind==='distribution')commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,days:[...choice[2]],distributionTargets:window.SessionBuilderDistribution.initialTargets(choice[2])}:item));else patch(rule,'days',[...choice[2]]);renderSessionBuilderRules();}}));row.append(when);
   const requirement=document.createElement('div');
-  requirement.append(select('Rule type '+ruleNumber,[['minimum','Minimum sessions'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly distribution']],rule.kind,kind=>{
-   commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,kind,...(kind==='distribution'?{scope:'week',distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:{}),minimum:kind==='minimum'?1:kind==='distribution'?0:50,comparison:'atLeast',appointmentTypes:kind==='mix'?(groupUrgencyNames.includes('Routine')?['Routine']:[]):[],sessionTypeId:sessionBuilderTypes[0]?.id||'',clinicianGroup:groups[0]||'',denominator:'all',comparisonGroup:''}:item));renderSessionBuilderRules();
+  requirement.append(select('Rule type '+ruleNumber,[['minimum','Minimum sessions'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly appointment distribution'],['sessionDistribution','Session spread']],rule.kind,kind=>{
+   commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,kind,...(kind==='distribution'?{scope:'week',distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{scope:'week',sessionTolerance:1}:{}),minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:'atLeast',appointmentTypes:kind==='mix'?(groupUrgencyNames.includes('Routine')?['Routine']:[]):[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:groups[0]||'',denominator:'all',comparisonGroup:''}:item));renderSessionBuilderRules();
   }));
   let clause;
-  if(rule.kind==='distribution'){
+  if(rule.kind==='sessionDistribution'){
+   clause=document.createElement('div');clause.className='session-rule-clause';
+   clause.append(text('Spread'),select('Session type for rule '+ruleNumber,[['','Each session type'],...sessionBuilderTypes.map(type=>[type.id,type.name])],rule.sessionTypeId||'',value=>patch(rule,'sessionTypeId',value)));
+   const tolerance=document.createElement('input');tolerance.type='number';tolerance.min='1';tolerance.max='500';tolerance.step='1';tolerance.value=String(rule.sessionTolerance);tolerance.setAttribute('aria-label','Session spread tolerance for rule '+ruleNumber);
+   tolerance.addEventListener('change',()=>{try{if(tolerance.value===''||!tolerance.checkValidity())throw Error('Enter a whole-number tolerance of at least one session.');patch(rule,'sessionTolerance',Number(tolerance.value));}catch(error){tolerance.setCustomValidity(error.message);tolerance.reportValidity();}});
+   clause.append(text('Evenly across the selected days, within ±'),tolerance,text('sessions per day from the average. Prefer avoids increasing cost; Must meet requires the spread.'));
+  }else if(rule.kind==='distribution'){
    clause=document.createElement('div');clause.className='session-rule-clause session-rule-distribution';
    const appointmentChoices=groupUrgencyNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
    clause.append(text('Allocation'),select('Allocation for rule '+ruleNumber,[['','Choose appointment type'],...appointmentChoices.map(name=>[name,name])],rule.appointmentTypes?.[0]||'',value=>patch(rule,'appointmentTypes',value?[value]:[])));
@@ -195,7 +204,7 @@ function showValidation(){
 byId('sessionBuilderAddRule')?.addEventListener('click',()=>{
  if(!canEditSessionBuilder())return;
  const kind=byId('sessionBuilderNewRuleKind').value,id=crypto.randomUUID();openRules.add(id);
- commit([...sessionBuilderRules,{id,enabled:true,kind,scope:kind==='distribution'?'week':'day',days:[1,2,3,4,5],...(kind==='distribution'?{distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:{}),minimum:kind==='minimum'?1:kind==='distribution'?0:50,comparison:'atLeast',appointmentTypes:kind==='mix'&&groupUrgencyNames.includes('Routine')?['Routine']:[],sessionTypeId:sessionBuilderTypes[0]?.id||'',clinicianGroup:configuredGroups()[0]||'',denominator:'all',comparisonGroup:'',strength:kind==='distribution'?'prefer':'must'}]);renderSessionBuilderRules();
+ commit([...sessionBuilderRules,{id,enabled:true,kind,scope:['distribution','sessionDistribution'].includes(kind)?'week':'day',days:[1,2,3,4,5],...(kind==='distribution'?{distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{sessionTolerance:1}:{}),minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:'atLeast',appointmentTypes:kind==='mix'&&groupUrgencyNames.includes('Routine')?['Routine']:[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:configuredGroups()[0]||'',denominator:'all',comparisonGroup:'',strength:['distribution','sessionDistribution'].includes(kind)?'prefer':'must'}]);renderSessionBuilderRules();
 });
 byId('sessionBuilderValidateRules')?.addEventListener('click',showValidation);
 const tabs=[['clinician','Clinician'],['types','Types'],['rules','Rules'],['planner','Planner']];
