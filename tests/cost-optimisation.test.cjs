@@ -60,3 +60,12 @@ test('small integer cost plans match exhaustive enumeration and are independent 
   assert.equal(run(types,d,rates).annualCost,best);assert.equal(run(types.slice().reverse(),d,rates).annualCost,best);
  }
 });
+test('fractional predicted need produces whole provided and allocated appointments, without rounding the demand data',()=>{
+ const d=empty();d.sameDay[0]=10.3;d.homeVisit[0]=1.4;d.routine=2.2;d.planned=1.1;d.byType.sameDay={'Same Day':[6.7,0,0,0,0],Extra:[3.6,0,0,0,0]};d.eligibleDailyTypes=['Same Day','Extra'];d.types.sameDay=['Same Day','Extra'];d.byType.homeVisit={Visit:[1.4,0,0,0,0]};d.byType.routine={Routine:2.2};d.byType.planned={'Follow-Up':1.1};
+ const before=JSON.stringify(d),t=type('GP',['GP'],15,['Same Day','Extra','Routine','Follow-Up','Visit']);t.appointmentsByMode['Home Visit']=4;
+ // Explicit appointment pools supply the additional daily type.
+ const p=solve([t],['Phone','Home Visit'],['GP'],d,[],{optimizeCost:true,respectTypes:true,clinicians:{GP:'GP'},clinicianLimits:{GP:{annualRate:10000,annualLeaveWeeks:5,sicknessPercent:5}},appointmentPools:{'Same Day':'sameDay',Extra:'sameDay',Routine:'routine','Follow-Up':'planned',Visit:'homeVisit'}});
+ assert.equal(p.error,undefined);assert.equal(JSON.stringify(d),before);assert.ok(p.capacitySameDay[0]>=11);assert.ok(p.capacityHomeVisit[0]>=2);assert.ok(p.routineCapacity>=3);assert.ok(p.plannedCapacity>=2);
+ for(const n of [...p.capacitySameDay,...p.capacityHomeVisit,p.weeklyCapacity,p.routineCapacity,p.plannedCapacity,p.totalCapacity])assert.ok(Number.isInteger(n));
+ let all=0;for(const days of Object.values(p.appointmentBreakdown))for(const day of days)for(const period of ['morning','afternoon'])for(const n of Object.values(day[period])){assert.ok(Number.isInteger(n));all+=n;}assert.equal(all,p.totalCapacity);
+});

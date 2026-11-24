@@ -17,8 +17,11 @@ Session counts and costs describe contracted recurring weekly commitments.
 Average productive appointment capacity is reduced by
 `(52 - annualLeaveWeeks) / 52 * (1 - sicknessPercent / 100)`. Missing leave/sickness
 settings use the Clinician Setup defaults of five weeks and zero percent.
-Appointment quantities are continuous weekly averages; session counts are whole
-numbers. Unallocated slots remain visible and cannot satisfy demand/share rules.
+Predicted need remains a fractional weekly average. Session counts and all provided,
+allocated and unallocated appointment counts are integers. Productive consultation-mode
+capacity per session is rounded down after absence adjustment, while required slots
+round demand up. Forecast appointment-type proportions allow a one-slot deviation so
+they do not force fractional allocations. Required percentage rules remain exact. Unallocated slots remain visible and cannot satisfy demand/share rules.
 
 Missing annual rates stop cost optimisation. An explicitly entered zero is allowed.
 The model is solved in a background worker with a bounded primary cost search and

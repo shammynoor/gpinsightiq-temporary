@@ -5,7 +5,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=cost-optimisation-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=whole-appointments-v1');
  const job={key,worker,promise,resolve};pending=job;
  const finish=result=>{worker.terminate();clearTimeout(job.timer);if(pending===job)pending=null;completed={key,result};resolve(result);};
  worker.onmessage=event=>finish(event.data);worker.onerror=()=>finish({rows:[],error:'The background cost optimiser failed to load. Refresh the page.'});
@@ -42,7 +42,7 @@ function solve(types,modes,groups,demand,rules,options){
   const leave=limit.annualLeaveWeeks??5,sickness=limit.sicknessPercent??0;
   if(!Number.isFinite(leave)||leave<0||leave>52||!Number.isFinite(sickness)||sickness<0||sickness>100)return fail('Invalid leave or sickness settings for '+name+'.');
   const availability=(52-leave)/52*(1-sickness/100);
-  candidates.push({sourceId:type.id,name:type.name,clinician:name,group:clinicians[name],rate:limit.annualRate,nonHome:nonHome*availability,home:home*availability,allowed});
+  candidates.push({sourceId:type.id,name:type.name,clinician:name,group:clinicians[name],rate:limit.annualRate,nonHome:Math.floor(nonHome*availability+1e-7),home:Math.floor(home*availability+1e-7),allowed});
  }
  if(missing.size)return fail('Enter an annualised sessional rate in Clinician Setup for: '+[...missing].join(', ')+'. Missing rates cannot be treated as free.');
  for(const [name,limit] of Object.entries(limits))if(Object.hasOwn(clinicians,name)){
@@ -59,13 +59,13 @@ function solve(types,modes,groups,demand,rules,options){
  if(bound>10000)return fail('Demand is too large for interactive cost optimisation. Check session capacities.');
  const workforce=new Map();
  for(const [name] of Object.entries(clinicians)){const l=limits[name]||{};workforce.set(name,constraint({min:l.min||0,max:l.max??bound}));}
- const needConstraints={sameDay:demand.sameDay.map(n=>constraint({min:n})),homeVisit:demand.homeVisit.map(n=>constraint({min:n})),weekly:constraint({min:demand.weekly}),routine:constraint({min:demand.routine}),planned:constraint({min:demand.planned||0})};
+ const needConstraints={sameDay:demand.sameDay.map(n=>constraint({min:Math.ceil(n)})),homeVisit:demand.homeVisit.map(n=>constraint({min:Math.ceil(n)})),weekly:constraint({min:Math.ceil(demand.weekly)}),routine:constraint({min:Math.ceil(demand.routine)}),planned:constraint({min:Math.ceil(demand.planned||0)})};
  // Preserve type eligibility for weekly urgent/routine demand. Planned care and
  // daily urgent demand are pooled, matching the planner's existing definitions.
  const typedNeed=new Map();
- for(const pool of ['weekly','routine'])for(const [name,need] of Object.entries(demand.byType?.[pool]||{}))typedNeed.set(pool+'|'+name,constraint({min:need}));
+ for(const pool of ['weekly','routine'])for(const [name,need] of Object.entries(demand.byType?.[pool]||{}))typedNeed.set(pool+'|'+name,constraint({min:Math.ceil(need)}));
  const addAllocation=(slot,name,pool,capacityConstraint)=>{
-  const id=variable({cost:0});coefficient(id,capacityConstraint,1);
+  const id=variable({cost:0},true);coefficient(id,capacityConstraint,1);
   const need=pool==='sameDay'||pool==='homeVisit'?needConstraints[pool][slot.day]:needConstraints[pool];if(need)coefficient(id,need,1);
   const typed=typedNeed.get(pool+'|'+name);if(typed)coefficient(id,typed,1);
   const allocation={id,slot,name,pool};allocations.push(allocation);return allocation;
@@ -74,15 +74,16 @@ function solve(types,modes,groups,demand,rules,options){
   const pattern=limits[candidate.clinician]?.workingPattern;if(Array.isArray(pattern)&&!pattern.includes(daysShort[day]+' '+(period==='morning'?'AM':'PM')))continue;
   const id=variable({cost:candidate.rate/1000},true);coefficient(id,workforce.get(candidate.clinician),1);
   const slot={...candidate,id,day,period};slots.push(slot);
-  const nonHome=constraint({equal:0}),home=constraint({equal:0});coefficient(id,nonHome,-candidate.nonHome);coefficient(id,home,-candidate.home);
+  const nonHome=constraint({max:0}),home=constraint({max:0});coefficient(id,nonHome,-candidate.nonHome);coefficient(id,home,-candidate.home);
   const choices=[...new Map(candidate.allowed.map(([name,pool])=>[pool==='planned'?plannedLabel:name,{name:normal(name),pool}])).values()];
   for(const choice of choices)if(choice.pool==='homeVisit'?candidate.home>0:candidate.nonHome>0)addAllocation(slot,choice.name,choice.pool,choice.pool==='homeVisit'?home:nonHome);
-  // Unused slots remain visible and cannot satisfy demand or appointment shares.
-  const unused=addAllocation(slot,'Unallocated','unused',nonHome),unusedHome=addAllocation(slot,'Unallocated','unused',home);unused.mode='nonHome';unusedHome.mode='home';
+  // Capacity after leave/sickness is an expectation. Integer appointments cannot
+  // exceed it; spare whole slots are added to the display after allocation.
   const daily=allocations.filter(a=>a.slot===slot&&a.pool==='sameDay');
   const weights=daily.map(a=>Math.max(0,demand.byType?.sameDay?.[a.name]?.[day]||0)),sum=weights.reduce((a,b)=>a+b,0);
   if(daily.length>1)for(let i=0;i<daily.length-1;i++){
-   const share=sum?weights[i]/sum:1/daily.length,c=constraint({equal:0});
+   // Forecast proportions are targets, not a requirement for fractional slots.
+   const share=sum?weights[i]/sum:1/daily.length,c=constraint({min:-1,max:1});
    for(const allocation of daily)coefficient(allocation.id,c,(allocation===daily[i]?1:0)-share);
   }
  }
@@ -133,14 +134,20 @@ function solve(types,modes,groups,demand,rules,options){
  const annualCost=slots.reduce((n,s)=>n+Math.round(solution[s.id]||0)*s.rate,0);
  // A second objective reduces sessions without increasing the best annual cost.
  const costBound=constraint({max:annualCost/1000+1e-7});
- for(const [id,data] of Object.entries(variables)){coefficient(id,costBound,data.cost||0);data.sessions=ints[id]?1:0;}
+ const sessionIds=new Set(slots.map(s=>s.id));
+ for(const [id,data] of Object.entries(variables)){coefficient(id,costBound,data.cost||0);data.sessions=sessionIds.has(id)?1:0;}
  model.optimize='sessions';model.options.timeout=1500;
  try{const second=window.solver.Solve(model,1e-8,true),next=second.generateSolutionSet();if(second.feasible&&second.bounded&&audit(next))solution=next;}catch(error){/* Keep the already audited cost solution. */}
  const rows=types.map(t=>({id:t.id,name:t.name,group:[...new Set((t.eligibleClinicians||[]).map(n=>clinicians[n]).filter(Boolean))].join(' · '),days:[0,0,0,0,0],weekly:0,routine:0,planned:0,periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}})),rowById=new Map(rows.map(r=>[r.id,r]));
  const clinicianCounts={},placements=[],appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
- for(const slot of slots){const count=Math.round(solution[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=count*(slot.nonHome+slot.home);}
- for(const a of allocations){const n=solution[a.id]||0;if(n<1e-6)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
+ for(const slot of slots){const count=Math.round(solution[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
+ for(const a of allocations){const n=Math.round(solution[a.id]||0);if(!n)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
   if(a.pool==='sameDay')capacitySameDay[a.slot.day]+=n;else if(a.pool==='homeVisit')capacityHomeVisit[a.slot.day]+=n;else if(a.pool==='weekly')weeklyCapacity+=n;else if(a.pool==='routine')routineCapacity+=n;else if(a.pool==='planned')plannedCapacity+=n;
+ }
+ for(const slot of slots){
+  const count=Math.round(solution[slot.id]||0);if(!count)continue;
+  const capacity=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7),used=allocations.filter(a=>a.slot===slot).reduce((n,a)=>n+Math.round(solution[a.id]||0),0),unused=capacity-used;
+  if(unused>0){const target=appointmentBreakdown[slot.sourceId]||(appointmentBreakdown[slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[slot.day][slot.period];cell.Unallocated=(cell.Unallocated||0)+unused;}
  }
  const ruleResults=active.map(rule=>{
   const failures=[],measurements=[];
