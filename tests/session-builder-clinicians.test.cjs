@@ -12,3 +12,16 @@ test('validates working patterns and rates while preserving earlier saved limits
  assert.throws(()=>validate({GP:{min:0,max:null,annualRate:-1}}));
  assert.throws(()=>validate({GP:{min:0,max:null,annualRate:1.234}}));
 });
+test('validates annual leave and sickness without breaking older settings',()=>{
+ const validate=setup().window.validateSessionBuilderClinicianLimits;
+ assert.equal(validate({GP:{min:0,max:null,annualLeaveWeeks:5,sicknessPercent:0}}),true);
+ assert.equal(validate({GP:{min:0,max:null,annualLeaveWeeks:5.5,sicknessPercent:15}}),true);
+ assert.throws(()=>validate({GP:{min:0,max:null,annualLeaveWeeks:52.5}}));
+ assert.throws(()=>validate({GP:{min:0,max:null,annualLeaveWeeks:-1}}));
+ assert.throws(()=>validate({GP:{min:0,max:null,sicknessPercent:3}}));
+ assert.throws(()=>validate({GP:{min:0,max:null,sicknessPercent:105}}));
+});
+test('renaming a clinician retains absence settings',()=>{
+ const c=setup();c.sessionBuilderClinicianLimits={'Old GP':{min:0,max:null,annualLeaveWeeks:6,sicknessPercent:10}};
+ c.window.renameSessionBuilderClinicianType('Old GP','New GP');assert.equal(c.sessionBuilderClinicianLimits['New GP'].annualLeaveWeeks,6);assert.equal(c.sessionBuilderClinicianLimits['New GP'].sicknessPercent,10);
+});

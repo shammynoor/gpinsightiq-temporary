@@ -127,3 +127,8 @@
 #sessionBuilderPage .session-rule-controls select{max-width:100%;width:100%;margin-bottom:6px}
 #sessionBuilderPage .session-rule-controls .session-builder-appointment-dropdown{width:100%}
 @media(max-width:760px){#sessionBuilderPage .session-rule-controls{grid-template-columns:1fr 1fr}#sessionBuilderPage .session-rule-controls>div:nth-child(3){grid-column:1/-1}}
+#sessionBuilderPage .session-clinician-limits{display:flex;align-items:center;gap:5px}
+#sessionBuilderPage .session-clinician-limits select{width:auto;min-width:0;max-width:none;flex:1}
+#sessionBuilderPage .session-clinician-limit-head{display:grid;grid-template-columns:1fr 1fr;gap:18px;font-size:11px;font-weight:400;margin-top:4px}
+#sessionBuilderPage .session-clinician-leave{width:100%;max-width:85px;padding:8px;font-size:13px}
+#sessionBuilderPage .session-clinician-table .session-clinician-sickness{max-width:85px}

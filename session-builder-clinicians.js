@@ -8,6 +8,8 @@ function validate(limits){
   if(!name.trim()||['__proto__','prototype','constructor'].includes(name)||!value||typeof value!=='object'||Array.isArray(value)||!Number.isSafeInteger(value.min)||value.min<0||value.min>maxValue||!(value.max===null||Number.isSafeInteger(value.max)&&value.max>=value.min&&value.max<=maxValue))throw Error('Invalid minimum or maximum clinician sessions.');
   if(value.workingPattern!==undefined&&(!Array.isArray(value.workingPattern)||value.workingPattern.some(period=>!periods.includes(period))||new Set(value.workingPattern).size!==value.workingPattern.length))throw Error('Invalid clinician working pattern.');
   if(value.annualRate!==undefined&&(typeof value.annualRate!=='number'||!Number.isFinite(value.annualRate)||value.annualRate<0||value.annualRate>100000000||Math.abs(value.annualRate*100-Math.round(value.annualRate*100))>1e-6))throw Error('Invalid annualised sessional rate.');
+  if(value.annualLeaveWeeks!==undefined&&(typeof value.annualLeaveWeeks!=='number'||!Number.isFinite(value.annualLeaveWeeks)||value.annualLeaveWeeks<0||value.annualLeaveWeeks>52||Math.abs(value.annualLeaveWeeks*2-Math.round(value.annualLeaveWeeks*2))>1e-6))throw Error('Annual leave must be between 0 and 52 weeks in half-week steps.');
+  if(value.sicknessPercent!==undefined&&(!Number.isInteger(value.sicknessPercent)||value.sicknessPercent<0||value.sicknessPercent>100||value.sicknessPercent%5!==0))throw Error('Sickness rate must be between 0% and 100% in 5% steps.');
  }
  return true;
 }
@@ -25,12 +27,13 @@ window.renderSessionBuilderClinicians=()=>{
  const groups=[...clinicianGroupNames.filter(name=>name&&name!=='Uncategorised'), 'Uncategorised'];
  for(const group of groups){
   const members=names.filter(name=>(groups.includes(clinicianGroupAssignments[name])?clinicianGroupAssignments[name]:'Uncategorised')===group);if(!members.length)continue;
-  const heading=document.createElement('tr'),groupCell=document.createElement('th');groupCell.colSpan=5;groupCell.scope='rowgroup';groupCell.className='session-clinician-group';groupCell.textContent=group;heading.append(groupCell);body.append(heading);
+  const heading=document.createElement('tr'),groupCell=document.createElement('th');groupCell.colSpan=6;groupCell.scope='rowgroup';groupCell.className='session-clinician-group';groupCell.textContent=group;heading.append(groupCell);body.append(heading);
   for(const name of members){
    const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=name;row.append(label);
    const saved=sessionBuilderClinicianLimits[name]||{min:0,max:null};
+   const limitCell=document.createElement('td'),limitWrap=document.createElement('div');limitWrap.className='session-clinician-limits';
    for(const field of ['min','max']){
-    const cell=document.createElement('td'),select=document.createElement('select');select.setAttribute('aria-label',(field==='min'?'Minimum':'Maximum')+' sessions per week for '+name);
+    const select=document.createElement('select');select.setAttribute('aria-label',(field==='min'?'Minimum':'Maximum')+' sessions per week for '+name);
     if(field==='max'){const option=document.createElement('option');option.value='';option.textContent='No max';select.append(option);}
     for(let i=0;i<=maxValue;i++){const option=document.createElement('option');option.value=String(i);option.textContent=String(i);select.append(option);}
     select.value=field==='max'&&saved.max===null?'':String(saved[field]);
@@ -38,8 +41,10 @@ window.renderSessionBuilderClinicians=()=>{
      if(!canEditSessionBuilder())return;const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},value=field==='max'&&select.value===''?null:Number(select.value),next={...previous,[field]:value};
      if(next.max!==null&&next.min>next.max){select.value=field==='max'&&previous.max===null?'':String(previous[field]);byId('sessionBuilderClinicianSaveStatus').textContent='Minimum cannot be greater than maximum.';return;}
      const limits={...sessionBuilderClinicianLimits,[name]:next};validate(limits);sessionBuilderClinicianLimits=limits;markCategoryDirty(250);window.renderSessionBuilderRequirements?.();
-    });cell.append(select);row.append(cell);
+    });limitWrap.append(select);
+    if(field==='min'){const separator=document.createElement('span');separator.textContent='–';separator.setAttribute('aria-hidden','true');limitWrap.append(separator);}
    }
+   limitCell.append(limitWrap);row.append(limitCell);
    const patternCell=document.createElement('td'),dropdown=document.createElement('details'),summary=document.createElement('summary'),options=document.createElement('div');
    dropdown.className='session-builder-appointment-dropdown session-clinician-pattern';options.className='session-builder-appointment-options';
    const selected=new Set(Array.isArray(saved.workingPattern)?saved.workingPattern:periods);
@@ -55,6 +60,12 @@ window.renderSessionBuilderClinicians=()=>{
    rate.addEventListener('input',()=>rate.setCustomValidity(''));
    rate.addEventListener('change',()=>{if(!canEditSessionBuilder())return;try{if(rate.value===''||!rate.checkValidity())throw Error('Enter a non-negative rate with up to two decimal places.');const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,annualRate:Number(rate.value)}};validate(limits);sessionBuilderClinicianLimits=limits;rate.setCustomValidity('');markCategoryDirty(250);}catch(error){rate.setCustomValidity(error.message);rate.reportValidity();}});
    rateWrap.append(symbol,rate);rateCell.append(rateWrap);row.append(rateCell);
+   const leaveCell=document.createElement('td'),leave=document.createElement('input');leave.type='number';leave.min='0';leave.max='52';leave.step='0.5';leave.inputMode='decimal';leave.value=String(saved.annualLeaveWeeks??5);leave.setAttribute('aria-label','Annual leave in weeks for '+name);leave.className='session-clinician-leave';
+   leave.addEventListener('input',()=>leave.setCustomValidity(''));
+   leave.addEventListener('change',()=>{if(!canEditSessionBuilder())return;try{if(leave.value===''||!leave.checkValidity())throw Error('Enter annual leave from 0 to 52 weeks in half-week steps.');const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,annualLeaveWeeks:Number(leave.value)}};validate(limits);sessionBuilderClinicianLimits=limits;leave.setCustomValidity('');markCategoryDirty(250);}catch(error){leave.setCustomValidity(error.message);leave.reportValidity();}});leaveCell.append(leave);row.append(leaveCell);
+   const sicknessCell=document.createElement('td'),sickness=document.createElement('select');sickness.setAttribute('aria-label','Sickness rate for '+name);sickness.className='session-clinician-sickness';for(let i=0;i<=100;i+=5){const option=document.createElement('option');option.value=String(i);option.textContent=i+'%';sickness.append(option);}sickness.value=String(saved.sicknessPercent??0);
+   sickness.addEventListener('change',()=>{if(!canEditSessionBuilder())return;const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,sicknessPercent:Number(sickness.value)}};validate(limits);sessionBuilderClinicianLimits=limits;markCategoryDirty(250);});sicknessCell.append(sickness);row.append(sicknessCell);
+
    body.append(row);
   }
  }
