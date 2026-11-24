@@ -207,10 +207,35 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  };
  const poolFor=name=>options.appointmentPools?.[name]|| (demand.types?.homeVisit?.includes(name)?'homeVisit':demand.types?.weekly?.includes(name)?'weekly':demand.types?.routine?.includes(name)?'routine':(demand.eligibleDailyTypes||demand.types?.sameDay||[]).includes(name)?'sameDay':null);
  const percentages=hard.filter(rule=>rule.kind==='share'||rule.kind==='mix');let repaired=false,added=0;
+ // Reposition an existing weekly-pool session before adding another one. Weekly
+ // demand is unchanged, and clinician limits continue to count the same session.
+ const moveExistingMixSession=(rule,day,period,state)=>{
+  if(rule.kind!=='mix'||!flowForBreakdown)return false;
+  const needMore=state.delta<0,selected=new Set(rule.appointmentTypes||[]);
+  for(const placement of placements){
+   if(!['routine','weekly','planned'].includes(placement.pool)||placement.count!==1)continue;
+   const row=rows.find(item=>item.id===placement.id);if(!row||!matchesClinician(row,shareSubject(rule)))continue;
+   const slot=ruleSlot(row,day,period,rule);if(!slot||slot.day===placement.day&&slot.period===placement.period)continue;
+   const current=appointmentBreakdown[row.id]?.[placement.day]?.[placement.period]||{};
+   const useful=Object.entries(current).some(([name,value])=>value>0&&name!=='Unallocated'&&(needMore?selected.has(name):!selected.has(name)));
+   if(!useful)continue;
+   const protectedStates=percentages.flatMap(other=>ruleDays(other).flatMap(d=>periods(other).filter(p=>other!==rule||d-1!==day||p!==period).map(p=>({other,day:d-1,period:p,ok:share(other,d-1,p).ok}))));
+   const oldDay=placement.day,oldPeriod=placement.period;
+   row.periods[oldPeriod][oldDay]--;row.periods[slot.period][slot.day]++;placement.day=slot.day;placement.period=slot.period;appointmentBreakdown=buildBreakdown();
+   const next=share(rule,day,period),improved=needMore?next.delta>state.delta+1e-7:next.delta<state.delta-1e-7;
+   const preserved=protectedStates.every(item=>!item.ok||share(item.other,item.day,item.period).ok);
+   // Moving a session must not break a minimum-session rule at its old location.
+   const minima=hard.filter(item=>item.kind==='minimum').every(item=>ruleDays(item).every(d=>periods(item).every(p=>rows.filter(r=>r.sourceId===item.sessionTypeId).reduce((sum,r)=>sum+countForRule(r,item,d-1,p),0)>=item.minimum)));
+   if(improved&&preserved&&minima)return true;
+   row.periods[slot.period][slot.day]--;row.periods[oldPeriod][oldDay]++;placement.day=oldDay;placement.period=oldPeriod;appointmentBreakdown=buildBreakdown();
+  }
+  return false;
+ };
  for(let pass=0;pass<100;pass++){
   let changed=false;
   for(const rule of percentages)for(const d of ruleDays(rule))for(const period of periods(rule)){
    const day=d-1,state=share(rule,day,period);if(state.ok)continue;
+   if(moveExistingMixSession(rule,day,period,state)){changed=true;repaired=true;continue;}
    const comparison=rule.comparison||'atLeast',needMore=state.denominator===0||state.delta<0,needSubject=rule.kind==='mix'||needMore;
    const candidates=usable.filter(row=>room(row)>0&&ruleSlot(row,day,period,rule)&&(needSubject?matchesClinician(row,shareSubject(rule)):matchesDenominator(row,rule)&&!matchesClinician(row,shareSubject(rule))));
    let best=null;
@@ -241,7 +266,17 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    if(rule.kind==='minimum'){
     const matching=rows.filter(row=>row.sourceId===rule.sessionTypeId),actual=matching.reduce((sum,row)=>sum+countForRule(row,rule,day,period),0);
     if(actual<rule.minimum)failures.push(dayNames[day]+' '+period+': '+actual+' of '+rule.minimum+' '+(matching[0]?.name||'required')+' sessions.');
-   }else{const state=share(rule,day,period);measurements.push({day,period,numerator:state.numerator,denominator:state.denominator});if(!state.ok)failures.push((period==='week'?'Week':dayNames[day]+' '+period)+': '+shareSubject(rule).name+' appointment share does not meet the '+(rule.comparison||'atLeast')+' '+rule.minimum+'% target.');}
+   }else{const state=share(rule,day,period);measurements.push({day,period,numerator:state.numerator,denominator:state.denominator});if(!state.ok){
+    let reason='';
+    if(rule.kind==='mix'){
+     const eligible=usable.filter(row=>matchesClinician(row,shareSubject(rule))&&(rule.appointmentTypes||[]).some(name=>(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(name))&&poolFor(name)));
+     if(!eligible.length)reason=' No session type is eligible for both this clinician and the selected appointment type.';
+     else if(!eligible.some(row=>ruleSlot(row,day,period,rule)))reason=' The clinician is not available for an eligible session in this period.';
+     else if(!eligible.some(row=>room(row)>0))reason=' The eligible clinician has reached their weekly session maximum; review the limit or other required sessions.';
+    }
+    const target=({atLeast:'at least',atMost:'at most',exact:'exactly'}[rule.comparison||'atLeast']);
+    failures.push((period==='week'?'Week':dayNames[day]+' '+period)+': '+shareSubject(rule).name+' appointment mix does not meet the '+target+' '+rule.minimum+'% target.'+reason);
+   }}
   }
   return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,...(rule.kind==='share'||rule.kind==='mix'?{appointmentPool:sharePool(rule),clinicianGroup:shareSubject(rule).name,minimum:rule.minimum,comparison:rule.comparison||'atLeast',measurements}: {})};
  });

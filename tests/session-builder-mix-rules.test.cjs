@@ -18,3 +18,9 @@ test('appointment mix still applies in a selected period with booked slots',()=>
  const rule={...base,scope:'morning',days:[1,3,5],minimum:10,comparison:'atLeast'};
  const p=run(rule,0);assert.equal(p.error,undefined);const m=p.ruleResults[0].measurements[0];assert.ok(m.denominator>0);assert.ok(m.numerator*100>=10*m.denominator);
 });
+test('moves an existing routine session into the required morning without exceeding the clinician maximum',()=>{
+ const d={sameDay:[10,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:10,eligibleDailyTypes:['Same Day'],types:{sameDay:['Same Day'],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{'Same Day':[10,0,0,0,0]},homeVisit:{},weekly:{},routine:{Routine:10}}};
+ const rule={...base,scope:'morning',days:[1],minimum:10,comparison:'atLeast'};
+ const p=solve(rows,['Phone'],groups,d,[rule],{respectTypes:true,clinicians,clinicianLimits:{'GP Resident':{max:2}}});
+ assert.equal(p.error,undefined);assert.equal(p.clinicianCounts['GP Resident'],2);assert.equal(p.capacitySameDay[0],10);assert.equal(p.routineCapacity,10);const m=p.ruleResults[0].measurements[0];assert.ok(m.numerator*100>=10*m.denominator);
+});
