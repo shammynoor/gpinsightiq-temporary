@@ -174,3 +174,5 @@
 #sessionBuilderPage .session-builder-capacity-note{font-size:12px;color:#60798e;margin:9px 0 0;line-height:1.5}
 
 #sessionBuilderRequirements{--capacity-daily:#e94e70;--capacity-weekly:#d9b425;--capacity-routine:#76b79e;--capacity-planned:#aab8cb;--capacity-home:#efc0a6}
+#sessionBuilderPage .session-builder-plan-table{min-width:950px}
+#sessionBuilderPage .session-builder-capacity-table{min-width:850px}

@@ -2,6 +2,7 @@
 'use strict';
 const byId=id=>document.getElementById(id),maxValue=500;
 const periods=['Mon AM','Mon PM','Tue AM','Tue PM','Wed AM','Wed PM','Thu AM','Thu PM','Fri AM','Fri PM'];
+const days=['Mon','Tue','Wed','Thu','Fri'];
 function validate(limits){
  if(!limits||typeof limits!=='object'||Array.isArray(limits))throw Error('Clinician session limits must be a mapping.');
  for(const [name,value] of Object.entries(limits)){
@@ -47,12 +48,13 @@ window.renderSessionBuilderClinicians=()=>{
    limitCell.append(limitWrap);row.append(limitCell);
    const patternCell=document.createElement('td'),dropdown=document.createElement('details'),summary=document.createElement('summary'),options=document.createElement('div');
    dropdown.className='session-builder-appointment-dropdown session-clinician-pattern';options.className='session-builder-appointment-options';
-   const selected=new Set(Array.isArray(saved.workingPattern)?saved.workingPattern:periods);
-   const updateSummary=()=>{summary.textContent=selected.size===periods.length?'All week':selected.size===0?'No periods':selected.size+' of 10 periods';};
-   updateSummary();summary.setAttribute('aria-label','Working pattern for '+name);dropdown.append(summary);
-   for(const period of periods){
-    const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=selected.has(period);text.textContent=period;
-    checkbox.addEventListener('change',()=>{if(!canEditSessionBuilder())return;if(checkbox.checked)selected.add(period);else selected.delete(period);const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,workingPattern:periods.filter(item=>selected.has(item))}};validate(limits);sessionBuilderClinicianLimits=limits;updateSummary();markCategoryDirty(250);window.renderSessionBuilderRequirements?.();});
+   const savedPattern=Array.isArray(saved.workingPattern)?saved.workingPattern:periods;
+   const selected=new Set(days.filter(day=>savedPattern.some(period=>period.startsWith(day+' '))));
+   const updateSummary=()=>{summary.textContent=selected.size===days.length?'All week':selected.size===0?'No days':selected.size+' of 5 days';};
+   updateSummary();summary.setAttribute('aria-label','Working days for '+name);dropdown.append(summary);
+   for(const day of days){
+    const label=document.createElement('label'),checkbox=document.createElement('input'),text=document.createElement('span');checkbox.type='checkbox';checkbox.checked=selected.has(day);text.textContent=({Mon:'Monday',Tue:'Tuesday',Wed:'Wednesday',Thu:'Thursday',Fri:'Friday'})[day];
+    checkbox.addEventListener('change',()=>{if(!canEditSessionBuilder())return;if(checkbox.checked)selected.add(day);else selected.delete(day);const previous=sessionBuilderClinicianLimits[name]||{min:0,max:null},limits={...sessionBuilderClinicianLimits,[name]:{...previous,workingPattern:periods.filter(period=>selected.has(period.slice(0,3)))}};validate(limits);sessionBuilderClinicianLimits=limits;updateSummary();markCategoryDirty(250);window.renderSessionBuilderRequirements?.();});
     label.append(checkbox,text);options.append(label);
    }
    dropdown.append(options);patternCell.append(dropdown);row.append(patternCell);

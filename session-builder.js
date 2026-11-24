@@ -90,7 +90,9 @@ async function renderSessionRequirements(settings={}){
  const clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
  const configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
  const appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=appointmentCategoryFor(name).trim().toLowerCase(),mode=window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
- const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true,optimizeCost:true,clinicians:clinicianMap,clinicianLimits:sessionBuilderClinicianLimits,appointmentPools}];
+ const wholeDayLimits=Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limit])=>[name,{...limit,...(Array.isArray(limit.workingPattern)?{workingPattern:['Mon','Tue','Wed','Thu','Fri'].flatMap(day=>limit.workingPattern.some(period=>period.startsWith(day+' '))?[day+' AM',day+' PM']:[])}:{})}]));
+ const dailyRules=typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules.map(rule=>({...rule,scope:rule.scope==='week'?'week':'day'}));
+ const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,dailyRules,{respectTypes:true,optimizeCost:true,clinicians:clinicianMap,clinicianLimits:wholeDayLimits,appointmentPools}];
  const key=JSON.stringify(args);requirementsCurrentKey=key;
  const solveStatus=byId('sessionBuilderSolveStatus');
  if(!reset&&(requirementsRenderedKey!==null||requirementsSolving)){
@@ -156,37 +158,36 @@ async function renderSessionRequirements(settings={}){
  }
  const grandSplit={};
  for(const row of estimate.rows){
-  const cells=[];for(let day=0;day<5;day++)cells.push(unavailable?null:row.periods.morning[day],unavailable?null:row.periods.afternoon[day]);
+  const cells=[];for(let day=0;day<5;day++)cells.push(unavailable?null:row.periods.morning[day]+row.periods.afternoon[day]);
   const rowSplit={};if(!unavailable)for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])mergeSplit(rowSplit,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
   mergeSplit(grandSplit,rowSplit);
   const appointmentTotal=Object.values(rowSplit).reduce((sum,value)=>sum+value,0);
   const tr=addCells(body,row.name,[...cells,null,unavailable?null:cells.reduce((a,b)=>a+b,0),unavailable?null:appointmentTotal],row.group||'Choose eligible clinicians');
   if(!unavailable){
-   for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']]){
-    const cell=tr.children[1+day*2+offset];
-    appendSplit(cell,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
+   for(let day=0;day<5;day++){
+    const split={};for(const period of ['morning','afternoon'])mergeSplit(split,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
+    appendSplit(tr.children[1+day],split);
    }
-   appendSplit(tr.children[13],rowSplit);
+   appendSplit(tr.children[8],rowSplit);
    const definition=configuredTypes.find(type=>type.id===row.id);
    const eligible=(definition?.eligibleClinicians||[]).filter(name=>currentClinicians.has(name));
    const cost=estimate.costOptimised?window.SessionBuilderCosting.allocated(estimate.placements,row.id,costLimits):window.SessionBuilderCosting.equalSplit(cells.reduce((a,b)=>a+b,0),eligible,costLimits);
-   rowCosts.push(cost);renderCost(tr.children[11],cost);
+   rowCosts.push(cost);renderCost(tr.children[6],cost);
   }
  }
- if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=14;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
+ if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=9;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
  const foot=byId('sessionBuilderPlanFoot');foot.replaceChildren();
- const totals=[];for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])totals.push(unavailable?null:estimate.rows.reduce((sum,row)=>sum+row.periods[period][day],0));
+ const totals=[];for(let day=0;day<5;day++)totals.push(unavailable?null:estimate.rows.reduce((sum,row)=>sum+row.periods.morning[day]+row.periods.afternoon[day],0));
  const totalAppointments=Object.values(grandSplit).reduce((sum,value)=>sum+value,0);
  const totalRow=addCells(foot,'Total',[...totals,null,unavailable?null:totals.reduce((a,b)=>a+b,0),unavailable?null:totalAppointments]);
- if(!unavailable){appendSplit(totalRow.children[13],grandSplit);renderCost(totalRow.children[11],window.SessionBuilderCosting.total(rowCosts));}
+ if(!unavailable){appendSplit(totalRow.children[8],grandSplit);renderCost(totalRow.children[6],window.SessionBuilderCosting.total(rowCosts));}
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
- const capacityRow=(label,daily,weekly,{split=false,home=false,provided=false}={})=>{
+ const capacityRow=(label,daily,weekly,{home=false,provided=false}={})=>{
   const tr=document.createElement('tr'),th=document.createElement('th');th.scope='row';th.textContent=label;tr.className=home?'capacity-home':'';if(home&&!provided)tr.className+=' capacity-visits-start';if(provided)tr.className+=' capacity-provided';th.className='capacity-label';tr.append(th);
   daily.forEach((value,index)=>{
    const td=document.createElement('td');td.textContent=fmt(value);
-   if(!split)td.colSpan=2;
-   if(!split||index%2===1)td.className='capacity-day-end';
-   if(index===(split?9:4))td.className+=' capacity-daily-last';
+   td.className='capacity-day-end';
+   if(index===4)td.className+=' capacity-daily-last';
    tr.append(td);
   });
   weekly.forEach(value=>{const td=document.createElement('td');td.className='capacity-weekly';td.textContent=fmt(value);tr.append(td);});
@@ -194,8 +195,8 @@ async function renderSessionRequirements(settings={}){
  };
  const dailyNeed=history.forecast?demand?.urgentForecastDaily||Array(5).fill(null):Array(5).fill(null);
  capacityRow('Appointments needed',dailyNeed,[history.forecast?demand?.weekly:null,demand?.routine,demand?.planned]);
- const providedPeriods=Array.from({length:5},(_,day)=>['morning','afternoon'].map(period=>unavailable?null:estimate.capacitySameDayByPeriod?.[period]?.[day]??null)).flat();
- capacityRow('Appointments provided',providedPeriods,[unavailable?null:estimate.weeklyCapacity,unavailable?null:estimate.routineCapacity,unavailable?null:estimate.plannedCapacity],{split:true,provided:true});
+ const providedDays=unavailable?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null);
+ capacityRow('Appointments provided',providedDays,[unavailable?null:estimate.weeklyCapacity,unavailable?null:estimate.routineCapacity,unavailable?null:estimate.plannedCapacity],{provided:true});
  capacityRow('Home visits needed',demand?.homeVisit||Array(5).fill(null),[null,null,null],{home:true});
  capacityRow('Home visits provided',unavailable?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null),[null,null,null],{home:true,provided:true});
  const normal=name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
