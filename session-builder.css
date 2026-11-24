@@ -118,3 +118,12 @@
 #sessionBuilderPage .session-clinician-pattern .session-builder-appointment-options{display:grid;grid-template-columns:1fr 1fr;max-height:240px}
 #sessionBuilderPage .session-clinician-rate{display:flex;align-items:center;gap:5px}
 #sessionBuilderPage .session-clinician-rate input{width:100%;max-width:150px;padding:8px;font-size:13px}
+
+#sessionBuilderPage .session-rules-table{min-width:0;width:100%;table-layout:fixed}
+#sessionBuilderPage .session-rules-table>tbody>tr>td{padding:5px 0;border:0}
+#sessionBuilderPage .session-rule-card{border:1px solid #d8e5ed;border-radius:9px;background:#fff}
+#sessionBuilderPage .session-rule-card>summary{padding:13px 16px;color:#174b6b;font-size:13px;font-weight:650;cursor:pointer;line-height:1.4}
+#sessionBuilderPage .session-rule-controls{border-top:1px solid #e4edf3;display:grid;grid-template-columns:50px 180px minmax(260px,1fr) 120px 65px;gap:10px;padding:14px;align-items:start}
+#sessionBuilderPage .session-rule-controls select{max-width:100%;width:100%;margin-bottom:6px}
+#sessionBuilderPage .session-rule-controls .session-builder-appointment-dropdown{width:100%}
+@media(max-width:760px){#sessionBuilderPage .session-rule-controls{grid-template-columns:1fr 1fr}#sessionBuilderPage .session-rule-controls>div:nth-child(3){grid-column:1/-1}}
