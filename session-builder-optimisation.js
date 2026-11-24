@@ -5,7 +5,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=manual-planner-reset-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=weekly-distribution-v1');
  const job={key,worker,promise,resolve};pending=job;
  const finish=result=>{worker.terminate();clearTimeout(job.timer);if(pending===job)pending=null;completed={key,result};resolve(result);};
  worker.onmessage=event=>finish(event.data);worker.onerror=()=>finish({rows:[],error:'The background cost optimiser failed to load. Refresh the page.'});
@@ -93,9 +93,26 @@ function solve(types,modes,groups,demand,rules,options){
  const scopes=rule=>rule.scope==='week'?[{days:rule.days.map(d=>d-1),periods}]:rule.days.flatMap(d=>(rule.scope==='both'?periods:[rule.scope]).map(p=>({days:[d-1],periods:p==='day'?periods:[p]})));
  const inScope=(slot,scope)=>scope.days.includes(slot.day)&&scope.periods.includes(slot.period);
  const selected=(r,a)=>r.kind==='mix'||r.appointmentPool==='selected'?(r.appointmentTypes||[]).map(normal).includes(a.name):api.sharePool(r)==='urgent'?a.pool==='sameDay'||a.pool==='weekly':true;
- const ruleExpressions=[];
+ const ruleExpressions=[],distributionPenalties=[];
  for(const rule of active){
-  if(!['minimum','share','mix'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||!Number.isFinite(rule.minimum)||rule.minimum<0)return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(!['minimum','share','mix','distribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||!Number.isFinite(rule.minimum)||rule.minimum<0)return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(rule.kind==='distribution'){
+   if(!window.SessionBuilderDistribution)return fail('The weekly distribution rules could not load. Refresh the page.');
+   const issue=window.SessionBuilderDistribution.issue(rule,[...configured.keys()]);if(issue)return fail('Weekly distribution: '+issue);
+   const names=new Set(rule.appointmentTypes.map(normal)),chosen=allocations.filter(a=>names.has(a.name)),weekly=chosen.map(a=>a.id),targets=window.SessionBuilderDistribution.targets(rule);
+   for(let day=0;day<5;day++){
+    const daily=chosen.filter(a=>a.slot.day===day).map(a=>a.id),tolerance=rule.days.includes(day+1)?(rule.distributionTolerance??5):0,target=targets[day+1],lower=Math.max(0,(target-tolerance)/100),upper=Math.min(1,(target+tolerance)/100);
+    ruleExpressions.push({rule,distribution:true,day,numerator:daily,denominator:weekly,target,tolerance,lower,upper});
+    const upperConstraint=constraint({max:0}),lowerConstraint=constraint({min:0});
+    for(const id of daily){coefficient(id,upperConstraint,1);coefficient(id,lowerConstraint,1);}
+    for(const id of weekly){coefficient(id,upperConstraint,-upper);coefficient(id,lowerConstraint,-lower);}
+    if(rule.strength==='prefer'){
+     const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);
+     coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);
+    }
+   }
+   continue;
+  }
   if(rule.kind==='minimum'&&(!Number.isInteger(rule.minimum)||rule.minimum<1||!types.some(t=>t.id===rule.sessionTypeId)))return fail('A minimum-session rule refers to a missing session type or invalid minimum.');
   if(rule.kind!=='minimum'){
    const refs=[subject(rule),...api.shareDenominators(rule)],valid=ref=>ref?.kind==='group'?groups.includes(ref.name):ref?.kind==='type'&&Object.hasOwn(clinicians,ref.name);
@@ -120,7 +137,7 @@ function solve(types,modes,groups,demand,rules,options){
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
  }
- const primaryBudget=Math.max(1,deadline-Date.now());model.options.timeout=primaryBudget;
+ const primaryBudget=Math.max(1,deadline-Date.now()-(distributionPenalties.length?2000:0));model.options.timeout=primaryBudget;
  let result,start=Date.now();
  try{result=window.solver.Solve(model,1e-8,true);}catch(error){return fail('Cost optimisation could not complete. Review the plan settings or try again.');}
  let solution=result?.generateSolutionSet?.()||{},elapsed=Date.now()-start;
@@ -139,8 +156,19 @@ function solve(types,modes,groups,demand,rules,options){
  const costBound=constraint({max:annualCost/1000+1e-7});
  const sessionIds=new Set(slots.map(s=>s.id));
  for(const [id,data] of Object.entries(variables)){coefficient(id,costBound,data.cost||0);data.sessions=sessionIds.has(id)?1:0;}
- model.optimize='sessions';model.options.timeout=Math.min(1500,Math.max(1,deadline-Date.now()));
- if(deadline-Date.now()>25)try{const second=window.solver.Solve(model,1e-8,true),next=second.generateSolutionSet();if(second.feasible&&second.bounded&&audit(next))solution=next;}catch(error){/* Keep the already audited cost solution. */}
+ const refine=(objective,budget)=>{
+  if(deadline-Date.now()<=25)return false;
+  model.optimize=objective;model.options.timeout=Math.min(budget,Math.max(1,deadline-Date.now()));
+  try{const nextResult=window.solver.Solve(model,1e-8,true),next=nextResult.generateSolutionSet();if(nextResult.feasible&&nextResult.bounded&&audit(next)){solution=next;return true;}}catch(error){/* Retain the audited incumbent. */}
+  return false;
+ };
+ // Balance preferred distributions only within the best annual cost found.
+ // A third pass can reduce sessions without undoing that balance.
+ if(distributionPenalties.length&&refine('balance',Math.min(2000,Math.max(1,deadline-Date.now())))){
+  const bestBalance=distributionPenalties.reduce((n,id)=>n+(solution[id]||0),0),balanceBound=constraint({max:bestBalance+1e-7});
+  for(const id of distributionPenalties)coefficient(id,balanceBound,1);
+ }
+ refine('sessions',1500);
  const rows=types.map(t=>({id:t.id,name:t.name,group:[...new Set((t.eligibleClinicians||[]).map(n=>clinicians[n]).filter(Boolean))].join(' · '),days:[0,0,0,0,0],weekly:0,routine:0,planned:0,periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}})),rowById=new Map(rows.map(r=>[r.id,r]));
  const clinicianCounts={},placements=[],appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
  for(const slot of slots){const count=Math.round(solution[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
@@ -155,6 +183,11 @@ function solve(types,modes,groups,demand,rules,options){
  const ruleResults=active.map(rule=>{
   const failures=[],measurements=[];
   for(const expression of ruleExpressions.filter(e=>e.rule===rule)){
+   if(expression.distribution){
+    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(solution[id]||0),0);
+    if(numerator<expression.lower*denominator-1e-5||numerator>expression.upper*denominator+1e-5)failures.push(daysShort[expression.day]+': outside the '+expression.target+'% target ±'+expression.tolerance+' percentage points.');
+    measurements.push({day:expression.day,numerator,denominator,target:expression.target,tolerance:expression.tolerance});continue;
+   }
    const value=expression.terms.reduce((n,[id,c])=>n+(solution[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(solution[id]||0),0),comparison=rule.comparison||'atLeast';
    const ok=rule.kind==='minimum'?value>=rule.minimum-1e-5:(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
    if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));

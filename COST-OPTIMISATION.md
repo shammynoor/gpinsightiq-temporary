@@ -12,6 +12,17 @@ working-pattern masks, consultation-mode capacities, appointment eligibility,
 forecast/historical demand, and enabled Must meet rules. Planned care and daily
 urgent demand are pooled; routine and weekly urgent type eligibility is retained.
 Prefer rules are evaluated and reported but do not override the cost objective.
+Weekly distribution is an optional rule type; no rule is created automatically.
+Allocation can be any configured appointment type. Planned-care selections use the
+shared Planned care pool. Targets can be even or custom percentages (totalling
+100% across selected weekdays), with a tolerance in percentage points. Must meet
+rules enforce each day's share of the weekly selected allocation, and disallow
+that allocation on unselected days. Prefer rules minimise appointments outside
+these ranges among plans no more expensive than the best annual cost found.
+If preferred distributions are enabled, up to two seconds of the shared solve
+budget is reserved for balancing. Remaining time can reduce session count without
+increasing cost or worsening the best balance found. All allocations stay whole
+and must still cover each demand target. Changes apply only on Reset planner.
 
 Session counts and costs describe contracted recurring weekly commitments.
 Average productive appointment capacity is reduced by

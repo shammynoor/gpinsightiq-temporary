@@ -144,3 +144,8 @@
 #sessionBuilderPage .session-builder-solve-spinner{display:inline-block;width:14px;height:14px;border:2px solid #ffffff66;border-top-color:white;border-radius:50%;animation:session-builder-spin .7s linear infinite}
 #sessionBuilderPage .session-builder-solve-spinner[hidden]{display:none}
 @keyframes session-builder-spin{to{transform:rotate(360deg)}}
+
+#sessionBuilderPage .session-rule-distribution-days{display:flex;gap:10px;flex-wrap:wrap;width:100%;margin-top:6px}
+#sessionBuilderPage .session-rule-distribution-days label{display:flex;gap:5px;align-items:center;padding:6px 8px;border-radius:7px;background:#edf3f8;font-size:13px}
+#sessionBuilderPage .session-rule-distribution-days input{width:75px}
+#sessionBuilderPage .session-rule-distribution{flex-wrap:wrap}
