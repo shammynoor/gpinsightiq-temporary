@@ -159,6 +159,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   for(let i=0;i<n;i++){const day=i%5;add(leaders[i%leaders.length],day,choosePeriod(day),field,1);}
  }
  }
+ const mixOverrides=[];
  const buildBreakdown=()=>{
  const appointmentBreakdown={};
  if(flowForBreakdown){
@@ -184,6 +185,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   };
   for(let day=0;day<5;day++){distribute('sameDay',day);distribute('homeVisit',day);}
   distribute('weekly',0);distribute('routine',0);distribute('planned',0);
+  for(const change of mixOverrides){const cell=appointmentBreakdown[change.id]?.[change.day]?.[change.period];if(!cell)continue;const amount=Math.min(change.count,cell[change.from]||0);cell[change.from]-=amount;cell[change.to]=(cell[change.to]||0)+amount;}
  }
  return appointmentBreakdown;
  };
@@ -207,6 +209,31 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  };
  const poolFor=name=>options.appointmentPools?.[name]|| (demand.types?.homeVisit?.includes(name)?'homeVisit':demand.types?.weekly?.includes(name)?'weekly':demand.types?.routine?.includes(name)?'routine':(demand.eligibleDailyTypes||demand.types?.sameDay||[]).includes(name)?'sameDay':null);
  const percentages=hard.filter(rule=>rule.kind==='share'||rule.kind==='mix');let repaired=false,added=0;
+ // A session's non-home-visit slots can be shared between eligible appointment
+ // types. Keep the total slots unchanged and account for any displaced urgent need.
+ const mixExistingSlots=(rule,day,period,state)=>{
+  if(rule.kind!=='mix'||!flowForBreakdown||state.delta>=0)return false;
+  const targetNames=(rule.appointmentTypes||[]).filter(name=>poolFor(name)==='routine');
+  if(!targetNames.length)return false;
+  const days=period==='week'?rule.days.map(d=>d-1):[day],parts=period==='week'||period==='day'?['morning','afternoon']:[period];
+  const protectedStates=percentages.flatMap(other=>ruleDays(other).flatMap(d=>periods(other).filter(p=>other!==rule||d-1!==day||p!==period).map(p=>({other,day:d-1,period:p,ok:share(other,d-1,p).ok}))));
+  for(const row of usable){
+   if(!matchesClinician(row,shareSubject(rule)))continue;
+   const target=targetNames.find(name=>!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(name));if(!target)continue;
+   for(const currentDay of days)for(const currentPeriod of parts){
+    const cell=appointmentBreakdown[row.id]?.[currentDay]?.[currentPeriod]||{};
+    for(const [name,value] of Object.entries(cell)){
+     if(value<1||poolFor(name)!=='sameDay'||targetNames.includes(name))continue;
+     const amount=Math.min(Math.floor(value),Math.max(1,Math.ceil(-state.delta/100)));
+     mixOverrides.push({id:row.id,day:currentDay,period:currentPeriod,from:name,to:target,count:amount});appointmentBreakdown=buildBreakdown();
+     const next=share(rule,day,period),preserved=protectedStates.every(item=>!item.ok||share(item.other,item.day,item.period).ok);
+     if(next.delta>state.delta+1e-7&&preserved)return true;
+     mixOverrides.pop();appointmentBreakdown=buildBreakdown();
+    }
+   }
+  }
+  return false;
+ };
  // Reposition an existing weekly-pool session before adding another one. Weekly
  // demand is unchanged, and clinician limits continue to count the same session.
  const moveExistingMixSession=(rule,day,period,state)=>{
@@ -235,7 +262,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   let changed=false;
   for(const rule of percentages)for(const d of ruleDays(rule))for(const period of periods(rule)){
    const day=d-1,state=share(rule,day,period);if(state.ok)continue;
-   if(moveExistingMixSession(rule,day,period,state)){changed=true;repaired=true;continue;}
+   if(moveExistingMixSession(rule,day,period,state)||mixExistingSlots(rule,day,period,state)){changed=true;repaired=true;continue;}
    const comparison=rule.comparison||'atLeast',needMore=state.denominator===0||state.delta<0,needSubject=rule.kind==='mix'||needMore;
    const candidates=usable.filter(row=>room(row)>0&&ruleSlot(row,day,period,rule)&&(needSubject?matchesClinician(row,shareSubject(rule)):matchesDenominator(row,rule)&&!matchesClinician(row,shareSubject(rule))));
    let best=null;
@@ -258,6 +285,27 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   if(!changed)break;
  }
  if(flowForBreakdown)appointmentBreakdown=buildBreakdown();
+ // Replace displaced same-day capacity when an eligible session can be added
+ // without breaking any already-satisfied required percentage rule.
+ for(let day=0;day<5&&mixOverrides.length;day++){
+  let attempts=0;
+  while(attempts++<100){
+   const displaced=mixOverrides.filter(change=>change.day===day).reduce((n,change)=>n+change.count,0);
+   const current=rows.reduce((n,row)=>n+row.days[day]*row.sameDay,0)-displaced;if(current>=demand.sameDay[day]-1e-7)break;
+   const protectedStates=percentages.flatMap(rule=>ruleDays(rule).flatMap(d=>periods(rule).map(period=>({rule,day:d-1,period,ok:share(rule,d-1,period).ok}))));
+   let placed=false;
+   for(const row of usable.filter(row=>row.sameDay>0&&room(row)>0).sort((a,b)=>b.sameDay-a.sameDay)){
+    for(const period of ['morning','afternoon']){
+     if(!available(row,day,period))continue;
+     add(row,day,period,'daily',1);appointmentBreakdown=buildBreakdown();
+     if(protectedStates.every(item=>!item.ok||share(item.rule,item.day,item.period).ok)){placed=true;break;}
+     placements.pop();row.days[day]--;row.periods[period][day]--;if(constrained)clinicianCounts[row.clinician]--;appointmentBreakdown=buildBreakdown();
+    }
+    if(placed)break;
+   }
+   if(!placed)break;
+  }
+ }
  const ruleResults=active.map(rule=>{
   const error=issues(rule),failures=[],measurements=[];
   if(error)failures.push(error);
@@ -285,13 +333,18 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const unassignedDailyTypes=options.respectTypes&&demand.byType?Object.entries(demand.byType.sameDay||{}).filter(([name,values])=>values.some(value=>value>1e-8)&&!usable.some(row=>row.sameDay>0&&(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.includes(name)))).map(([name])=>name):[];
  const sum=fn=>rows.reduce((s,row)=>s+fn(row),0);
  const days=Array.from({length:5},(_,day)=>sum(row=>row.days[day]));
- const capacitySameDay=days.map((_,day)=>sum(row=>row.days[day]*row.sameDay)),capacityHomeVisit=days.map((_,day)=>sum(row=>row.days[day]*row.homeVisit));
+ const displacedByDay=days.map((_,day)=>mixOverrides.filter(change=>change.day===day).reduce((total,change)=>total+change.count,0));
+ const capacitySameDay=days.map((_,day)=>sum(row=>row.days[day]*row.sameDay)-displacedByDay[day]),capacityHomeVisit=days.map((_,day)=>sum(row=>row.days[day]*row.homeVisit));
+ // Do not claim displaced urgent slots are still available to meet the forecast.
+ for(let day=0;day<5;day++){const gap=Math.max(0,demand.sameDay[day]-capacitySameDay[day]);const prior=unmetDemand.find(item=>item.pool==='sameDay'&&item.day===day);if(prior)prior.amount=gap;else if(gap>1e-7)unmetDemand.push({pool:'sameDay',day,name:'Same-day urgent',amount:gap});}
+ for(let i=unmetDemand.length-1;i>=0;i--)if(unmetDemand[i].amount<=1e-7)unmetDemand.splice(i,1);
+ const mixedRoutine=mixOverrides.reduce((total,change)=>total+change.count,0);
  let visibleRows=rows,visibleBreakdown=appointmentBreakdown;
  if(constrained){
   visibleRows=originalTypes.map(type=>{const parts=rows.filter(row=>row.sourceId===type.id),sum=fn=>parts.reduce((n,row)=>n+fn(row),0);return {id:type.id,name:type.name,group:[...new Set(parts.map(row=>row.group).filter(Boolean))].join(' · '),capacity:sum(row=>row.capacity),days:Array.from({length:5},(_,day)=>sum(row=>row.days[day])),weekly:sum(row=>row.weekly),routine:sum(row=>row.routine),planned:sum(row=>row.planned),periods:{morning:Array.from({length:5},(_,day)=>sum(row=>row.periods.morning[day])),afternoon:Array.from({length:5},(_,day)=>sum(row=>row.periods.afternoon[day]))}};});
   visibleBreakdown={};for(const row of rows){const source=appointmentBreakdown[row.id];if(!source)continue;const target=visibleBreakdown[row.sourceId]||(visibleBreakdown[row.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}})));for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])for(const [name,value] of Object.entries(source[day][period]))target[day][period][name]=(target[day][period][name]||0)+value;}
  }
- return {rows:visibleRows,clinicianCounts,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),plannedCapacity:sum(row=>row.planned*row.poolCapacity.planned),placements,appointmentBreakdown:visibleBreakdown,unmetDemand,unassignedDailyTypes,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine+row.planned*row.poolCapacity.planned),approximate};
+ return {rows:visibleRows,clinicianCounts,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine)+mixedRoutine,plannedCapacity:sum(row=>row.planned*row.poolCapacity.planned),placements,appointmentBreakdown:visibleBreakdown,unmetDemand,unassignedDailyTypes,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine+row.planned*row.poolCapacity.planned),approximate};
 }
 window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,historicalCareKind,vectorSessions,sharePool,shareSubject,shareDenominators});
 })();

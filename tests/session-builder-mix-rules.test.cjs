@@ -24,3 +24,12 @@ test('moves an existing routine session into the required morning without exceed
  const p=solve(rows,['Phone'],groups,d,[rule],{respectTypes:true,clinicians,clinicianLimits:{'GP Resident':{max:2}}});
  assert.equal(p.error,undefined);assert.equal(p.clinicianCounts['GP Resident'],2);assert.equal(p.capacitySameDay[0],10);assert.equal(p.routineCapacity,10);const m=p.ruleResults[0].measurements[0];assert.ok(m.numerator*100>=10*m.denominator);
 });
+test('allocates routine slots inside a twelve-slot same-day session at the clinician maximum',()=>{
+ const r=[{...rows[0],appointmentsByMode:{Phone:12}}],d={sameDay:[12,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,eligibleDailyTypes:['Same Day'],types:{sameDay:['Same Day'],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{'Same Day':[12,0,0,0,0]},homeVisit:{},weekly:{},routine:{Routine:0}}};
+ const rule={...base,scope:'morning',days:[1],minimum:10,comparison:'atLeast'},p=solve(r,['Phone'],groups,d,[rule],{respectTypes:true,clinicians,clinicianLimits:{'GP Resident':{max:1}}});
+ assert.equal(p.error,undefined);assert.equal(p.clinicianCounts['GP Resident'],1);const m=p.ruleResults[0].measurements[0];assert.equal(m.denominator,12);assert.equal(m.numerator,2);assert.equal(p.capacitySameDay[0],10);assert.equal(p.routineCapacity,2);assert.ok(p.unmetDemand.some(item=>item.pool==='sameDay'&&item.day===0&&item.amount===2));
+});
+test('replaces urgent capacity displaced by a mixed session when another clinician is available',()=>{
+ const people={'GP Resident':'GP','Nurse':'Nursing'},types=[{id:'resident',name:'Resident',eligibleClinicians:['GP Resident'],appointmentTypes:['Same Day','Routine'],appointmentsByMode:{Phone:12}},{id:'nurse',name:'Nurse',eligibleClinicians:['Nurse'],appointmentTypes:['Same Day'],appointmentsByMode:{Phone:10}}],d={sameDay:[12,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,eligibleDailyTypes:['Same Day'],types:{sameDay:['Same Day'],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{'Same Day':[12,0,0,0,0]},homeVisit:{},weekly:{},routine:{Routine:0}}},rule={...base,scope:'morning',days:[1],minimum:10,comparison:'atLeast'};
+ const p=solve(types,['Phone'],['GP','Nursing'],d,[rule],{respectTypes:true,clinicians:people,clinicianLimits:{'GP Resident':{max:1},Nurse:{max:1}}});assert.equal(p.error,undefined);assert.equal(p.routineCapacity,2);assert.ok(p.capacitySameDay[0]>=12);assert.equal(p.clinicianCounts.Nurse,1);assert.equal(p.unmetDemand.length,0);
+});
