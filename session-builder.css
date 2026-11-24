@@ -85,7 +85,7 @@
 #sessionBuilderPage .session-builder-appointment-options input{width:16px;height:16px;min-height:0;margin:0;padding:0;accent-color:#1268a8;flex:0 0 16px}
 
 #sessionBuilderPage .session-builder-plan-table{min-width:1100px;table-layout:fixed;font-variant-numeric:tabular-nums}
-#sessionBuilderPage .session-builder-capacity-table{min-width:850px;table-layout:fixed;font-variant-numeric:tabular-nums}
+#sessionBuilderPage .session-builder-capacity-table{min-width:970px;table-layout:fixed;font-variant-numeric:tabular-nums}
 #sessionBuilderPage .session-builder-plan-table th:nth-child(n),#sessionBuilderPage .session-builder-capacity-table th:nth-child(n){min-width:0;width:auto;text-align:center}
 #sessionBuilderPage .session-builder-plan-table thead tr:first-child th:first-child,#sessionBuilderPage .session-builder-plan-table tbody th:first-child,#sessionBuilderPage .session-builder-plan-table tfoot th:first-child,#sessionBuilderPage .session-builder-capacity-table th:first-child{width:170px;text-align:left}
 #sessionBuilderPage .session-builder-plan-table td,#sessionBuilderPage .session-builder-capacity-table td{text-align:center;padding:10px 5px}

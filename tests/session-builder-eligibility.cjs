@@ -65,5 +65,5 @@ test('home-visiting appointments use their appointment category, separate from u
  assert.equal(kind('HOME VISITING','routine','weekly'),'homeVisit');
  assert.equal(kind('Urgent Care','urgent','daily'),'sameDay');
  assert.equal(kind('Urgent Care','urgent','weekly'),'weekly');
- assert.equal(kind('Planned Care','other','daily'),null);
+ assert.equal(kind('Planned Care','other','daily'),'planned');
 });
