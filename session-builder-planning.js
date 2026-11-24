@@ -1,5 +1,6 @@
 (function(){
 'use strict';
+function historicalCareKind(category,role,planningMode){if(String(category||'').toLowerCase().replace(/[^a-z]/g,'')==='homevisiting')return 'homeVisit';if(role==='routine')return 'routine';if(role==='urgent')return planningMode==='weekly'?'weekly':'sameDay';return null;}
 function isIncludedAppointmentType(name){return String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'')!=='111referral';}
 function isHomeVisit(mode){const name=String(mode).toLowerCase().replace(/[^a-z0-9]/g,'');return /homevis|domiciliary/.test(name)||['visit','visits','hv'].includes(name);}
 function averageDemand(rows,weeks,{monday,classify}){
@@ -229,5 +230,5 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  }
  return {rows:visibleRows,clinicianCounts,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,appointmentBreakdown:visibleBreakdown,unmetDemand,unassignedDailyTypes,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
 }
-window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,vectorSessions,sharePool});
+window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,historicalCareKind,vectorSessions,sharePool});
 })();

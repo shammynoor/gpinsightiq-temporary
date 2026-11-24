@@ -59,3 +59,11 @@ test('an urgent share cannot be met by routine-only GP appointments',()=>{
  const rules=[{id:'share',enabled:true,kind:'share',scope:'day',days:[1],minimum:20,clinicianGroup:'GP',denominator:'pair',comparisonGroup:'Urgent Care Team',strength:'must'}];
  assert.match(estimateSessions(rows,['Phone'],['GP','Urgent Care Team'],demand,rules,{respectTypes:true}).error,/No plan found/);
 });
+test('home-visiting appointments use their appointment category, separate from urgent forecast',()=>{
+ const kind=context.window.SessionBuilderPlanning.historicalCareKind;
+ assert.equal(kind('Home Visiting','other','daily'),'homeVisit');
+ assert.equal(kind('HOME VISITING','routine','weekly'),'homeVisit');
+ assert.equal(kind('Urgent Care','urgent','daily'),'sameDay');
+ assert.equal(kind('Urgent Care','urgent','weekly'),'weekly');
+ assert.equal(kind('Planned Care','other','daily'),null);
+});

@@ -53,27 +53,17 @@ function readAverageDemand(){
  const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
   const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info||!window.SessionBuilderPlanning.isIncludedAppointmentType(name))return null;
-  if(info.role==='routine')return {kind:'routine',name};
-  if(info.role==='urgent'&&planningModes[name]==='weekly')return {kind:'weekly',name};
-  const mode=consultAssignments[row.slot]||suggestConsultMode(row.slot)||'';
-  if(info.category==='homevisiting'||info.role==='urgent'&&window.SessionBuilderPlanning.isHomeVisit(mode))return {kind:'homeVisit',name};
-  return info.role==='urgent'?{kind:'sameDay',name}:null;
+  const kind=window.SessionBuilderPlanning.historicalCareKind(info.category,info.role,planningModes[name]);
+  return kind?{kind,name}:null;
  }});
  if(demand)demand.eligibleDailyTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.role==='urgent'&&info.category!=='homevisiting'&&planningModes[name]!=='weekly').map(([name])=>name);
  const forecast=window.getSessionBuilderUrgentForecast?.();
  if(demand&&forecast?.weeks?.length){
-  const count=forecast.weeks.length,historicalDaily=demand.byType.sameDay,historicalHome=demand.byType.homeVisit;
+  const count=forecast.weeks.length;
   const projected=Object.fromEntries(forecast.dailyGroups.map(name=>[name,Array.from({length:5},(_,day)=>forecast.weeks.reduce((sum,week)=>sum+(week.daily[day][name]||0),0)/count)]));
-  const forecastHome={};
-  for(const [name,days] of Object.entries(projected)){
-   const home=historicalHome[name];if(!home)continue;
-   forecastHome[name]=days.map((value,day)=>{const h=home[day]||0,d=historicalDaily[name]?.[day]||0;return h+d>0?value*h/(h+d):0;});
-  }
   demand.urgentForecastDaily=Array.from({length:5},(_,day)=>Object.values(projected).reduce((sum,days)=>sum+days[day],0));
-  demand.byType.sameDay=Object.fromEntries(Object.entries(projected).map(([name,days])=>[name,days.map((value,day)=>Math.max(0,value-(forecastHome[name]?.[day]||0)))]));
-  demand.byType.homeVisit={...historicalHome,...forecastHome};
-  demand.sameDay=Array.from({length:5},(_,day)=>Object.values(demand.byType.sameDay).reduce((sum,days)=>sum+days[day],0));
-  demand.homeVisit=Array.from({length:5},(_,day)=>Object.values(demand.byType.homeVisit).reduce((sum,days)=>sum+days[day],0));
+  demand.byType.sameDay=projected;
+  demand.sameDay=[...demand.urgentForecastDaily];
   demand.weekly=forecast.weeks.reduce((sum,week)=>sum+Object.values(week.weekly).reduce((a,b)=>a+b,0),0)/count;
   demand.byType.weekly=Object.fromEntries(forecast.weeklyGroups.map(name=>[name,forecast.weeks.reduce((sum,week)=>sum+(week.weekly[name]||0),0)/count]));
   demand.types.sameDay=[...forecast.dailyGroups];demand.types.homeVisit=Object.keys(demand.byType.homeVisit);demand.types.weekly=[...forecast.weeklyGroups];demand.eligibleDailyTypes=[...forecast.dailyGroups];
@@ -87,7 +77,7 @@ function renderSessionRequirements(){
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- byId('sessionBuilderHistory').textContent=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine and non-urgent home-visit need use historical averages; urgent home visits use the historical mode split.':'Urgent forecast unavailable. Check report history and practice list-size settings.';
+ byId('sessionBuilderHistory').textContent=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine and home-visiting need use historical averages.':'Urgent forecast unavailable. Check report history and practice list-size settings.';
  const clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
  const configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
  const estimate=window.SessionBuilderPlanning.estimateSessions(configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true,clinicians:clinicianMap,clinicianLimits:sessionBuilderClinicianLimits});
@@ -123,9 +113,7 @@ function renderSessionRequirements(){
   const tr=addCells(body,row.name,[...cells,estimate.error?null:cells.reduce((a,b)=>a+b,0),estimate.error?null:appointmentTotal],row.group||'Choose eligible clinicians');
   if(!estimate.error){
    for(let day=0;day<5;day++)for(const [offset,period] of [[0,'morning'],[1,'afternoon']]){
-    const cell=tr.children[1+day*2+offset],assigned=new Map();
-    for(const placement of estimate.placements||[])if(placement.sourceId===row.id&&placement.day===day&&placement.period===period&&placement.clinician)assigned.set(placement.clinician,(assigned.get(placement.clinician)||0)+placement.count);
-    if(assigned.size){const details=document.createElement('span');details.className='session-builder-assigned-clinicians';details.textContent=[...assigned].map(([name,count])=>name+' '+count).join(' · ');cell.append(details);}
+    const cell=tr.children[1+day*2+offset];
     appendSplit(cell,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
    }
    appendSplit(tr.children[12],rowSplit);
@@ -138,8 +126,8 @@ function renderSessionRequirements(){
  const totalRow=addCells(foot,'Total',[...totals,estimate.error?null:totals.reduce((a,b)=>a+b,0),estimate.error?null:totalAppointments]);
  if(!estimate.error)appendSplit(totalRow.children[12],grandSplit);
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
- addCells(summary,'Daily urgent forecast (includes urgent home visits)',[...(history.forecast?demand?.urgentForecastDaily||Array(5).fill(null):Array(5).fill(null)),history.forecast?demand?.weekly:null,demand?.routine]);
- addCells(summary,estimate.unmetDemand?.length?'Appointments provided (partial plan; daily excludes home visits)':'Appointments provided (daily excludes home visits)',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
+ addCells(summary,'Daily urgent forecast',[...(history.forecast?demand?.urgentForecastDaily||Array(5).fill(null):Array(5).fill(null)),history.forecast?demand?.weekly:null,demand?.routine]);
+ addCells(summary,estimate.unmetDemand?.length?'Appointments provided (partial plan)':'Appointments provided',[...(estimate.error?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),estimate.error?null:estimate.weeklyCapacity,estimate.error?null:estimate.routineCapacity]);
  addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null]);
  addCells(summary,'Home visits provided',[...(estimate.error?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null]);
  const shareSummary=(estimate.ruleResults||[]).filter(result=>result.strength==='must'&&result.appointmentPool==='urgent').map(result=>{const values=result.measurements.filter(m=>m.denominator>0).map(m=>m.numerator/m.denominator*100);return values.length?result.clinicianGroup+' urgent share '+fmt(Math.min(...values))+'–'+fmt(Math.max(...values))+'% (minimum '+fmt(result.minimum)+'%)':result.clinicianGroup+' urgent share has no appointments to measure';});

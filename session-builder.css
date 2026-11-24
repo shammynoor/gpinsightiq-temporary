@@ -118,5 +118,3 @@
 #sessionBuilderPage .session-clinician-pattern .session-builder-appointment-options{display:grid;grid-template-columns:1fr 1fr;max-height:240px}
 #sessionBuilderPage .session-clinician-rate{display:flex;align-items:center;gap:5px}
 #sessionBuilderPage .session-clinician-rate input{width:100%;max-width:150px;padding:8px;font-size:13px}
-
-#sessionBuilderPage .session-builder-assigned-clinicians{display:block;margin-top:4px;font-size:10px;line-height:1.2;color:#4c647b;overflow-wrap:anywhere}
