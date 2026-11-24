@@ -180,10 +180,29 @@ async function renderSessionRequirements(settings={}){
  const totalRow=addCells(foot,'Total',[...totals,null,unavailable?null:totals.reduce((a,b)=>a+b,0),unavailable?null:totalAppointments]);
  if(!unavailable){appendSplit(totalRow.children[13],grandSplit);renderCost(totalRow.children[11],window.SessionBuilderCosting.total(rowCosts));}
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
- addCells(summary,'Appointments needed',[...(history.forecast?demand?.urgentForecastDaily||Array(5).fill(null):Array(5).fill(null)),history.forecast?demand?.weekly:null,demand?.routine,demand?.planned]);
- addCells(summary,estimate.unmetDemand?.length?'Appointments provided (partial plan)':'Appointments provided',[...(unavailable?Array(5).fill(null):estimate.capacitySameDay||Array(5).fill(null)),unavailable?null:estimate.weeklyCapacity,unavailable?null:estimate.routineCapacity,unavailable?null:estimate.plannedCapacity]);
- addCells(summary,'Home visits needed',[...(demand?.homeVisit||Array(5).fill(null)),null,null,null]);
- addCells(summary,'Home visits provided',[...(unavailable?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null)),null,null,null]);
+ const capacityRow=(label,daily,weekly,{split=false,home=false,provided=false}={})=>{
+  const tr=document.createElement('tr'),th=document.createElement('th');th.scope='row';th.textContent=label;tr.className=home?'capacity-home':'';if(home&&!provided)tr.className+=' capacity-visits-start';if(provided)tr.className+=' capacity-provided';th.className='capacity-label';tr.append(th);
+  daily.forEach((value,index)=>{
+   const td=document.createElement('td');td.textContent=fmt(value);
+   if(!split)td.colSpan=2;
+   if(!split||index%2===1)td.className='capacity-day-end';
+   if(index===(split?9:4))td.className+=' capacity-daily-last';
+   tr.append(td);
+  });
+  weekly.forEach(value=>{const td=document.createElement('td');td.className='capacity-weekly';td.textContent=fmt(value);tr.append(td);});
+  summary.append(tr);return tr;
+ };
+ const dailyNeed=history.forecast?demand?.urgentForecastDaily||Array(5).fill(null):Array(5).fill(null);
+ capacityRow('Appointments needed',dailyNeed,[history.forecast?demand?.weekly:null,demand?.routine,demand?.planned]);
+ const providedPeriods=Array.from({length:5},(_,day)=>['morning','afternoon'].map(period=>unavailable?null:estimate.capacitySameDayByPeriod?.[period]?.[day]??null)).flat();
+ capacityRow('Appointments provided',providedPeriods,[unavailable?null:estimate.weeklyCapacity,unavailable?null:estimate.routineCapacity,unavailable?null:estimate.plannedCapacity],{split:true,provided:true});
+ capacityRow('Home visits needed',demand?.homeVisit||Array(5).fill(null),[null,null,null],{home:true});
+ capacityRow('Home visits provided',unavailable?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null),[null,null,null],{home:true,provided:true});
+ const normal=name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
+ for(const [key,pool,preferred,fallback] of [['daily','sameDay','sameday','#e94e70'],['weekly','weekly','within3days','#d9b425'],['routine','routine','routine','#76b79e'],['planned','planned','followup','#aab8cb'],['home','homeVisit','visit','#efc0a6']]){
+  const names=Object.keys(appointmentPools).filter(name=>appointmentPools[name]===pool),name=names.find(name=>normal(name)===preferred)||names[0];
+  root.style?.setProperty?.('--capacity-'+key,name&&typeof urgencyGroupColour==='function'?urgencyGroupColour(name):fallback);
+ }
  const shareSummary=(estimate.ruleResults||[]).filter(result=>result.kind==='share'&&result.strength==='must'&&result.appointmentPool==='urgent').map(result=>{const values=result.measurements.filter(m=>m.denominator>0).map(m=>m.numerator/m.denominator*100);return values.length?result.clinicianGroup+' urgent share '+fmt(Math.min(...values))+'–'+fmt(Math.max(...values))+'% ('+({atLeast:'at least',atMost:'at most',exact:'exactly'}[result.comparison]||'at least')+' '+fmt(result.minimum)+'%)':result.clinicianGroup+' urgent share has no appointments to measure';});
  const clinicianSummary=Object.entries(estimate.clinicianCounts||{}).filter(([,count])=>count>0).map(([name,count])=>name+': '+count).join(' · ');
  const caption=byId('sessionBuilderPlanStatus');

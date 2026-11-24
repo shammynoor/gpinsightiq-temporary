@@ -149,3 +149,28 @@
 #sessionBuilderPage .session-rule-distribution-days label{display:flex;gap:5px;align-items:center;padding:6px 8px;border-radius:7px;background:#edf3f8;font-size:13px}
 #sessionBuilderPage .session-rule-distribution-days input{width:75px}
 #sessionBuilderPage .session-rule-distribution{flex-wrap:wrap}
+
+#sessionBuilderPage .session-builder-capacity-table{min-width:1140px;border-collapse:separate;border-spacing:0;--capacity-divider:#aec4d6}
+#sessionBuilderPage .session-builder-capacity-table .capacity-label-col{width:170px}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-col{width:125px}
+#sessionBuilderPage .session-builder-capacity-table th,#sessionBuilderPage .session-builder-capacity-table td{padding:9px 5px;font-variant-numeric:tabular-nums;border-bottom:1px solid #dce7f0}
+#sessionBuilderPage .session-builder-capacity-table .capacity-label{padding:9px 15px;text-align:left;line-height:1.5}
+#sessionBuilderPage .session-builder-capacity-table thead tr:not(:first-child) th:first-child{width:auto}
+#sessionBuilderPage .session-builder-capacity-table .capacity-daily-title{background:color-mix(in srgb,var(--capacity-daily) 14%,#fff);color:#17395b;border-bottom:2px solid var(--capacity-daily);padding:14px 5px}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-title{background:#eaf3f8;border-left:2px solid var(--capacity-divider);border-bottom:2px solid var(--capacity-divider);padding:14px 5px}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekday{padding:11px 4px;border-right:1px solid var(--capacity-divider)}
+#sessionBuilderPage .session-builder-capacity-table .capacity-period{background:#f4f8fb;font-size:11px;letter-spacing:.7px;padding:8px 3px;border-bottom:1px solid var(--capacity-divider)}
+#sessionBuilderPage .session-builder-capacity-table .capacity-day-end{border-right:1px solid var(--capacity-divider)}
+#sessionBuilderPage .session-builder-capacity-table .capacity-daily-last{border-right:0}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-heading,#sessionBuilderPage .session-builder-capacity-table .capacity-weekly{border-left:2px solid var(--capacity-divider)}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-heading{border-bottom:2px solid var(--capacity-divider);line-height:1.5}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-urgent{background:color-mix(in srgb,var(--capacity-weekly) 18%,#fff);border-bottom-color:var(--capacity-weekly);color:#17395b}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-routine{background:color-mix(in srgb,var(--capacity-routine) 18%,#fff);border-bottom-color:var(--capacity-routine);color:#17395b}
+#sessionBuilderPage .session-builder-capacity-table .capacity-weekly-planned{background:color-mix(in srgb,var(--capacity-planned) 22%,#fff);border-bottom-color:var(--capacity-planned);color:#17395b}
+#sessionBuilderPage .session-builder-capacity-table .capacity-provided td{font-weight:600}
+#sessionBuilderPage .session-builder-capacity-table .capacity-home .capacity-label{background:color-mix(in srgb,var(--capacity-home) 24%,#fff);color:#17395b}
+#sessionBuilderPage .session-builder-capacity-table .capacity-visits-start th,#sessionBuilderPage .session-builder-capacity-table .capacity-visits-start td{border-top:2px solid var(--capacity-divider)}
+#sessionBuilderPage .session-builder-capacity-table tbody tr:last-child th,#sessionBuilderPage .session-builder-capacity-table tbody tr:last-child td{border-bottom:0}
+#sessionBuilderPage .session-builder-capacity-note{font-size:12px;color:#60798e;margin:9px 0 0;line-height:1.5}
+
+#sessionBuilderRequirements{--capacity-daily:#e94e70;--capacity-weekly:#d9b425;--capacity-routine:#76b79e;--capacity-planned:#aab8cb;--capacity-home:#efc0a6}

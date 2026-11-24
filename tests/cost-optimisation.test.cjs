@@ -81,3 +81,9 @@ test('cost and session refinement share one ten-second solving budget',()=>{
  try{const p=run([type('budget',['Budget'])],d,{Budget:{annualRate:9900}});assert.equal(p.error,undefined);assert.equal(budgets[0],10000);assert.equal(budgets[1],700);}
  finally{c.Date=Date;c.window.solver.Solve=original;}
 });
+test('AM/PM provision comes from actual allocations and reconciles with each daily total',()=>{
+ const d=empty();d.sameDay[0]=10;d.byType.sameDay['Same Day'][0]=10;d.homeVisit[0]=2;d.byType.homeVisit={Visit:[2,0,0,0,0]};
+ const t=type('GP',['GP'],10,['Same Day','Visit']);t.appointmentsByMode['Home Visit']=2;
+ const p=run([t],d,{GP:{annualRate:10000,workingPattern:['Mon PM']}});assert.equal(p.error,undefined);assert.equal(p.capacitySameDayByPeriod.morning[0],0);assert.equal(p.capacitySameDayByPeriod.afternoon[0],10);assert.equal(p.capacityHomeVisit[0],2);
+ for(let day=0;day<5;day++)assert.equal(p.capacitySameDayByPeriod.morning[day]+p.capacitySameDayByPeriod.afternoon[day],p.capacitySameDay[day]);
+});
