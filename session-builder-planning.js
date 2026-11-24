@@ -200,7 +200,10 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    else{if(matchesClinician(row,shareSubject(rule)))numerator+=chosen;if(matchesDenominator(row,rule))denominator+=chosen;}
   }
   const delta=numerator*100-rule.minimum*denominator,comparison=rule.comparison||'atLeast';
-  return {numerator,denominator,delta,ok:denominator>0&&(comparison==='atMost'?delta<=1e-7:comparison==='exact'?Math.abs(delta)<=1e-7:delta>=-1e-7)||rule.minimum===0&&comparison==='atLeast'};
+  // An appointment-mix rule applies only when the clinician has appointments
+  // in this period. It must not invent a session on an empty or unavailable morning.
+  const noAppointments=rule.kind==='mix'&&denominator===0;
+  return {numerator,denominator,delta,ok:noAppointments||denominator>0&&(comparison==='atMost'?delta<=1e-7:comparison==='exact'?Math.abs(delta)<=1e-7:delta>=-1e-7)||rule.minimum===0&&comparison==='atLeast'};
  };
  const poolFor=name=>options.appointmentPools?.[name]|| (demand.types?.homeVisit?.includes(name)?'homeVisit':demand.types?.weekly?.includes(name)?'weekly':demand.types?.routine?.includes(name)?'routine':(demand.eligibleDailyTypes||demand.types?.sameDay||[]).includes(name)?'sameDay':null);
  const percentages=hard.filter(rule=>rule.kind==='share'||rule.kind==='mix');let repaired=false,added=0;

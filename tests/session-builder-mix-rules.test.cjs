@@ -8,3 +8,13 @@ test('a planned-care mix rule can add planned slots without inflating routine or
  const clinician={'GP Resident':'GP'},types=[{id:'gp',name:'GP',eligibleClinicians:['GP Resident'],appointmentTypes:['Same Day','Follow-Up'],appointmentsByMode:{Phone:10}}],d={sameDay:[10,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,eligibleDailyTypes:['Same Day'],types:{sameDay:['Same Day'],homeVisit:[],weekly:[],routine:[]},byType:{sameDay:{'Same Day':[10,0,0,0,0]},homeVisit:{},weekly:{},routine:{}}},rule={...base,appointmentTypes:['Follow-Up'],comparison:'exact'};
  const p=solve(types,['Phone'],groups,d,[rule],{respectTypes:true,clinicians:clinician,clinicianLimits:{},appointmentPools:{'Same Day':'sameDay','Follow-Up':'planned'}});assert.equal(p.error,undefined);assert.equal(p.plannedCapacity,10);assert.equal(p.routineCapacity,0);assert.equal(p.capacitySameDay[0],10);assert.equal(p.ruleResults[0].measurements[0].numerator*2,p.ruleResults[0].measurements[0].denominator);
 });
+test('appointment mix does not require a session when the clinician has no appointments in a selected period',()=>{
+ const rule={...base,scope:'morning',days:[1,3,5],minimum:10,comparison:'atLeast'};
+ const d={sameDay:[0,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,eligibleDailyTypes:['Same Day'],types:{sameDay:['Same Day'],homeVisit:[],weekly:[],routine:['Routine']},byType:{sameDay:{'Same Day':[0,0,0,0,0]},homeVisit:{},weekly:{},routine:{Routine:0}}};
+ const p=solve(rows,['Phone'],groups,d,[rule],{respectTypes:true,clinicians,clinicianLimits:{'GP Resident':{max:0,workingPattern:[]}}});
+ assert.equal(p.error,undefined);assert.equal(p.placements.length,0);assert.ok(p.ruleResults[0].measurements.every(m=>m.denominator===0));
+});
+test('appointment mix still applies in a selected period with booked slots',()=>{
+ const rule={...base,scope:'morning',days:[1,3,5],minimum:10,comparison:'atLeast'};
+ const p=run(rule,0);assert.equal(p.error,undefined);const m=p.ruleResults[0].measurements[0];assert.ok(m.denominator>0);assert.ok(m.numerator*100>=10*m.denominator);
+});
