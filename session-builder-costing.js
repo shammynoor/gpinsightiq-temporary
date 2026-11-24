@@ -18,5 +18,10 @@ function total(costs){
  }
  return {parts:[...parts.values()],pence:costs.reduce((n,cost)=>n+cost.pence,0),complete:costs.every(cost=>cost.complete),unassigned:costs.some(cost=>cost.unassigned)};
 }
-window.SessionBuilderCosting=Object.freeze({equalSplit,total});
+function allocated(placements,sourceId,limits={}){
+ const counts=new Map();
+ for(const p of placements)if(sourceId==null||p.sourceId===sourceId)counts.set(p.clinician,(counts.get(p.clinician)||0)+p.count);
+ return total([...counts].map(([name,count])=>equalSplit(count,name?[name]:[],limits)));
+}
+window.SessionBuilderCosting=Object.freeze({equalSplit,total,allocated});
 })();

@@ -72,7 +72,9 @@ function readAverageDemand(){
  }
  const result={demand,start,end,weeks:weeks.length,forecast};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
-function renderSessionRequirements(){
+let requirementsRun=0;
+async function renderSessionRequirements(){
+ const run=++requirementsRun;
  const root=byId('sessionBuilderRequirements');if(!root)return;
  if(!canEditSessionBuilder()){root.hidden=true;return;}root.hidden=false;
  const history=readAverageDemand(),demand=history.demand;
@@ -83,7 +85,12 @@ function renderSessionRequirements(){
  const clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
  const configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
  const appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=appointmentCategoryFor(name).trim().toLowerCase(),mode=window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
- const estimate=window.SessionBuilderPlanning.estimateSessions(configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true,clinicians:clinicianMap,clinicianLimits:sessionBuilderClinicianLimits,appointmentPools});
+ const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules,{respectTypes:true,optimizeCost:true,clinicians:clinicianMap,clinicianLimits:sessionBuilderClinicianLimits,appointmentPools}];
+ let estimate;
+ byId('sessionBuilderPlanStatus').textContent='Optimising annual workforce cost…';
+ try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args):window.SessionBuilderPlanning.estimateSessions(...args));}
+ catch(error){estimate={rows:[],error:'Could not calculate workforce costs. Refresh the page and try again.'};}
+ if(run!==requirementsRun||estimate.cancelled||!canEditSessionBuilder())return;
  if(!history.forecast)estimate.error='Urgent forecast unavailable. Check report history and practice list-size settings.';
  if(estimate.error)estimate.rows=sessionBuilderTypes.map(row=>({id:row.id,name:row.name,group:'',periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}}));
  const warning=byId('sessionBuilderPlanWarning');
@@ -136,7 +143,7 @@ function renderSessionRequirements(){
    appendSplit(tr.children[13],rowSplit);
    const definition=configuredTypes.find(type=>type.id===row.id);
    const eligible=(definition?.eligibleClinicians||[]).filter(name=>currentClinicians.has(name));
-   const cost=window.SessionBuilderCosting.equalSplit(cells.reduce((a,b)=>a+b,0),eligible,sessionBuilderClinicianLimits);
+   const cost=estimate.costOptimised?window.SessionBuilderCosting.allocated(estimate.placements,row.id,sessionBuilderClinicianLimits):window.SessionBuilderCosting.equalSplit(cells.reduce((a,b)=>a+b,0),eligible,sessionBuilderClinicianLimits);
    rowCosts.push(cost);renderCost(tr.children[11],cost);
   }
  }
@@ -154,7 +161,7 @@ function renderSessionRequirements(){
  const shareSummary=(estimate.ruleResults||[]).filter(result=>result.kind==='share'&&result.strength==='must'&&result.appointmentPool==='urgent').map(result=>{const values=result.measurements.filter(m=>m.denominator>0).map(m=>m.numerator/m.denominator*100);return values.length?result.clinicianGroup+' urgent share '+fmt(Math.min(...values))+'–'+fmt(Math.max(...values))+'% ('+({atLeast:'at least',atMost:'at most',exact:'exactly'}[result.comparison]||'at least')+' '+fmt(result.minimum)+'%)':result.clinicianGroup+' urgent share has no appointments to measure';});
  const clinicianSummary=Object.entries(estimate.clinicianCounts||{}).filter(([,count])=>count>0).map(([name,count])=>name+': '+count).join(' · ');
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.error||('Sessions may contain a mix of eligible appointment types. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Planned care demand is pooled; any session eligible for a planned-care appointment type can cover it. Other demand is assigned to eligible sessions. Weekly clinician limits and working patterns are applied.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.plannedCapacity>0?' Planned care slots: '+fmt(estimate.plannedCapacity)+' per week.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The plan uses a capacity-led estimate and may not use the fewest possible sessions.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.error||('Sessions are allocated to minimise annual workforce cost. Costs use the clinician types actually assigned. Sessions may contain a mix of eligible appointment types. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Planned care demand is pooled; any session eligible for a planned-care appointment type can cover it. Other demand is assigned to eligible sessions. Weekly clinician minimums, maximums, working patterns and required planning rules are enforced. Appointment capacity is averaged after annual leave and sickness; session counts and costs are contracted weekly commitments. Unallocated slots do not satisfy demand or appointment-share rules.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.plannedCapacity>0?' Planned care slots: '+fmt(estimate.plannedCapacity)+' per week.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Clinician-share rules use a feasible estimate; the session count may not be minimal.':'')+(estimate.approximate?' The cost solver reached its time limit; the displayed plan meets the checked constraints, but the minimum cost is not proven.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;

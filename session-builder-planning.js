@@ -53,6 +53,7 @@ function shareDenominators(rule){return Array.isArray(rule.denominatorSelections
 function matchesClinician(row,ref){return ref.kind==='group'?row.group===ref.name:ref.kind==='type'&&row.clinician===ref.name;}
 function sharePool(rule){if(['urgent','all','selected'].includes(rule.appointmentPool))return rule.appointmentPool;const groups=shareDenominators(rule);return groups.length===2&&groups.some(ref=>ref.kind==='group'&&/urgent\s*care/i.test(ref.name||''))?'urgent':'all';}
 function estimateSessions(types,modes,groups,demand,rules=[],options={}){
+ if(options.optimizeCost)return window.SessionBuilderOptimisation?window.SessionBuilderOptimisation.estimate(types,modes,groups,demand,rules,options):{rows:[],error:'The cost optimiser could not load. Refresh the page.'};
  const constrained=!!options.clinicians,clinicianCounts=Object.create(null),clinicianLimits=options.clinicianLimits||{};
  const originalTypes=types;
  const plannedLabel='Planned care',plannedTypes=new Set([...(demand?.eligiblePlannedTypes||[]),...(demand?.types?.planned||[]),...Object.entries(options.appointmentPools||{}).filter(([,pool])=>pool==='planned').map(([name])=>name)]);
