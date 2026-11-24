@@ -136,3 +136,11 @@
 #sessionBuilderPage .session-builder-plan-table thead tr:first-child .session-builder-cost-heading{width:190px}
 #sessionBuilderPage .session-builder-cost-detail{display:flex;flex-direction:column;gap:5px;margin-top:7px;font-size:11px;font-weight:400;color:#59758b;line-height:1.4}
 #sessionBuilderPage .session-builder-workforce-cost{font-weight:700}
+
+#sessionBuilderPage .session-builder-planner-controls{display:flex;align-items:center;gap:12px;margin:14px 0;flex-wrap:wrap}
+#sessionBuilderResetPlanner{display:inline-flex;align-items:center;gap:8px;background:#146aa5;color:white;border:0;border-radius:9px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer}
+#sessionBuilderResetPlanner:disabled{opacity:.75;cursor:wait}
+#sessionBuilderSolveStatus{font-size:13px;color:#5b768d}
+#sessionBuilderPage .session-builder-solve-spinner{display:inline-block;width:14px;height:14px;border:2px solid #ffffff66;border-top-color:white;border-radius:50%;animation:session-builder-spin .7s linear infinite}
+#sessionBuilderPage .session-builder-solve-spinner[hidden]{display:none}
+@keyframes session-builder-spin{to{transform:rotate(360deg)}}

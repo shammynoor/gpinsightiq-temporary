@@ -5,11 +5,11 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=whole-appointments-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=manual-planner-reset-v1');
  const job={key,worker,promise,resolve};pending=job;
  const finish=result=>{worker.terminate();clearTimeout(job.timer);if(pending===job)pending=null;completed={key,result};resolve(result);};
  worker.onmessage=event=>finish(event.data);worker.onerror=()=>finish({rows:[],error:'The background cost optimiser failed to load. Refresh the page.'});
- job.timer=setTimeout(()=>finish({rows:[],error:'Cost optimisation exceeded the calculation limit. Review the settings and try again.'}),15000);
+ job.timer=setTimeout(()=>finish({rows:[],error:'Cost optimisation exceeded the calculation limit. Review the settings and try again.'}),11000);
  worker.postMessage(args);return promise;
 }
 function estimate(types,modes,groups,demand,rules=[],options={}){
@@ -18,6 +18,7 @@ function estimate(types,modes,groups,demand,rules=[],options={}){
  const result=solve(types,modes,groups,demand,rules,options);cached={key,result};return result;
 }
 function solve(types,modes,groups,demand,rules,options){
+ const deadline=Date.now()+10000;
  const fail=error=>({rows:[],error,costOptimised:true});
  if(!demand)return fail('Demand is unavailable for cost optimisation.');
  if(!window.solver?.Solve)return fail('The cost optimisation solver could not load. Refresh the page.');
@@ -119,9 +120,11 @@ function solve(types,modes,groups,demand,rules,options){
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
  }
+ const primaryBudget=Math.max(1,deadline-Date.now());model.options.timeout=primaryBudget;
  let result,start=Date.now();
  try{result=window.solver.Solve(model,1e-8,true);}catch(error){return fail('Cost optimisation could not complete. Review the plan settings or try again.');}
  let solution=result?.generateSolutionSet?.()||{},elapsed=Date.now()-start;
+ const costTimeLimited=elapsed>=primaryBudget-25;
  const audit=values=>{
   const totals=Object.fromEntries(Object.keys(constraints).map(c=>[c,0]));
   for(const [id,data] of Object.entries(variables)){
@@ -136,8 +139,8 @@ function solve(types,modes,groups,demand,rules,options){
  const costBound=constraint({max:annualCost/1000+1e-7});
  const sessionIds=new Set(slots.map(s=>s.id));
  for(const [id,data] of Object.entries(variables)){coefficient(id,costBound,data.cost||0);data.sessions=sessionIds.has(id)?1:0;}
- model.optimize='sessions';model.options.timeout=1500;
- try{const second=window.solver.Solve(model,1e-8,true),next=second.generateSolutionSet();if(second.feasible&&second.bounded&&audit(next))solution=next;}catch(error){/* Keep the already audited cost solution. */}
+ model.optimize='sessions';model.options.timeout=Math.min(1500,Math.max(1,deadline-Date.now()));
+ if(deadline-Date.now()>25)try{const second=window.solver.Solve(model,1e-8,true),next=second.generateSolutionSet();if(second.feasible&&second.bounded&&audit(next))solution=next;}catch(error){/* Keep the already audited cost solution. */}
  const rows=types.map(t=>({id:t.id,name:t.name,group:[...new Set((t.eligibleClinicians||[]).map(n=>clinicians[n]).filter(Boolean))].join(' · '),days:[0,0,0,0,0],weekly:0,routine:0,planned:0,periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}})),rowById=new Map(rows.map(r=>[r.id,r]));
  const clinicianCounts={},placements=[],appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
  for(const slot of slots){const count=Math.round(solution[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
@@ -160,7 +163,7 @@ function solve(types,modes,groups,demand,rules,options){
   return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
  });
  const cost=slots.reduce((n,s)=>n+Math.round(solution[s.id]||0)*s.rate,0);
- return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:elapsed>=2450,ruleAdjusted:false};
+ return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:costTimeLimited,ruleAdjusted:false};
 }
 window.SessionBuilderOptimisation=Object.freeze({estimate,estimateAsync});
 })();

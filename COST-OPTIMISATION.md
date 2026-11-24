@@ -24,12 +24,18 @@ round demand up. Forecast appointment-type proportions allow a one-slot deviatio
 they do not force fractional allocations. Required percentage rules remain exact. Unallocated slots remain visible and cannot satisfy demand/share rules.
 
 Missing annual rates stop cost optimisation. An explicitly entered zero is allowed.
-The model is solved in a background worker with a bounded primary cost search and
-a second pass reducing session count without increasing the best annual cost.
+The model is solved only when Reset planner is clicked. It runs in a background
+worker with a shared ten-second budget for the primary cost search and any second
+pass reducing session count without increasing the best annual cost. A spinner and
+disabled reset button indicate progress; the current result stays visible.
 Every returned result is independently checked against all model constraints and
 integer session bounds before display. A time-limited feasible incumbent is marked
 as not proving minimum cost. If no audited feasible incumbent exists, no plan is
-presented as valid. New edits cancel stale worker requests.
+presented as valid. Edits and tab changes never automatically solve or clear a plan;
+they flag changed inputs for the next manual reset. Every click requests a fresh
+solve. A failed reset retains a previous plan with an explicit warning that it may
+not match the current settings. Demand constraints are lower bounds: whole
+appointment provision may exceed need but may not fall below it.
 
 The solver is the pinned public-domain `javascript-lp-solver` 1.0.3 browser bundle,
 vendored from the official npm registry. Its license is in
