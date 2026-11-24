@@ -15,6 +15,9 @@ function validateRules(rules){
   if(rule.kind==='minimum'&&typeof rule.sessionTypeId!=='string')throw Error('Choose a session type.');
   if(rule.kind==='share'&&(typeof rule.clinicianGroup!=='string'||!['all','pair'].includes(rule.denominator)||typeof rule.comparisonGroup!=='string'))throw Error('Choose a clinician group and appointment denominator.');
   if(rule.appointmentPool!==undefined&&!['all','urgent'].includes(rule.appointmentPool))throw Error('Choose all or urgent appointments.');
+  const validRef=ref=>ref&&typeof ref==='object'&&!Array.isArray(ref)&&['group','type'].includes(ref.kind)&&typeof ref.name==='string'&&!!ref.name.trim();
+  if(rule.shareSubject!==undefined&&!validRef(rule.shareSubject))throw Error('Choose a clinician group or type.');
+  if(rule.denominatorSelections!==undefined&&(!Array.isArray(rule.denominatorSelections)||rule.denominatorSelections.length>2||rule.denominatorSelections.some(ref=>!validRef(ref))||new Set(rule.denominatorSelections.map(ref=>JSON.stringify([ref.kind,ref.name]))).size!==rule.denominatorSelections.length))throw Error('Choose up to two distinct denominator selections.');
  }
  return true;
 }
@@ -24,15 +27,25 @@ function issuesFor(rule,types,groups){
  const issues=[];
  if(rule.kind==='minimum'&&!types.some(type=>type.id===rule.sessionTypeId))issues.push('Choose an existing session type.');
  if(rule.kind==='share'){
-  if(!groups.includes(rule.clinicianGroup))issues.push('Choose an existing clinician group.');
-  if(rule.denominator==='pair'&&(!groups.includes(rule.comparisonGroup)||rule.comparisonGroup===rule.clinicianGroup))issues.push('Choose a different existing group for the comparison.');
+  const planning=window.SessionBuilderPlanning,subject=planning.shareSubject(rule),denominators=planning.shareDenominators(rule),clinicians=typeof clinicianCategoryNames==='undefined'?[]:clinicianCategoryNames;
+  const valid=ref=>ref?.kind==='group'?groups.includes(ref.name):ref?.kind==='type'&&clinicians.includes(ref.name);
+  if(!valid(subject))issues.push('Choose an existing clinician group or type.');
+  if(denominators.some(ref=>!valid(ref)))issues.push('Choose existing clinician groups or types for the denominator.');
+  const mapping=typeof clinicianGroupAssignments==='undefined'?{}:clinicianGroupAssignments;
+  const matches=(name,ref)=>ref.kind==='type'?name===ref.name:mapping[name]===ref.name;
+  if(denominators.length&&valid(subject)&&clinicians.some(name=>matches(name,subject)&&!denominators.some(ref=>matches(name,ref))))issues.push('The denominator must include the selected clinician or group.');
+
  }
  return issues;
 }
 window.sessionBuilderRuleIssues=issuesFor;
 window.renameSessionBuilderRuleGroup=(oldName,newName)=>{
  if(!canEditSessionBuilder())return;
- sessionBuilderRules=sessionBuilderRules.map(rule=>rule.kind==='share'?{...rule,clinicianGroup:rule.clinicianGroup===oldName?newName:rule.clinicianGroup,comparisonGroup:rule.comparisonGroup===oldName?newName:rule.comparisonGroup}:rule);
+ sessionBuilderRules=sessionBuilderRules.map(rule=>rule.kind==='share'?{...rule,clinicianGroup:rule.clinicianGroup===oldName?newName:rule.clinicianGroup,comparisonGroup:rule.comparisonGroup===oldName?newName:rule.comparisonGroup, ...(rule.shareSubject?.kind==='group'&&rule.shareSubject.name===oldName?{shareSubject:{kind:'group',name:newName}}:{}), ...(Array.isArray(rule.denominatorSelections)?{denominatorSelections:rule.denominatorSelections.map(ref=>ref.kind==='group'&&ref.name===oldName?{...ref,name:newName}:ref)}:{})}:rule);
+};
+window.renameSessionBuilderRuleClinicianType=(oldName,newName)=>{
+ if(!canEditSessionBuilder())return;
+ sessionBuilderRules=sessionBuilderRules.map(rule=>rule.kind==='share'?{...rule,...(rule.shareSubject?.kind==='type'&&rule.shareSubject.name===oldName?{shareSubject:{kind:'type',name:newName}}:{}),...(Array.isArray(rule.denominatorSelections)?{denominatorSelections:rule.denominatorSelections.map(ref=>ref.kind==='type'&&ref.name===oldName?{...ref,name:newName}:ref)}:{})}:rule);
 };
 function commit(rules){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
@@ -46,7 +59,7 @@ function select(label,options,value,onChange){
 }
 function text(value){const span=document.createElement('span');span.textContent=value;return span;}
 function patch(rule,key,value){
- const next=sessionBuilderRules.map(item=>item.id===rule.id?{...item,[key]:value}:item);
+ const next=sessionBuilderRules.map(item=>item.id===rule.id?{...item,...((key==='shareSubject'||key==='denominatorSelections')&&item.appointmentPool===undefined?{appointmentPool:window.SessionBuilderPlanning.sharePool(item)}:{}),[key]:value}:item);
  commit(next);renderSessionBuilderRules();
 }
 function inspectRules(){
@@ -57,7 +70,7 @@ function inspectRules(){
  for(const day of [1,2,3,4,5])for(const period of ['morning','afternoon','day']){
   const pools=new Map();
   for(const rule of sessionBuilderRules){
-   if(!rule.enabled||rule.strength!=='must'||rule.kind!=='share'||!rule.days.includes(day)||rule.scope!==period&&(period==='day'||rule.scope!=='both')||issuesFor(rule,sessionBuilderTypes,groups).length)continue;
+   if(!rule.enabled||rule.strength!=='must'||rule.kind!=='share'||rule.shareSubject||rule.denominatorSelections||!rule.days.includes(day)||rule.scope!==period&&(period==='day'||rule.scope!=='both')||issuesFor(rule,sessionBuilderTypes,groups).length)continue;
    const key=window.SessionBuilderPlanning.sharePool(rule)+':'+(rule.denominator==='all'?'all':JSON.stringify([rule.clinicianGroup,rule.comparisonGroup].sort()));
    if(!pools.has(key))pools.set(key,new Map());const lower=pools.get(key);lower.set(rule.clinicianGroup,Math.max(lower.get(rule.clinicianGroup)||0,rule.minimum));
   }
@@ -90,15 +103,22 @@ function renderSessionBuilderRules(){
   if(rule.kind==='minimum'){
    clause.append(select('Required session type for rule '+ruleNumber,[['','Choose session type'],...sessionBuilderTypes.map(type=>[type.id,type.name])],rule.sessionTypeId,value=>patch(rule,'sessionTypeId',value)));
   }else{
-   clause.append(text('% of appointments by'),select('Required clinician group for rule '+ruleNumber,[['','Choose clinician group'],...groups.map(group=>[group,group])],rule.clinicianGroup,value=>{
-    commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,clinicianGroup:value,denominator:item.comparisonGroup===value?'all':item.denominator,comparisonGroup:item.comparisonGroup===value?'':item.comparisonGroup}:item));renderSessionBuilderRules();
-   }));
+   const key=ref=>JSON.stringify([ref.kind,ref.name]);
+   const parse=value=>{const [kind,name]=JSON.parse(value);return {kind,name};};
+   const clinicianNames=typeof clinicianCategoryNames==='undefined'?[]:clinicianCategoryNames.filter(name=>name&&name!=='Uncategorised'&&isDashboardToggleOption(name));
+   const choices=[...groups.map(group=>[key({kind:'group',name:group}),'All '+group]),...clinicianNames.map(name=>[key({kind:'type',name}),name+' ('+(clinicianGroupAssignments[name]||'Uncategorised')+')'])];
+   const selectedSubject=window.SessionBuilderPlanning.shareSubject(rule),selectedDenominators=window.SessionBuilderPlanning.shareDenominators(rule);
+   clause.append(text('% of appointments by'),select('Clinician group or type for rule '+ruleNumber,[['','Choose clinician'],...choices],key(selectedSubject),value=>{if(value)patch(rule,'shareSubject',parse(value));}));
    const pool=document.createElement('div');pool.className='session-rule-denominator';pool.append(text('Count'),select('Appointment type for rule '+ruleNumber,[['urgent','Urgent appointments'],['all','All appointments']],window.SessionBuilderPlanning.sharePool(rule),value=>patch(rule,'appointmentPool',value)));clause.append(pool);
    const denominator=document.createElement('div');denominator.className='session-rule-denominator';denominator.append(text('Percentage of'));
-   const pairs=groups.filter(group=>group!==rule.clinicianGroup).map(group=>[group,rule.clinicianGroup+' + '+group+' appointments']);
-   denominator.append(select('Appointment denominator for rule '+ruleNumber,[['','All appointments'],...pairs],rule.denominator==='pair'?rule.comparisonGroup:'',value=>{
-    commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,denominator:value?'pair':'all',comparisonGroup:value}:item));renderSessionBuilderRules();
+   denominator.append(select('First denominator for rule '+ruleNumber,[['','All clinicians'],...choices],selectedDenominators[0]?key(selectedDenominators[0]):'',value=>{
+    const first=value?parse(value):null,second=selectedDenominators[1];const next=first?[first,...(second&&key(second)!==key(first)?[second]:[])]:[];patch(rule,'denominatorSelections',next);
+   }));
+   denominator.append(text('+'));
+   denominator.append(select('Second denominator for rule '+ruleNumber,[['','None'],...choices],selectedDenominators[1]?key(selectedDenominators[1]):'',value=>{
+    const second=value?parse(value):null,first=selectedDenominators[0]||(second?selectedSubject:null);const next=first?[first,...(second&&key(second)!==key(first)?[second]:[])]:[];patch(rule,'denominatorSelections',next);
    }));clause.append(denominator);
+
   }
   requirement.append(clause);
   const issues=issuesFor(rule,sessionBuilderTypes,groups);if(issues.length){const warning=document.createElement('p');warning.className='session-rule-issue';warning.textContent=issues.join(' ');requirement.append(warning);}row.append(requirement);

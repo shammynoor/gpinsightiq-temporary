@@ -48,7 +48,10 @@ function vectorSessions(types,needSame,needHome){
  }
  return {counts:fallback,approximate:true};
 }
-function sharePool(rule){if(['urgent','all'].includes(rule.appointmentPool))return rule.appointmentPool;const groups=[rule.clinicianGroup,rule.comparisonGroup];return rule.denominator==='pair'&&groups.some(name=>/urgent\s*care/i.test(name||''))?'urgent':'all';}
+function shareSubject(rule){return rule.shareSubject||{kind:'group',name:rule.clinicianGroup};}
+function shareDenominators(rule){return Array.isArray(rule.denominatorSelections)?rule.denominatorSelections:rule.denominator==='pair'?[{kind:'group',name:rule.clinicianGroup},{kind:'group',name:rule.comparisonGroup}]:[];}
+function matchesClinician(row,ref){return ref.kind==='group'?row.group===ref.name:ref.kind==='type'&&row.clinician===ref.name;}
+function sharePool(rule){if(['urgent','all'].includes(rule.appointmentPool))return rule.appointmentPool;const groups=shareDenominators(rule);return groups.length===2&&groups.some(ref=>ref.kind==='group'&&/urgent\s*care/i.test(ref.name||''))?'urgent':'all';}
 function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const constrained=!!options.clinicians,clinicianCounts=Object.create(null),clinicianLimits=options.clinicianLimits||{};
  const originalTypes=types;
@@ -67,7 +70,11 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    const matches=rows.filter(row=>row.sourceId===rule.sessionTypeId);
    if(!Number.isInteger(rule.minimum)||rule.minimum<1)return 'Minimum sessions must be a positive whole number.';
    if(!matches.some(row=>row.group))return 'A required session type is missing or needs an eligible clinician group or clinician. Check Planning Rules.';
-  }else if(rule.minimum>100||!groups.includes(rule.clinicianGroup)||!['all','pair'].includes(rule.denominator)||rule.denominator==='pair'&&(!groups.includes(rule.comparisonGroup)||rule.comparisonGroup===rule.clinicianGroup))return 'A clinician-share rule has invalid groups or percentage. Check Planning Rules.';
+  }else{
+   const subject=shareSubject(rule),denominators=shareDenominators(rule),valid=ref=>ref&&['group','type'].includes(ref.kind)&&typeof ref.name==='string'&&(ref.kind==='group'?groups.includes(ref.name):!!options.clinicians&&Object.hasOwn(options.clinicians,ref.name));
+   if(rule.minimum>100||!valid(subject)||denominators.length>2||denominators.some(ref=>!valid(ref)))return 'A clinician-share rule has an invalid clinician selection. Check Planning Rules.';
+   if(denominators.length){const universe=constrained?Object.entries(options.clinicians).map(([clinician,group])=>({clinician,group})):groups.map(group=>({group}));if(universe.some(row=>matchesClinician(row,subject)&&!denominators.some(ref=>matchesClinician(row,ref))))return 'The share denominator must include the selected clinician or group. Check Planning Rules.';}
+  }
   return '';
  };
  for(const rule of hard){const error=issues(rule);if(error)return {rows,error};}
@@ -181,9 +188,9 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   for(const row of rows){
    const targetPeriods=period==='day'?['morning','afternoon']:[period];
    const urgentNames=new Set([...(demand.eligibleDailyTypes||demand.types?.sameDay||[]),...(demand.types?.weekly||[])]);
-   const capacity=sharePool(rule)==='urgent'?(flowForBreakdown?targetPeriods.reduce((sum,p)=>sum+Object.entries(appointmentBreakdown[row.id]?.[day]?.[p]||{}).reduce((n,[name,value])=>n+(urgentNames.has(name)?value:0),0),0):placements.filter(p=>p.id===row.id&&p.day===day&&targetPeriods.includes(p.period)).reduce((n,p)=>n+p.count*(p.pool==='daily'?row.sameDay:p.pool==='weekly'?row.poolCapacity.weekly:0),0)):count(row,day,period)*row.capacity;
-   if(row.group===rule.clinicianGroup)numerator+=capacity;
-   if(rule.denominator==='all'||[rule.clinicianGroup,rule.comparisonGroup].includes(row.group))denominator+=capacity;
+   const urgent=sharePool(rule)==='urgent';const capacity=flowForBreakdown?targetPeriods.reduce((sum,p)=>sum+Object.entries(appointmentBreakdown[row.id]?.[day]?.[p]||{}).reduce((n,[name,value])=>n+((urgent?urgentNames.has(name):name!=='Unallocated')?value:0),0),0):urgent?placements.filter(p=>p.id===row.id&&p.day===day&&targetPeriods.includes(p.period)).reduce((n,p)=>n+p.count*(p.pool==='daily'?row.sameDay:p.pool==='weekly'?row.poolCapacity.weekly:0),0):count(row,day,period)*row.capacity;
+   if(matchesClinician(row,shareSubject(rule)))numerator+=capacity;
+   const selections=shareDenominators(rule);if(!selections.length||selections.some(ref=>matchesClinician(row,ref)))denominator+=capacity;
   }
   return {numerator,denominator,ok:rule.minimum===0||denominator>0&&numerator*100+1e-7>=rule.minimum*denominator};
  };
@@ -194,7 +201,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   let changed=false;
   for(const rule of shares)for(const d of rule.days)for(const period of periods(rule)){
    const day=d-1,state=share(rule,day,period);if(state.ok)continue;
-   const urgent=sharePool(rule)==='urgent';const candidates=usable.filter(row=>row.group===rule.clinicianGroup&&room(row)>0&&(period==='day'?choosePeriod(day,row):available(row,day,period))&&(!urgent||row.sameDay>0)).sort((a,b)=>(urgent?b.sameDay-a.sameDay:b.capacity-a.capacity));
+   const urgent=sharePool(rule)==='urgent';const candidates=usable.filter(row=>matchesClinician(row,shareSubject(rule))&&room(row)>0&&(period==='day'?choosePeriod(day,row):available(row,day,period))&&(!urgent||row.sameDay>0)).sort((a,b)=>(urgent?b.sameDay-a.sameDay:b.capacity-a.capacity));
    const row=candidates[0];if(!row)continue;
    const addedCapacity=urgent?row.sameDay:row.capacity;
    const required=rule.minimum===100?(state.denominator===state.numerator?1:Infinity):Math.max(1,Math.ceil((rule.minimum*state.denominator-100*state.numerator)/((100-rule.minimum)*addedCapacity)-1e-10));
@@ -213,9 +220,9 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    if(rule.kind==='minimum'){
     const matching=rows.filter(row=>row.sourceId===rule.sessionTypeId),actual=matching.reduce((sum,row)=>sum+count(row,day,period),0);
     if(actual<rule.minimum)failures.push(dayNames[day]+' '+period+': '+actual+' of '+rule.minimum+' '+(matching[0]?.name||'required')+' sessions.');
-   }else{const state=share(rule,day,period);measurements.push({day,period,numerator:state.numerator,denominator:state.denominator});if(!state.ok)failures.push(dayNames[day]+' '+period+': '+rule.clinicianGroup+' '+(sharePool(rule)==='urgent'?'urgent ':'')+'appointment share is below '+rule.minimum+'%.');}
+   }else{const state=share(rule,day,period);measurements.push({day,period,numerator:state.numerator,denominator:state.denominator});if(!state.ok)failures.push(dayNames[day]+' '+period+': '+shareSubject(rule).name+' '+(sharePool(rule)==='urgent'?'urgent ':'')+'appointment share is below '+rule.minimum+'%.');}
   }
-  return {id:rule.id,strength:rule.strength,ok:!failures.length,failures,...(rule.kind==='share'?{appointmentPool:sharePool(rule),clinicianGroup:rule.clinicianGroup,minimum:rule.minimum,measurements}: {})};
+  return {id:rule.id,strength:rule.strength,ok:!failures.length,failures,...(rule.kind==='share'?{appointmentPool:sharePool(rule),clinicianGroup:shareSubject(rule).name,minimum:rule.minimum,measurements}: {})};
  });
  const unmet=ruleResults.filter(result=>result.strength==='must'&&!result.ok);
  if(unmet.length)return {rows,ruleResults,error:'No plan found that meets all required rules. '+unmet[0].failures[0]+' Review conflicting rules or available session types.'};
@@ -230,5 +237,5 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  }
  return {rows:visibleRows,clinicianCounts,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine),placements,appointmentBreakdown:visibleBreakdown,unmetDemand,unassignedDailyTypes,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine),approximate};
 }
-window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,historicalCareKind,vectorSessions,sharePool});
+window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,historicalCareKind,vectorSessions,sharePool,shareSubject,shareDenominators});
 })();

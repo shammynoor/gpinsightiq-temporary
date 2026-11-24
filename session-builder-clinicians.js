@@ -16,6 +16,7 @@ window.renameSessionBuilderClinicianType=(oldName,newName)=>{
  if(!canEditSessionBuilder())return;
  if(Object.hasOwn(sessionBuilderClinicianLimits,oldName)){const next={...sessionBuilderClinicianLimits,[newName]:sessionBuilderClinicianLimits[oldName]};delete next[oldName];sessionBuilderClinicianLimits=next;}
  sessionBuilderTypes=sessionBuilderTypes.map(row=>Array.isArray(row.eligibleClinicians)?{...row,eligibleClinicians:row.eligibleClinicians.map(name=>name===oldName?newName:name)}:row);
+ window.renameSessionBuilderRuleClinicianType?.(oldName,newName);
 };
 window.renderSessionBuilderClinicians=()=>{
  const body=byId('sessionBuilderClinicianBody'),empty=byId('sessionBuilderClinicianEmpty');if(!body||!empty)return;
