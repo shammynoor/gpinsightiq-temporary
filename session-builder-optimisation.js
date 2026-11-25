@@ -15,7 +15,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve({rows:[],error:'This browser cannot run the background integer optimiser. Use a browser with Web Worker support and try again.'});
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=global-mip-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=working-day-spread-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -154,12 +154,15 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
    const targetTypes=rule.sessionTypeId?types.filter(type=>type.id===rule.sessionTypeId):types;
    for(const type of targetTypes){
     const chosen=slots.filter(slot=>slot.sourceId===type.id),weekly=chosen.map(slot=>slot.id);
+    const workingDays=new Map([...new Set(chosen.map(slot=>slot.clinician))].map(name=>{const available=[...new Set(chosen.filter(slot=>slot.clinician===name).map(slot=>slot.day))],selected=available.filter(day=>rule.days.includes(day+1));return [name,selected.length?selected:available];}));
     for(let day=0;day<5;day++){
-     const daily=chosen.filter(slot=>slot.day===day).map(slot=>slot.id),selectedDay=rule.days.includes(day+1),tolerance=selectedDay?rule.sessionTolerance:0,weight=selectedDay?1/rule.days.length:0;
-     ruleExpressions.push({rule,sessionDistribution:true,sessionName:type.name,day,numerator:daily,denominator:weekly,weight,tolerance});
+     const daily=chosen.filter(slot=>slot.day===day).map(slot=>slot.id),targets=chosen.map(slot=>{const days=workingDays.get(slot.clinician);return [slot.id,days.includes(day)?1/days.length:0];}),tolerance=targets.some(([,weight])=>weight>0)?rule.sessionTolerance:0;
+     ruleExpressions.push({rule,sessionDistribution:true,sessionName:type.name,day,numerator:daily,denominator:weekly,targets,tolerance});
+     // An unavailable day (or a sole working day) can be a tautology.
+     if(chosen.every(slot=>Math.abs((slot.day===day?1:0)-(targets.find(([id])=>id===slot.id)?.[1]||0))<1e-12))continue;
      const upperConstraint=constraint({max:tolerance}),lowerConstraint=constraint({min:-tolerance});
      for(const id of daily){coefficient(id,upperConstraint,1);coefficient(id,lowerConstraint,1);}
-     for(const id of weekly){coefficient(id,upperConstraint,-weight);coefficient(id,lowerConstraint,-weight);}
+     for(const [id,weight] of targets){coefficient(id,upperConstraint,-weight);coefficient(id,lowerConstraint,-weight);}
      if(rule.strength==='prefer'){const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);}
     }
    }
@@ -238,7 +241,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   const failures=[],measurements=[];
   for(const expression of ruleExpressions.filter(e=>e.rule===rule)){
    if(expression.sessionDistribution){
-    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),target=denominator*expression.weight;
+    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),target=expression.targets.reduce((n,[id,weight])=>n+Math.round(chosen[id]||0)*weight,0);
     if(Math.abs(numerator-target)>expression.tolerance+1e-5)failures.push(expression.sessionName+' · '+daysShort[expression.day]+': outside the session spread target.');
     measurements.push({sessionType:expression.sessionName,day:expression.day,numerator,denominator,target,tolerance:expression.tolerance});continue;
    }

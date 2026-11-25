@@ -8,7 +8,7 @@ const args=[[{"id":"session-0","name":"session-0","eligibleClinicians":["GP Part
 const start=Date.now(),p=c.window.SessionBuilderOptimisation.estimate(...args);
 assert.equal(p.error,undefined);assert.equal(p.verifiedPlan,true);
 assert.ok(p.ruleResults.filter(r=>r.strength==='must').every(r=>r.ok));
-assert.equal(p.ruleResults.find(r=>r.strength==='prefer').ok,false);
+assert.equal(p.ruleResults.find(r=>r.strength==='prefer').ok,true);
 assert.equal(p.clinicianCounts['GP Partner'],18);assert.equal(p.clinicianCounts['GP Resident'],30);
 assert.equal(p.clinicianCounts['Mental Health Practitioner'],10);
 assert.ok(p.annualCost<1500000,'cost cleanup must not be blocked by an unmet preference');

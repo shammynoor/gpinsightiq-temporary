@@ -135,7 +135,7 @@ function renderSessionBuilderRules(){
    clause.append(text('Spread'),select('Session type for rule '+ruleNumber,[['','Each session type'],...sessionBuilderTypes.map(type=>[type.id,type.name])],rule.sessionTypeId||'',value=>patch(rule,'sessionTypeId',value)));
    const tolerance=document.createElement('input');tolerance.type='number';tolerance.min='1';tolerance.max='500';tolerance.step='1';tolerance.value=String(rule.sessionTolerance);tolerance.setAttribute('aria-label','Session spread tolerance for rule '+ruleNumber);
    tolerance.addEventListener('change',()=>{try{if(tolerance.value===''||!tolerance.checkValidity())throw Error('Enter a whole-number tolerance of at least one session.');patch(rule,'sessionTolerance',Number(tolerance.value));}catch(error){tolerance.setCustomValidity(error.message);tolerance.reportValidity();}});
-   clause.append(text('Evenly across the selected days, within ±'),tolerance,text('sessions per day from the average. Prefer avoids increasing cost; Must meet requires the spread.'));
+   clause.append(text('Evenly across available selected working days, within ±'),tolerance,text('sessions per day from the working-day average. Clinician Setup takes priority: unavailable days are skipped; if none of the selected days are worked, the clinician’s working days are used. Prefer avoids increasing cost; Must meet requires the adjusted spread.'));
   }else if(rule.kind==='distribution'){
    clause=document.createElement('div');clause.className='session-rule-clause session-rule-distribution';
    const appointmentChoices=groupUrgencyNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));

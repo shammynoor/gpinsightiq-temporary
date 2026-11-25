@@ -57,8 +57,8 @@ test('session spread can distribute a selected session type across the week',()=
 test('session spread can apply to each type and does not restrict single-session weeks',()=>{
  const c=setup(),d=empty();d.routine=10;d.byType.routine={Routine:10};const rule={id:'all-spread',enabled:true,kind:'sessionDistribution',strength:'must',scope:'week',days:[1,2,3,4,5],minimum:0,sessionTypeId:'',sessionTolerance:1};const p=run(c,d,[rule]);assert.equal(p.error,undefined);assert.equal(p.clinicianCounts.GP,1);assert.ok(p.ruleResults[0].ok);
 });
-test('session spread reports conflict with unavailable selected weekdays',()=>{
- const c=setup(),d=empty();d.routine=50;d.byType.routine={Routine:50};const rule={id:'spread',enabled:true,kind:'sessionDistribution',strength:'must',scope:'week',days:[1,2,3,4,5],minimum:0,sessionTypeId:'gp',sessionTolerance:1};const p=run(c,d,[rule],{GP:{annualRate:10000,annualLeaveWeeks:0,workingPattern:['Mon AM']}});assert.match(p.error,/No valid costed plan/);
+test('session spread adapts to unavailable selected weekdays',()=>{
+ const c=setup(),d=empty();d.routine=50;d.byType.routine={Routine:50};const rule={id:'spread',enabled:true,kind:'sessionDistribution',strength:'must',scope:'week',days:[1,2,3,4,5],minimum:0,sessionTypeId:'gp',sessionTolerance:1};const p=run(c,d,[rule],{GP:{annualRate:10000,annualLeaveWeeks:0,workingPattern:['Mon AM']}});assert.equal(p.error,undefined);assert.equal(p.rows[0].days[0],5);assert.ok(p.rows[0].days.slice(1).every(n=>n===0));assert.equal(p.ruleResults[0].ok,true);
 });
 test('preferred session spread improves the layout without adding sessions or increasing cost',()=>{
  const c=setup(),d=empty();d.routine=50;d.byType.routine={Routine:50};const rule={id:'preferred-spread',enabled:true,kind:'sessionDistribution',strength:'prefer',scope:'week',days:[1,2,3,4,5],minimum:0,sessionTypeId:'gp',sessionTolerance:1};const p=run(c,d,[rule]);assert.equal(p.error,undefined);assert.equal(p.clinicianCounts.GP,5);assert.equal(p.annualCost,50000);assert.ok(p.ruleResults[0].ok);assert.ok(Math.max(...p.rows[0].days)<=2);

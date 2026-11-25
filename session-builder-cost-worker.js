@@ -1,6 +1,6 @@
 'use strict';
 self.window=self;
-importScripts('vendor/javascript-lp-solver-1.0.3.js?v=global-mip-v1','vendor/highs.js?v=1.16.0','session-builder-mip.js?v=global-mip-v1','session-builder-distribution.js?v=global-mip-v1','session-builder-planning.js?v=global-mip-v1','session-builder-diagnostics.js?v=global-mip-v1','session-builder-optimisation.js?v=global-mip-v1');
+importScripts('vendor/javascript-lp-solver-1.0.3.js?v=working-day-spread-v1','vendor/highs.js?v=1.16.0','session-builder-mip.js?v=working-day-spread-v1','session-builder-distribution.js?v=working-day-spread-v1','session-builder-planning.js?v=working-day-spread-v1','session-builder-diagnostics.js?v=working-day-spread-v1','session-builder-optimisation.js?v=working-day-spread-v1');
 self.onmessage=async event=>{
  try{
   const highs=await Module({locateFile:file=>new URL('vendor/'+file,self.location.href).href});
