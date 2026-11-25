@@ -120,13 +120,13 @@ async function renderSessionRequirements(settings={}){
  const unavailable=!!estimate.error||!!estimate.noPlan;
  if(unavailable)estimate.rows=configuredTypes.map(row=>({id:row.id,name:row.name,group:[...new Set((row.eligibleClinicians||[]).map(name=>clinicianMap[name]).filter(Boolean))].join(' · '),periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}}));
  byId('sessionBuilderHistory').textContent=historyText;
- if(solveStatus)solveStatus.textContent=estimate.noPlan?'Click Reset planner to calculate the plan.':key!==requirementsCurrentKey?'Settings changed during solving. Click Reset planner to apply them.':estimate.error?'No plan found. Click Reset planner to try again.':'Planner solved. Click Reset planner to solve again.';
+ if(solveStatus)solveStatus.textContent=estimate.noPlan?'Click Reset planner to calculate the plan.':key!==requirementsCurrentKey?'Settings changed during solving. Click Reset planner to apply them.':estimate.error?(estimate.errorCode==='TIMEOUT'?'Timed out before a verified plan was returned. Click Reset planner to try again.':'No plan found. Click Reset planner to try again.'):estimate.optimisationTimedOut?'Valid plan found; optimisation timed out. Minimum cost is not proven.':estimate.optimisationInterrupted?'Valid plan retained after optimisation stopped. Minimum cost is not proven.':'Planner solved. Click Reset planner to solve again.';
  const warning=byId('sessionBuilderPlanWarning');
  if(warning){
   const missing=estimate.unmetDemand||[],totals=new Map();
   for(const item of missing){const key=item.name+' ('+({sameDay:'daily urgent',homeVisit:'home visit',weekly:'weekly urgent',routine:'routine',planned:'planned care'}[item.pool]||item.pool)+')';totals.set(key,(totals.get(key)||0)+item.amount);}
-  warning.hidden=!estimate.error&&!totals.size;
-  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Check eligible clinicians, their working patterns and maximum sessions, appointment types and consultation-mode capacity. The tables below show the demand that could be allocated.':'';
+  warning.hidden=!estimate.error&&!totals.size&&!estimate.optimisationTimedOut&&!estimate.optimisationInterrupted;
+  warning.textContent=estimate.error?'Session plan unavailable: '+estimate.error:totals.size?'Incomplete plan — unmet demand: '+[...totals].map(([name,amount])=>name+' '+fmt(amount)+'/week').join(', ')+'. Check eligible clinicians, their working patterns and maximum sessions, appointment types and consultation-mode capacity. The tables below show the demand that could be allocated.':estimate.optimisationTimedOut?'Valid plan found; optimisation timed out. Showing the best verified plan returned. Minimum cost is not proven.':estimate.optimisationInterrupted?'Optimisation stopped. Showing the best verified plan returned. Minimum cost is not proven.':'';
  }
  const body=byId('sessionBuilderPlanBody');body.replaceChildren();
  function addCells(parent,label,values,group=''){

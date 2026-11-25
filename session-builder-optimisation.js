@@ -1,23 +1,44 @@
 (function(){
 'use strict';
 let cached=null,pending=null,completed=null;
+function isVerifiedPlan(plan){
+ return !!plan&&plan.verifiedPlan===true&&!plan.error&&Number.isFinite(plan.annualCost)&&plan.annualCost>=0&&Array.isArray(plan.rows)&&Array.isArray(plan.placements)&&Array.isArray(plan.ruleResults)&&plan.ruleResults.every(r=>r.strength!=='must'||r.ok)&&Array.isArray(plan.unmetDemand)&&!plan.unmetDemand.length&&['capacitySameDay','capacityHomeVisit'].every(key=>Array.isArray(plan[key])&&plan[key].length===5&&plan[key].every(n=>Number.isSafeInteger(n)&&n>=0))&&['weeklyCapacity','routineCapacity','plannedCapacity','totalCapacity'].every(key=>Number.isSafeInteger(plan[key])&&plan[key]>=0);
+}
+function betterPlan(plan,previous){
+ if(!previous)return true;
+ const rank=p=>[Math.round(p.annualCost*100),p.totalCapacity,p.placements.reduce((n,s)=>n+s.count,0),p.capacitySameDay.reduce((a,b)=>a+b,0)+p.capacityHomeVisit.reduce((a,b)=>a+b,0)+p.weeklyCapacity+p.routineCapacity+p.plannedCapacity,p.ruleResults.filter(r=>r.strength==='prefer').reduce((n,r)=>n+r.failures.length,0)];
+ const a=rank(plan),b=rank(previous);for(let i=0;i<a.length;i++){if(a[i]<b[i])return true;if(a[i]>b[i])return false;}return true;
+}
+function retainedPlan(plan,timedOut=false){return {...plan,approximate:true,optimisationTimedOut:timedOut,optimisationInterrupted:!timedOut};}
 function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
- if(pending){pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=session-spread-rule-v1');
- const job={key,worker,promise,resolve};pending=job;
- const finish=result=>{worker.terminate();clearTimeout(job.timer);if(pending===job)pending=null;completed={key,result};resolve(result);};
- worker.onmessage=event=>finish(event.data);worker.onerror=()=>finish({rows:[],error:'The background cost optimiser failed to load. Refresh the page.'});
- job.timer=setTimeout(()=>finish({rows:[],error:'Cost optimisation exceeded the calculation limit. Review the settings and try again.'}),21000);
+ if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-incumbent-recovery-v1');
+ const job={key,worker,promise,resolve,best:null,done:false};pending=job;
+ const finish=result=>{
+  if(job.done||pending!==job)return;
+  if(!result?.error&&!isVerifiedPlan(result))result={rows:[],error:'The optimiser did not return a verified plan. Click Reset planner to try again.'};
+  if(result.error&&job.best)result=retainedPlan(job.best,result.errorCode==='TIMEOUT');
+  else if(isVerifiedPlan(result)&&job.best&&!betterPlan(result,job.best))result={...job.best,approximate:true,optimisationTimedOut:!!result.optimisationTimedOut,optimisationInterrupted:!!result.optimisationInterrupted};
+  job.done=true;worker.terminate();clearTimeout(job.timer);pending=null;completed={key,result};resolve(result);
+ };
+ worker.onmessage=event=>{
+  if(job.done||pending!==job)return;
+  const message=event.data;
+  if(message?.type==='incumbent'){if(isVerifiedPlan(message.result)&&betterPlan(message.result,job.best))job.best=message.result;return;}
+  finish(message?.type==='complete'?message.result:message);
+ };
+ worker.onerror=()=>finish({rows:[],error:'The background optimiser stopped before returning a verified plan. Click Reset planner to try again.'});
+ job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),21000);
  worker.postMessage(args);return promise;
 }
-function estimate(types,modes,groups,demand,rules=[],options={}){
+function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint){
  const key=JSON.stringify([types,modes,groups,demand,rules,options]);
  if(cached?.key===key)return cached.result;
- const result=solve(types,modes,groups,demand,rules,options);cached={key,result};return result;
+ const result=solve(types,modes,groups,demand,rules,options,onCheckpoint);cached={key,result};return result;
 }
-function solve(types,modes,groups,demand,rules,options){
+function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  const deadline=Date.now()+20000;
  const fail=error=>({rows:[],error,costOptimised:true});
  if(!demand)return fail('Demand is unavailable for cost optimisation.');
@@ -159,20 +180,80 @@ function solve(types,modes,groups,demand,rules,options){
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
  }
+ let verifiedCheckpoint=null;
+ function safeSurplus(candidate){
+  for(const [pool,needs] of Object.entries({sameDay:demand.sameDay,homeVisit:demand.homeVisit,weekly:[demand.weekly],routine:[demand.routine],planned:[demand.planned||0]}))for(let day=0;day<needs.length;day++){
+   const amount=allocations.filter(a=>a.pool===pool&&(!['sameDay','homeVisit'].includes(pool)||a.slot.day===day)).reduce((n,a)=>n+(candidate[a.id]||0),0),threshold=Math.max(1000,Math.ceil(needs[day]*10)+100);
+   if(amount>threshold)return false;
+  }return true;
+ }
+ function publishCandidate(candidate){
+  if(!audit(candidate)||!safeSurplus(candidate))return;
+  const plan=buildPlan(candidate);
+  if(!isVerifiedPlan(plan)||!betterPlan(plan,verifiedCheckpoint))return;
+  verifiedCheckpoint=plan;
+  if(typeof onCheckpoint==='function')try{onCheckpoint(plan);}catch(error){/* Checkpoint delivery cannot invalidate a solve. */}
+ }
+ function solveModel(){
+  // The pinned solver exposes integer incumbents via keep_solutions. Observe
+  // pushes without retaining a growing history or modifying the vendor bundle.
+  const solver=window.solver;
+  if(typeof solver.Model!=='function'||typeof solver.selectBranchAndCutService!=='function')return solver.Solve(model,1e-8,true);
+  const instance=new solver.Model(1e-8,undefined,solver.selectBranchAndCutService(model)).loadJson(model);
+  instance.options=model.options;instance.keep_solutions=true;
+  instance.solutions={push:candidate=>publishCandidate(candidate)};
+  return solver.Solve(instance,1e-8,true);
+ }
+ function buildPlan(chosen,flags={}){
+ const rows=types.map(t=>({id:t.id,name:t.name,group:[...new Set((t.eligibleClinicians||[]).map(n=>clinicians[n]).filter(Boolean))].join(' · '),days:[0,0,0,0,0],weekly:0,routine:0,planned:0,periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}})),rowById=new Map(rows.map(r=>[r.id,r]));
+ const clinicianCounts={},placements=[],appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacitySameDayByPeriod={morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]},capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
+ for(const slot of slots){const count=Math.round(chosen[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
+ for(const a of allocations){const n=Math.round(chosen[a.id]||0);if(!n)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
+  if(a.pool==='sameDay'){capacitySameDay[a.slot.day]+=n;capacitySameDayByPeriod[a.slot.period][a.slot.day]+=n;}else if(a.pool==='homeVisit')capacityHomeVisit[a.slot.day]+=n;else if(a.pool==='weekly')weeklyCapacity+=n;else if(a.pool==='routine')routineCapacity+=n;else if(a.pool==='planned')plannedCapacity+=n;
+ }
+ for(const slot of slots){
+  const count=Math.round(chosen[slot.id]||0);if(!count)continue;
+  const capacity=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7),used=allocations.filter(a=>a.slot===slot).reduce((n,a)=>n+Math.round(chosen[a.id]||0),0),unused=capacity-used;
+  if(unused>0){const target=appointmentBreakdown[slot.sourceId]||(appointmentBreakdown[slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[slot.day][slot.period];cell.Unallocated=(cell.Unallocated||0)+unused;}
+ }
+ const ruleResults=active.map(rule=>{
+  const failures=[],measurements=[];
+  for(const expression of ruleExpressions.filter(e=>e.rule===rule)){
+   if(expression.sessionDistribution){
+    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),target=denominator*expression.weight;
+    if(Math.abs(numerator-target)>expression.tolerance+1e-5)failures.push(expression.sessionName+' · '+daysShort[expression.day]+': outside the session spread target.');
+    measurements.push({sessionType:expression.sessionName,day:expression.day,numerator,denominator,target,tolerance:expression.tolerance});continue;
+   }
+   if(expression.distribution){
+    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(chosen[id]||0),0);
+    if(numerator<expression.lower*denominator-1e-5||numerator>expression.upper*denominator+1e-5)failures.push(daysShort[expression.day]+': outside the '+expression.target+'% target ±'+expression.tolerance+' percentage points.');
+    measurements.push({day:expression.day,numerator,denominator,target:expression.target,tolerance:expression.tolerance});continue;
+   }
+   const value=expression.terms.reduce((n,[id,c])=>n+(chosen[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(chosen[id]||0),0),comparison=rule.comparison||'atLeast';
+   const ok=rule.kind==='minimum'?value>=rule.minimum-1e-5:(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
+   if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));
+   measurements.push({numerator,denominator});
+  }
+  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
+ });
+ const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*s.rate,0);
+ return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false};
+ }
  const primaryBudget=Math.max(1,deadline-Date.now()-4000);model.options.timeout=primaryBudget;
  let result,start=Date.now();
- try{result=window.solver.Solve(model,1e-8,true);}catch(error){return fail('Cost optimisation could not complete. Review the plan settings or try again.');}
+ try{result=solveModel();}catch(error){return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,Date.now()>=deadline-25):fail('Cost optimisation stopped before returning a verified plan. Click Reset planner to try again.');}
  let solution=result?.generateSolutionSet?.()||{},elapsed=Date.now()-start;
  const costTimeLimited=elapsed>=primaryBudget-25;
- const audit=values=>{
+ function audit(values){
   const totals=Object.fromEntries(Object.keys(constraints).map(c=>[c,0]));
   for(const [id,data] of Object.entries(variables)){
    const n=values[id]||0;if(!Number.isFinite(n)||n< -1e-6||ints[id]&&Math.abs(n-Math.round(n))>1e-6)return false;
    for(const [c,coefficient] of Object.entries(data))if(Object.hasOwn(totals,c))totals[c]+=n*coefficient;
   }
   return Object.entries(constraints).every(([id,b])=>{const n=totals[id],e=1e-5;return (b.min==null||n>=b.min-e)&&(b.max==null||n<=b.max+e)&&(b.equal==null||Math.abs(n-b.equal)<=e);});
- };
- if(!result?.feasible||!result.bounded||!audit(solution))return fail('No valid costed plan was found within the calculation limit. Check clinician minimums/maximums, working patterns, session eligibility and required rules. No invalid plan is shown.');
+ }
+ if(!result?.feasible||!result.bounded||!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,costTimeLimited||Date.now()>=deadline-25):costTimeLimited?{...fail('Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'),errorCode:'TIMEOUT'}:fail('No valid costed plan was found. Check clinician minimums/maximums, working patterns, session eligibility and required rules. No invalid plan is shown.');
+ publishCandidate(solution);
  // Keep the best cost found, then reduce total productive capacity. Only accept
  // audited refinements that actually improve the requested objective.
  const primaryObjective=slots.reduce((n,s)=>n+Math.round(solution[s.id]||0)*variables[s.id].cost,0);
@@ -184,7 +265,7 @@ function solve(types,modes,groups,demand,rules,options){
   if(deadline-Date.now()<=25)return false;
   model.optimize=objective;model.options.timeout=Math.min(budget,Math.max(1,deadline-Date.now()));
   const before=objectiveValue(solution,objective);
-  try{const nextResult=window.solver.Solve(model,1e-8,true),next=nextResult.generateSolutionSet();if(nextResult.feasible&&nextResult.bounded&&audit(next)&&objectiveValue(next,objective)<=before+1e-7){solution=next;return true;}}catch(error){/* Retain the audited incumbent. */}
+  try{const nextResult=solveModel(),next=nextResult.generateSolutionSet();if(nextResult.feasible&&nextResult.bounded&&audit(next)&&objectiveValue(next,objective)<=before+1e-7){solution=next;publishCandidate(solution);return true;}}catch(error){/* Retain the audited incumbent. */}
   return false;
  };
  const capacityRefined=refine('capacity',2500);
@@ -211,45 +292,16 @@ function solve(types,modes,groups,demand,rules,options){
   removable=Math.max(0,removable);if(!removable)continue;solution[id]=current-removable;
   for(const [key,coefficient] of Object.entries(variables[id]))if(Object.hasOwn(totals,key))totals[key]-=removable*coefficient;pruned=true;
  }}
- if(!audit(solution))return fail('The calculated plan could not be verified. No invalid plan is shown.');
+ if(!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint):fail('The calculated plan could not be verified. No invalid plan is shown.');
  // Do not publish extreme results if the time-limited search has not converged.
  for(const [pool,needs] of Object.entries({sameDay:demand.sameDay,homeVisit:demand.homeVisit,weekly:[demand.weekly],routine:[demand.routine],planned:[demand.planned||0]}))for(let day=0;day<needs.length;day++){
   const amount=allocations.filter(a=>a.pool===pool&&(!['sameDay','homeVisit'].includes(pool)||a.slot.day===day)).reduce((n,a)=>n+(solution[a.id]||0),0),threshold=Math.max(1000,Math.ceil(needs[day]*10)+100);
-  if(amount>threshold)return fail('The optimiser produced an unusually large appointment surplus. Review required rules and clinician settings, then try again.');
+  if(amount>threshold)return verifiedCheckpoint?retainedPlan(verifiedCheckpoint):fail('The optimiser produced an unusually large appointment surplus. Review required rules and clinician settings, then try again.');
  }
- const rows=types.map(t=>({id:t.id,name:t.name,group:[...new Set((t.eligibleClinicians||[]).map(n=>clinicians[n]).filter(Boolean))].join(' · '),days:[0,0,0,0,0],weekly:0,routine:0,planned:0,periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}})),rowById=new Map(rows.map(r=>[r.id,r]));
- const clinicianCounts={},placements=[],appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacitySameDayByPeriod={morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]},capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
- for(const slot of slots){const count=Math.round(solution[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
- for(const a of allocations){const n=Math.round(solution[a.id]||0);if(!n)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
-  if(a.pool==='sameDay'){capacitySameDay[a.slot.day]+=n;capacitySameDayByPeriod[a.slot.period][a.slot.day]+=n;}else if(a.pool==='homeVisit')capacityHomeVisit[a.slot.day]+=n;else if(a.pool==='weekly')weeklyCapacity+=n;else if(a.pool==='routine')routineCapacity+=n;else if(a.pool==='planned')plannedCapacity+=n;
- }
- for(const slot of slots){
-  const count=Math.round(solution[slot.id]||0);if(!count)continue;
-  const capacity=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7),used=allocations.filter(a=>a.slot===slot).reduce((n,a)=>n+Math.round(solution[a.id]||0),0),unused=capacity-used;
-  if(unused>0){const target=appointmentBreakdown[slot.sourceId]||(appointmentBreakdown[slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[slot.day][slot.period];cell.Unallocated=(cell.Unallocated||0)+unused;}
- }
- const ruleResults=active.map(rule=>{
-  const failures=[],measurements=[];
-  for(const expression of ruleExpressions.filter(e=>e.rule===rule)){
-   if(expression.sessionDistribution){
-    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(solution[id]||0),0),target=denominator*expression.weight;
-    if(Math.abs(numerator-target)>expression.tolerance+1e-5)failures.push(expression.sessionName+' · '+daysShort[expression.day]+': outside the session spread target.');
-    measurements.push({sessionType:expression.sessionName,day:expression.day,numerator,denominator,target,tolerance:expression.tolerance});continue;
-   }
-   if(expression.distribution){
-    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(solution[id]||0),0);
-    if(numerator<expression.lower*denominator-1e-5||numerator>expression.upper*denominator+1e-5)failures.push(daysShort[expression.day]+': outside the '+expression.target+'% target ±'+expression.tolerance+' percentage points.');
-    measurements.push({day:expression.day,numerator,denominator,target:expression.target,tolerance:expression.tolerance});continue;
-   }
-   const value=expression.terms.reduce((n,[id,c])=>n+(solution[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(solution[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(solution[id]||0),0),comparison=rule.comparison||'atLeast';
-   const ok=rule.kind==='minimum'?value>=rule.minimum-1e-5:(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
-   if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));
-   measurements.push({numerator,denominator});
-  }
-  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
- });
- const cost=slots.reduce((n,s)=>n+Math.round(solution[s.id]||0)*s.rate,0);
- return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:costTimeLimited||!capacityRefined||!sessionsRefined||!allocationsRefined,ruleAdjusted:false};
+ const finalPlan=buildPlan(solution,{approximate:costTimeLimited||!capacityRefined||!sessionsRefined||!allocationsRefined,optimisationTimedOut:costTimeLimited||Date.now()>=deadline-25});
+ publishCandidate(solution);
+ return isVerifiedPlan(finalPlan)&&betterPlan(finalPlan,verifiedCheckpoint)?finalPlan:verifiedCheckpoint||fail('The calculated plan could not be verified.');
+
 }
 window.SessionBuilderOptimisation=Object.freeze({estimate,estimateAsync});
 })();

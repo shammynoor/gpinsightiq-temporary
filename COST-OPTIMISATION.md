@@ -54,3 +54,7 @@ vendored from the official npm registry. Its license is in
 Validation includes exact comparison with exhaustive enumeration for small cost
 problems, a realistic multi-session workload, constraints and missing rates,
 actual-assignment costs, and the production background worker/cancellation path.
+
+
+### Verified timeout recovery
+The worker streams independently audited integer incumbents during branch-and-bound and after each accepted refinement. Only plans meeting demand, working patterns, clinician limits and required rules are retained. The page keeps the best verified result if the 21-second watchdog, a worker error or a later unsuccessful refinement interrupts optimisation, and labels it as valid without claiming minimum cost. With no verified incumbent, timeout reports an interrupted search rather than infeasibility. Checkpoint messages do not resolve the job or enable the reset button early. Cancelled workers cannot update a newer reset. The 20-second solver budget and manual reset workflow are unchanged.

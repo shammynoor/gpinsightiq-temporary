@@ -92,9 +92,9 @@ test('zero-rate weekly urgent plans do not allocate thousands of unnecessary app
  const p=run([type('free',['GP'],13,['Within 3 Days'])],d,{GP:{annualRate:0}});assert.equal(p.error,undefined);assert.ok(p.weeklyCapacity>=270);assert.ok(p.weeklyCapacity<=338);assert.ok(p.clinicianCounts.GP<50);
 });
 test('rejects an oversized weekly allocation even if the solver reports it as feasible',()=>{
- const d=empty();d.weekly=1;d.types.weekly=['Within 3 Days'];d.byType.weekly={'Within 3 Days':1};const original=c.window.solver.Solve;
- c.window.solver.Solve=function(model,...args){const result=original.call(this,model,...args),get=result.generateSolutionSet.bind(result);result.generateSolutionSet=()=>{const solution=get(),entry=Object.entries(model.constraints).find(([,v])=>v.min===1&&v.max==null);assert.ok(entry,'weekly need constraint exists');const id=Object.keys(model.variables).find(id=>model.variables[id].cost===0&&model.variables[id][entry[0]]===1);assert.ok(id);solution[id]=19537;return solution;};return result;};
- try{const p=run([type('guard',['GP'],13,['Within 3 Days'])],d,{GP:{annualRate:0,workingPattern:['Mon AM']}});assert.match(p.error,/No valid costed plan/);}finally{c.window.solver.Solve=original;}
+ const d=empty();d.weekly=1;d.types.weekly=['Within 3 Days'];d.byType.weekly={'Within 3 Days':1};const original=c.window.solver.Solve,load=c.window.solver.Model.prototype.loadJson;let json;c.window.solver.Model.prototype.loadJson=function(model){json=model;return load.call(this,model);};
+ c.window.solver.Solve=function(model,...args){const result=original.call(this,model,...args),get=result.generateSolutionSet.bind(result);result.generateSolutionSet=()=>{const solution=get(),entry=Object.entries(json.constraints).find(([,v])=>v.min===1&&v.max==null);assert.ok(entry,'weekly need constraint exists');const id=Object.keys(json.variables).find(id=>json.variables[id].cost===0&&json.variables[id][entry[0]]===1);assert.ok(id);solution[id]=19537;return solution;};return result;};
+ try{const p=run([type('guard',['GP'],13,['Within 3 Days'])],d,{GP:{annualRate:0,workingPattern:['Mon AM']}});assert.equal(p.error,undefined);assert.equal(p.verifiedPlan,true);assert.ok(p.weeklyCapacity>=1&&p.weeklyCapacity<=1000);}finally{c.window.solver.Solve=original;}
 });
 test('visits are allocated to meet demand and excess visit slots stay unallocated',()=>{
  const d=empty();d.homeVisit[2]=10.8;d.byType.homeVisit={Visit:[0,0,10.8,0,0]};const t=type('visits',['GP'],0,['Visit']);t.appointmentsByMode['Home Visit']=20;
