@@ -15,7 +15,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args,onProgress));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=session-first-search-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=cost-quality-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -81,7 +81,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   if((limit.min||0)<0||limit.max!=null&&limit.max<(limit.min||0))return fail('Invalid session limits for '+name+'.');
   if(limit.min>0&&!candidates.some(c=>c.clinician===name))return fail('No available eligible session can meet the minimum for '+name+'. Check working patterns and session eligibility.');
  }
- const slots=[],allocations=[],constraints={},variables={},ints={},model={optimize:'cost',opType:'min',constraints,variables,ints,options:{timeout:2500,tolerance:0,presolve:true,nodeSelection:'hybrid',branching:'pseudocost'}};
+ const slots=[],allocations=[],constraints={},variables={},ints={},model={optimize:'cost',opType:'min',constraints,variables,ints,costScale:1,options:{timeout:2500,tolerance:0,presolve:true,nodeSelection:'hybrid',branching:'pseudocost'}};
  let sequence=0;const constraint=bound=>{const id='c'+sequence++;constraints[id]=bound;return id;};
  const variable=(data,integer=false)=>{const id='v'+sequence++;variables[id]=data;if(integer)ints[id]=1;return id;};
  const coefficient=(id,c,value)=>{if(value)variables[id][c]=(variables[id][c]||0)+value;};
@@ -106,10 +106,9 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  };
  for(const candidate of candidates)for(let day=0;day<5;day++)for(const period of periods){
   const pattern=limits[candidate.clinician]?.workingPattern;if(Array.isArray(pattern)&&!pattern.includes(daysShort[day]+' '+(period==='morning'?'AM':'PM')))continue;
-  // Prices are in pennies; the tiny tie-break remains below one penny across
-  // the entire bounded workforce and discourages gratuitous free sessions.
-  const tie=Math.min(1e-7,0.01/(Math.max(1,bound*Object.keys(clinicians).length)));
-  const id=variable({cost:Math.round(candidate.rate*100)+tie},true);coefficient(id,workforce.get(candidate.clinician),1);
+  // Use exact monetary precision for the primary cost objective. Capacity and
+  // session counts are handled separately, without a numerical cost epsilon.
+  const id=variable({cost:Math.round(candidate.rate*100)/100},true);coefficient(id,workforce.get(candidate.clinician),1);
   const slot={...candidate,id,day,period};slots.push(slot);
   // Integer allocation counts also round combined productive capacity.
   // Use an integer ratio when possible to avoid nearly-integral floor bounds.
@@ -254,8 +253,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   }
   return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
  });
- const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*s.rate,0);
- return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false};
+ const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*s.rate,0),costLowerBound=Number.isFinite(inspection?.costLowerBound)&&inspection.costLowerBound<=cost+1e-5?Math.max(0,Math.min(cost,inspection.costLowerBound)):undefined,costGap=Number.isFinite(costLowerBound)&&cost>0?Math.max(0,(cost-costLowerBound)/cost):undefined;
+ return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false};
  }
  // Find an integer feasible plan before spending the remaining time on cost.
  // This phase uses exactly the same demand, eligibility and required rules.
@@ -265,6 +264,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   const seed=solveModel(),candidate=seed.generateSolutionSet();
   if(seed.feasible&&seed.bounded&&audit(candidate))publishCandidate(candidate);
  }catch(error){/* The cost search can still find a valid plan. */}
+ if(verifiedValues&&window.SessionBuilderCostPolish)window.SessionBuilderCostPolish.improve({slots,allocations,variables,constraints,values:verifiedValues,demand,limits,active,audit,accept:publishCandidate,deadline:Math.min(deadline-4000,Date.now()+3000)});
  if(verifiedValues){
   const ceiling=constraint({max:Object.entries(variables).reduce((n,[id,data])=>n+(verifiedValues[id]||0)*(data.cost||0),0)+1e-7});
   for(const [id,data] of Object.entries(variables))coefficient(id,ceiling,data.cost||0);
@@ -286,6 +286,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  }
  if(!result?.feasible||!result.bounded||!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,costTimeLimited||Date.now()>=deadline-25):costTimeLimited?{...fail('Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'),errorCode:'TIMEOUT'}:fail('No valid costed plan was found. Check clinician minimums/maximums, working patterns, session eligibility and required rules. Every productive slot must have an eligible appointment type for its consultation mode. No invalid plan is shown.');
  publishCandidate(solution);
+ if(verifiedValues&&window.SessionBuilderCostPolish)window.SessionBuilderCostPolish.improve({slots,allocations,variables,constraints,values:verifiedValues,demand,limits,active,audit,accept:publishCandidate,deadline:Math.min(deadline-750,Date.now()+1500)});
+ if(verifiedValues&&audit(verifiedValues))solution={...verifiedValues};
  // Keep the best cost found, then reduce total productive capacity. Only accept
  // audited refinements that actually improve the requested objective.
  const primaryObjective=slots.reduce((n,s)=>n+Math.round(solution[s.id]||0)*variables[s.id].cost,0);

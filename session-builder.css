@@ -206,3 +206,5 @@
 #sessionBuilderPage .session-builder-diagnostics button{display:inline-block;width:auto;min-height:30px;margin:5px 8px 5px 0;padding:5px 10px;border:1px solid #b9cfdf;border-radius:6px;background:#fff;color:#146aa5;font:inherit;font-size:12px;cursor:pointer}
 #sessionBuilderPage .session-builder-diagnostics details{margin-top:14px}
 #sessionBuilderPage .session-builder-diagnostics summary{font-size:13px;font-weight:600;cursor:pointer}
+
+#sessionBuilderPage .session-builder-cost-quality{font-size:13px;color:#42647e;line-height:1.5;margin:8px 0 12px}
