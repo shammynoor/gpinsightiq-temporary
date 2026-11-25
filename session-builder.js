@@ -105,7 +105,7 @@ async function renderSessionRequirements(settings={}){
   if(requirementsSolving)return;
   const run=++requirementsRun;args[5]={...args[5],solveRequest:run};
   setPlannerBusy(true);if(solveStatus)solveStatus.textContent='Solving planner — allowing up to 30 seconds…';
-  try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args):window.SessionBuilderPlanning.estimateSessions(...args));}
+  try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args,()=>{if(run===requirementsRun&&requirementsSolving){if(solveStatus)solveStatus.textContent='Valid plan found. Optimising workforce cost within the 30-second limit…';const warning=byId('sessionBuilderPlanWarning'),diagnostics=byId('sessionBuilderPlanDiagnostics');if(warning)warning.hidden=true;if(diagnostics)diagnostics.hidden=true;}}):window.SessionBuilderPlanning.estimateSessions(...args));}
   catch(error){estimate={rows:[],error:'Could not calculate workforce costs. Refresh the page and try again.'};}
   finally{if(run===requirementsRun)setPlannerBusy(false);}
   if(run!==requirementsRun||estimate.cancelled||!canEditSessionBuilder())return;

@@ -1,3 +1,4 @@
+// Local planner patch: optional plannerPriority orders integer branching; default models keep their existing order.
 var solver = (function () {
     'use strict';
 
@@ -3535,12 +3536,15 @@ var solver = (function () {
                     const value = matrix[row * width + rhsColumn];
                     const fraction = Math.abs(value - Math.round(value));
                     if (fraction > precision) {
-                        candidates.push({ index: varIndex, value, fraction });
+                        candidates.push({ index: varIndex, value, fraction, plannerPriority: variable.plannerPriority || 0 });
                     }
                 }
             }
             if (candidates.length === 0)
                 return null;
+            // Planner sessions must be settled before their dependent slot allocations.
+            const highestPriority = Math.max(...candidates.map(candidate => candidate.plannerPriority || 0));
+            candidates = candidates.filter(candidate => (candidate.plannerPriority || 0) === highestPriority);
             if (branching === "most-fractional") {
                 // Original strategy - pick most fractional
                 candidates.sort((a, b) => b.fraction - a.fraction);
@@ -3884,7 +3888,7 @@ var solver = (function () {
             const rhsColumn = tableau.rhsColumn;
             const integerVars = tableau.model.integerVariables;
             const precision = tableau.precision;
-            const candidates = [];
+            let candidates = [];
             for (const variable of integerVars) {
                 const varIndex = variable.index;
                 const row = tableau.rowByVarIndex[varIndex];
@@ -3892,12 +3896,15 @@ var solver = (function () {
                     const value = matrix[row * width + rhsColumn];
                     const fraction = Math.abs(value - Math.round(value));
                     if (fraction > precision) {
-                        candidates.push({ index: varIndex, value, fraction });
+                        candidates.push({ index: varIndex, value, fraction, plannerPriority: variable.plannerPriority || 0 });
                     }
                 }
             }
             if (candidates.length === 0)
                 return null;
+            // Planner sessions must be settled before their dependent slot allocations.
+            const highestPriority = Math.max(...candidates.map(candidate => candidate.plannerPriority || 0));
+            candidates = candidates.filter(candidate => (candidate.plannerPriority || 0) === highestPriority);
             if (branching === "most-fractional") {
                 candidates.sort((a, b) => b.fraction - a.fraction);
                 return candidates[0];

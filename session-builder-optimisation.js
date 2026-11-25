@@ -11,10 +11,11 @@ function betterPlan(plan,previous){
 }
 function retainedPlan(plan,timedOut=false){return {...plan,approximate:true,optimisationTimedOut:timedOut,optimisationInterrupted:!timedOut};}
 function estimateAsync(...args){
- if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
+ const onProgress=typeof args[6]==='function'?args.pop():null;
+ if(typeof Worker==='undefined')return Promise.resolve(estimate(...args,onProgress));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-diagnostics-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=session-first-search-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -28,7 +29,7 @@ function estimateAsync(...args){
   if(job.done||pending!==job)return;
   const message=event.data;
   if(message?.type==='diagnostics'){job.diagnostics=message.diagnostics;return;}
-  if(message?.type==='incumbent'){if(isVerifiedPlan(message.result)&&betterPlan(message.result,job.best))job.best=message.result;return;}
+  if(message?.type==='incumbent'){if(isVerifiedPlan(message.result)&&betterPlan(message.result,job.best)){job.best=message.result;try{onProgress?.(message.result);}catch(error){/* Progress observers cannot affect the solve. */}}return;}
   finish(message?.type==='complete'?message.result:message);
  };
  worker.onerror=()=>finish({rows:[],error:'The background optimiser stopped before returning a verified plan. Click Reset planner to try again.'});
@@ -221,6 +222,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   const solver=window.solver;
   if(typeof solver.Model!=='function'||typeof solver.selectBranchAndCutService!=='function')return solver.Solve(model,1e-8,true);
   const instance=new solver.Model(1e-8,undefined,solver.selectBranchAndCutService(model)).loadJson(model);
+  const sessionIds=new Set(slots.map(slot=>slot.id));for(const variable of instance.integerVariables)variable.plannerPriority=sessionIds.has(variable.id)?1:0;
   instance.options=model.options;instance.keep_solutions=true;
   instance.solutions={push:candidate=>{publishCandidate(candidate);if(model.optimize==='seedSessions'&&verifiedValues)throw Error('Verified seed found');}};
   return solver.Solve(instance,1e-8,true);
@@ -277,7 +279,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  function audit(values){
   const totals=Object.fromEntries(Object.keys(constraints).map(c=>[c,0]));
   for(const [id,data] of Object.entries(variables)){
-   const n=values[id]||0;if(!Number.isFinite(n)||n< -1e-6||ints[id]&&Math.abs(n-Math.round(n))>1e-6)return false;
+   const raw=values[id]||0;if(!Number.isFinite(raw)||raw< -1e-6||ints[id]&&Math.abs(raw-Math.round(raw))>1e-6)return false;const n=ints[id]?Math.round(raw):raw;
    for(const [c,coefficient] of Object.entries(data))if(Object.hasOwn(totals,c))totals[c]+=n*coefficient;
   }
   return Object.entries(constraints).every(([id,b])=>{const n=totals[id],e=1e-5;return (b.min==null||n>=b.min-e)&&(b.max==null||n<=b.max+e)&&(b.equal==null||Math.abs(n-b.equal)<=e);});
