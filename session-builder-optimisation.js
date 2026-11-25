@@ -14,7 +14,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=session-limits-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=feasibility-first-v1');
  const job={key,worker,promise,resolve,best:null,done:false};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -52,7 +52,11 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  for(const name of demand.eligiblePlannedTypes||[])configured.set(name,'planned');
  const plannedLabel='Planned care',normal=name=>configured.get(name)==='planned'?plannedLabel:name;
  const hard=rules.filter(r=>r.enabled&&r.strength==='must'),active=rules.filter(r=>r.enabled);
- const periods=['morning','afternoon'],daysShort=['Mon','Tue','Wed','Thu','Fri'];
+ const daysShort=['Mon','Tue','Wed','Thu','Fri'];
+ // Whole-day settings have interchangeable AM/PM variables. Use a single
+ // representative period only when both rules and working patterns allow it.
+ const wholeDays=active.every(rule=>['day','week'].includes(rule.scope))&&Object.values(limits).every(limit=>!Array.isArray(limit.workingPattern)||daysShort.every(day=>limit.workingPattern.includes(day+' AM')===limit.workingPattern.includes(day+' PM')));
+ const periods=wholeDays?['morning']:['morning','afternoon'];
  const candidates=[],missing=new Set();
  for(const type of types)for(const name of [...new Set(type.eligibleClinicians||[])]){
   if(!Object.hasOwn(clinicians,name)||!groups.includes(clinicians[name]))continue;
@@ -180,12 +184,12 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
  }
- let verifiedCheckpoint=null;
+ let verifiedCheckpoint=null,verifiedValues=null;
  function publishCandidate(candidate){
   if(!audit(candidate))return;
   const plan=buildPlan(candidate);
   if(!isVerifiedPlan(plan)||!betterPlan(plan,verifiedCheckpoint))return;
-  verifiedCheckpoint=plan;
+  verifiedCheckpoint=plan;verifiedValues={...candidate};
   if(typeof onCheckpoint==='function')try{onCheckpoint(plan);}catch(error){/* Checkpoint delivery cannot invalidate a solve. */}
  }
  function solveModel(){
@@ -195,7 +199,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   if(typeof solver.Model!=='function'||typeof solver.selectBranchAndCutService!=='function')return solver.Solve(model,1e-8,true);
   const instance=new solver.Model(1e-8,undefined,solver.selectBranchAndCutService(model)).loadJson(model);
   instance.options=model.options;instance.keep_solutions=true;
-  instance.solutions={push:candidate=>publishCandidate(candidate)};
+  instance.solutions={push:candidate=>{publishCandidate(candidate);if(model.optimize==='seedSessions'&&verifiedValues)throw Error('Verified seed found');}};
   return solver.Solve(instance,1e-8,true);
  }
  function buildPlan(chosen,flags={}){
@@ -228,11 +232,25 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*s.rate,0);
  return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false};
  }
+ // Find an integer feasible plan before spending the remaining time on cost.
+ // This phase uses exactly the same demand, eligibility and required rules.
+ const seedIds=new Set(slots.map(slot=>slot.id));for(const [id,data] of Object.entries(variables))data.seedSessions=seedIds.has(id)?1:0;
+ model.optimize='seedSessions';model.options.timeout=Math.min(2000,Math.max(1,deadline-Date.now()-4000));model.options.tolerance=0.1;model.options.nodeSelection='depth-first';model.options.branching='most-fractional';
+ try{
+  const seed=solveModel(),candidate=seed.generateSolutionSet();
+  if(seed.feasible&&seed.bounded&&audit(candidate))publishCandidate(candidate);
+ }catch(error){/* The cost search can still find a valid plan. */}
+ if(verifiedValues){
+  const ceiling=constraint({max:Object.entries(variables).reduce((n,[id,data])=>n+(verifiedValues[id]||0)*(data.cost||0),0)+1e-7});
+  for(const [id,data] of Object.entries(variables))coefficient(id,ceiling,data.cost||0);
+ }
+ model.optimize='cost';model.options.tolerance=0;model.options.nodeSelection='hybrid';model.options.branching='pseudocost';
  const primaryBudget=Math.max(1,deadline-Date.now()-4000);model.options.timeout=primaryBudget;
  let result,start=Date.now();
  try{result=solveModel();}catch(error){return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,Date.now()>=deadline-25):fail('Cost optimisation stopped before returning a verified plan. Click Reset planner to try again.');}
  let solution=result?.generateSolutionSet?.()||{},elapsed=Date.now()-start;
- const costTimeLimited=elapsed>=primaryBudget-25;
+ const costTimeLimited=elapsed>=primaryBudget-25;let costSearchIncomplete=false;
+ if(verifiedValues&&(!result?.feasible||!result.bounded||!audit(solution))){solution={...verifiedValues};result={feasible:true,bounded:true};costSearchIncomplete=true;}
  function audit(values){
   const totals=Object.fromEntries(Object.keys(constraints).map(c=>[c,0]));
   for(const [id,data] of Object.entries(variables)){
@@ -263,7 +281,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  {const sessionBound=constraint({max:objectiveValue(solution,'sessions')+1e-7});for(const id of sessionIds)coefficient(id,sessionBound,1);}
  if(distributionPenalties.length)refine('balance',500);
  if(!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint):fail('The calculated plan could not be verified. No invalid plan is shown.');
- const finalPlan=buildPlan(solution,{approximate:costTimeLimited||!capacityRefined||!sessionsRefined,optimisationTimedOut:costTimeLimited||Date.now()>=deadline-25});
+ const finalPlan=buildPlan(solution,{approximate:costSearchIncomplete||costTimeLimited||!capacityRefined||!sessionsRefined,optimisationTimedOut:costTimeLimited||Date.now()>=deadline-25});
  publishCandidate(solution);
  return isVerifiedPlan(finalPlan)&&betterPlan(finalPlan,verifiedCheckpoint)?finalPlan:verifiedCheckpoint||fail('The calculated plan could not be verified.');
 

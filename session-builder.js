@@ -96,7 +96,7 @@ async function renderSessionRequirements(settings={}){
  const key=JSON.stringify(args);requirementsCurrentKey=key;
  const solveStatus=byId('sessionBuilderSolveStatus');
  if(!reset&&(requirementsRenderedKey!==null||requirementsSolving)){
-  if(!requirementsSolving&&solveStatus)solveStatus.textContent=key===requirementsRenderedKey?'Plan unchanged. Click Reset planner to solve again.':'Settings or demand changed. Click Reset planner to recalculate.';
+  if(!requirementsSolving&&solveStatus&&key!==requirementsRenderedKey)solveStatus.textContent='Settings or demand changed. Click Reset planner to recalculate.';
   return;
  }
  let estimate={rows:[],noPlan:true};
