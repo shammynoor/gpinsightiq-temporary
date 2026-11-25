@@ -74,11 +74,11 @@ test('whole appointment provision may exceed demand to meet a required mix, but 
  const rule={id:'oversupply',kind:'mix',enabled:true,strength:'must',scope:'week',days:[1,2,3,4,5],minimum:50,comparison:'exact',shareSubject:{kind:'type',name:'GP'},appointmentTypes:['Routine']};
  const p=run([type('GP',['GP'])],d,{GP:{annualRate:10000,max:2}},[rule]);assert.equal(p.error,undefined);assert.ok(p.capacitySameDay.reduce((n,v)=>n+v,0)>=9);assert.ok(p.capacitySameDay[0]>=1);assert.ok(p.routineCapacity>=9);assert.equal(p.ruleResults[0].ok,true);assert.equal(p.clinicianCounts.GP,2);
 });
-test('cost and session refinement share one twenty-second solving budget',()=>{
+test('cost and session refinement share one thirty-second solving budget',()=>{
  const d=empty();d.sameDay[0]=17;d.byType.sameDay['Same Day'][0]=17;
  const original=c.window.solver.Solve,budgets=[];let clock=1000;
- c.Date={now:()=>clock};c.window.solver.Solve=function(...args){budgets.push(args[0].options.timeout);try{return original.apply(this,args);}finally{if(budgets.length===1)clock+=2000;else if(budgets.length===2)clock+=17300;}};
- try{const p=run([type('budget',['Budget'])],d,{Budget:{annualRate:9900}});assert.equal(p.error,undefined);assert.equal(budgets[0],2000);assert.equal(budgets[1],14000);assert.equal(budgets[2],700);}
+ c.Date={now:()=>clock};c.window.solver.Solve=function(...args){budgets.push(args[0].options.timeout);try{return original.apply(this,args);}finally{if(budgets.length===1)clock+=2000;else if(budgets.length===2)clock+=27300;}};
+ try{const p=run([type('budget',['Budget'])],d,{Budget:{annualRate:9900}});assert.equal(p.error,undefined);assert.equal(budgets[0],2000);assert.equal(budgets[1],24000);assert.equal(budgets[2],700);}
  finally{c.Date=Date;c.window.solver.Solve=original;}
 });
 test('AM/PM provision comes from actual allocations and reconciles with each daily total',()=>{

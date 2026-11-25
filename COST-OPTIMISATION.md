@@ -28,13 +28,13 @@ Average productive appointment capacity is reduced by
 settings use the Clinician Setup defaults of five weeks and zero percent.
 Predicted need remains a fractional weekly average. Session counts and all provided,
 allocated appointment counts are integers. Productive consultation-mode
-capacity per session is rounded down after absence adjustment, while required slots
+capacity across matching sessions of the same clinician type, session type, day and internal period is rounded down after absence adjustment, while required slots
 round demand up. Forecast appointment-type proportions allow a one-slot deviation so
 they do not force fractional allocations. Required percentage rules remain exact. All productive capacity in selected sessions must be assigned to eligible appointment types, separately for home-visit and non-home-visit slots. Predicted need is a minimum, not a ceiling; provision may exceed it. Capacity with no eligible appointment type prevents that session from being selected.
 
 Missing annual rates stop cost optimisation. An explicitly entered zero is allowed.
 The model is solved only when Reset planner is clicked. It runs in a background
-worker with a shared twenty-second budget. The primary search minimises annual cost;
+worker with a shared thirty-second budget. The primary search minimises annual cost;
 a reserved refinement reduces productive capacity without increasing the best cost found.
 There is no trimming of allocated slots back to forecast demand. All whole productive slots are allocated while preserving required rules. A spinner and
 disabled reset button indicate progress; the current result stays visible.
@@ -57,7 +57,7 @@ actual-assignment costs, and the production background worker/cancellation path.
 
 
 ### Verified timeout recovery
-The worker streams independently audited integer incumbents during branch-and-bound and after each accepted refinement. Only plans meeting demand, working patterns, clinician limits and required rules are retained. The page keeps the best verified result if the 21-second watchdog, a worker error or a later unsuccessful refinement interrupts optimisation, and labels it as valid without claiming minimum cost. With no verified incumbent, timeout reports an interrupted search rather than infeasibility. Checkpoint messages do not resolve the job or enable the reset button early. Cancelled workers cannot update a newer reset. The 20-second solver budget and manual reset workflow are unchanged.
+The worker streams independently audited integer incumbents during branch-and-bound and after each accepted refinement. Only plans meeting demand, working patterns, clinician limits and required rules are retained. The page keeps the best verified result if the 31-second watchdog, a worker error or a later unsuccessful refinement interrupts optimisation, and labels it as valid without claiming minimum cost. With no verified incumbent, timeout reports an interrupted search rather than infeasibility. Checkpoint messages do not resolve the job or enable the reset button early. Cancelled workers cannot update a newer reset. The 30-second solver budget and manual reset workflow are unchanged.
 
 
 ### Full session allocation
@@ -69,4 +69,8 @@ The existing minimum-session rule now offers independent optional minimum and ma
 
 
 ### Feasibility-first search and daily symmetry
-The shared 20-second budget now begins with up to two seconds seeking a complete integer plan under the same hard constraints, using session count as its initial objective. The phase stops on its first audited incumbent; remaining time searches annual cost, bounded by that incumbent's cost, followed by capacity/session/distribution refinements. A first-phase plan is not claimed optimal and survives a failed or interrupted cost search. For rules scoped entirely to whole days/weeks and paired AM/PM working patterns, interchangeable periods are collapsed to one internal representative, halving session/allocation decisions without changing feasible daily totals. AM/PM-specific rules or asymmetric working patterns preserve both periods. Ordinary rerenders preserve the result's timeout/optimality status rather than overwriting it with 'Plan unchanged'. Scale coverage includes simultaneous hard allocation distributions and session spreads. This improves search strategy but does not guarantee feasibility or completion for arbitrary configurations.
+The shared 30-second budget now begins with up to two seconds seeking a complete integer plan under the same hard constraints, using session count as its initial objective. The phase stops on its first audited incumbent; remaining time searches annual cost, bounded by that incumbent's cost, followed by capacity/session/distribution refinements. A first-phase plan is not claimed optimal and survives a failed or interrupted cost search. For rules scoped entirely to whole days/weeks and paired AM/PM working patterns, interchangeable periods are collapsed to one internal representative, halving session/allocation decisions without changing feasible daily totals. AM/PM-specific rules or asymmetric working patterns preserve both periods. Ordinary rerenders preserve the result's timeout/optimality status rather than overwriting it with 'Plan unchanged'. Scale coverage includes simultaneous hard allocation distributions and session spreads. This improves search strategy but does not guarantee feasibility or completion for arbitrary configurations.
+
+
+### Capacity rounding correction and 30-second budget
+Retain fractional productive capacity per session internally after leave and sickness. Integer allocations represent the floor of capacity times the number of matching sessions, preventing one home visit per session from being rounded to zero before sessions are combined. Integer-ratio bounds avoid extra integer capacity variables; every displayed allocation remains whole and total allocated capacity reconciles with productive capacity. The total solver deadline is 30 seconds, with a 31-second worker watchdog to allow completion messaging. Refinement time is reserved only after a verified plan exists; otherwise the cost search may use all remaining solver time. Focused rounding, budget and recovery checks pass. Larger representative models can still time out without returning a verified plan; this change does not guarantee successful solving of every configuration.

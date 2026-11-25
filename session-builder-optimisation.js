@@ -14,7 +14,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=feasibility-first-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=aggregate-capacity-30s-v1');
  const job={key,worker,promise,resolve,best:null,done:false};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -30,7 +30,7 @@ function estimateAsync(...args){
   finish(message?.type==='complete'?message.result:message);
  };
  worker.onerror=()=>finish({rows:[],error:'The background optimiser stopped before returning a verified plan. Click Reset planner to try again.'});
- job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),21000);
+ job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),31000);
  worker.postMessage(args);return promise;
 }
 function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint){
@@ -39,7 +39,7 @@ function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint){
  const result=solve(types,modes,groups,demand,rules,options,onCheckpoint);cached={key,result};return result;
 }
 function solve(types,modes,groups,demand,rules,options,onCheckpoint){
- const deadline=Date.now()+20000;
+ const deadline=Date.now()+30000;
  const fail=error=>({rows:[],error,costOptimised:true});
  if(!demand)return fail('Demand is unavailable for cost optimisation.');
  if(!window.solver?.Solve)return fail('The cost optimisation solver could not load. Refresh the page.');
@@ -68,7 +68,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   const leave=limit.annualLeaveWeeks??5,sickness=limit.sicknessPercent??0;
   if(!Number.isFinite(leave)||leave<0||leave>52||!Number.isFinite(sickness)||sickness<0||sickness>100)return fail('Invalid leave or sickness settings for '+name+'.');
   const availability=(52-leave)/52*(1-sickness/100);
-  candidates.push({sourceId:type.id,name:type.name,clinician:name,group:clinicians[name],rate:limit.annualRate,nonHome:Math.floor(nonHome*availability+1e-7),home:Math.floor(home*availability+1e-7),allowed});
+  candidates.push({sourceId:type.id,name:type.name,clinician:name,group:clinicians[name],rate:limit.annualRate,nonHome:nonHome*availability,home:home*availability,allowed});
  }
  if(missing.size)return fail('Enter an annualised sessional rate in Clinician Setup for: '+[...missing].join(', ')+'. Missing rates cannot be treated as free.');
  for(const [name,limit] of Object.entries(limits))if(Object.hasOwn(clinicians,name)){
@@ -93,7 +93,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  const typedNeed=new Map();
  for(const pool of ['weekly','routine'])for(const [name,need] of Object.entries(demand.byType?.[pool]||{}))typedNeed.set(pool+'|'+name,constraint({min:Math.ceil(need)}));
  const addAllocation=(slot,name,pool,capacityConstraint)=>{
-  const id=variable({cost:0},true);coefficient(id,capacityConstraint,1);
+  const id=variable({cost:0},true);coefficient(id,capacityConstraint.id,capacityConstraint.scale);
   const need=pool==='sameDay'||pool==='homeVisit'?needConstraints[pool][slot.day]:needConstraints[pool];if(need)coefficient(id,need,1);
   const typed=typedNeed.get(pool+'|'+name);if(typed)coefficient(id,typed,1);
   const allocation={id,slot,name,pool};allocations.push(allocation);return allocation;
@@ -105,7 +105,21 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   const tie=Math.min(1e-7,0.01/(Math.max(1,bound*Object.keys(clinicians).length)));
   const id=variable({cost:Math.round(candidate.rate*100)+tie},true);coefficient(id,workforce.get(candidate.clinician),1);
   const slot={...candidate,id,day,period};slots.push(slot);
-  const nonHome=constraint({equal:0}),home=constraint({equal:0});coefficient(id,nonHome,-candidate.nonHome);coefficient(id,home,-candidate.home);
+  // Integer allocation counts also round combined productive capacity.
+  // Use an integer ratio when possible to avoid nearly-integral floor bounds.
+  const capacityConstraint=effective=>{
+   let x=effective,previousNumerator=0,numerator=1,previousDenominator=1,denominator=0,ratio=null;
+   for(let i=0;i<24;i++){
+    const whole=Math.floor(x),nextNumerator=whole*numerator+previousNumerator,nextDenominator=whole*denominator+previousDenominator;
+    if(!Number.isSafeInteger(nextNumerator)||nextDenominator>1000000)break;
+    [previousNumerator,numerator]=[numerator,nextNumerator];[previousDenominator,denominator]=[denominator,nextDenominator];
+    if(Math.abs(numerator/denominator-effective)<1e-12){ratio={numerator,denominator};break;}
+    const fraction=x-whole;if(!fraction)break;x=1/fraction;
+   }
+   const scale=ratio?.denominator||1,idTotal=constraint(ratio?{min:-(scale-1),max:0}:{min:-1+1e-7,max:1e-7});
+   coefficient(id,idTotal,-(ratio?.numerator??effective));return {id:idTotal,scale};
+  };
+  const nonHome=capacityConstraint(candidate.nonHome),home=capacityConstraint(candidate.home);
   const choices=[...new Map(candidate.allowed.map(([name,pool])=>[pool==='planned'?plannedLabel:name,{name:normal(name),pool}])).values()];
   for(const choice of choices)if(choice.pool==='homeVisit'?candidate.home>0:candidate.nonHome>0)addAllocation(slot,choice.name,choice.pool,choice.pool==='homeVisit'?home:nonHome);
   // Each consultation-mode capacity must be fully assigned to eligible types.
@@ -245,7 +259,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   for(const [id,data] of Object.entries(variables))coefficient(id,ceiling,data.cost||0);
  }
  model.optimize='cost';model.options.tolerance=0;model.options.nodeSelection='hybrid';model.options.branching='pseudocost';
- const primaryBudget=Math.max(1,deadline-Date.now()-4000);model.options.timeout=primaryBudget;
+ const primaryBudget=Math.max(1,deadline-Date.now()-(verifiedCheckpoint?4000:0));model.options.timeout=primaryBudget;
  let result,start=Date.now();
  try{result=solveModel();}catch(error){return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,Date.now()>=deadline-25):fail('Cost optimisation stopped before returning a verified plan. Click Reset planner to try again.');}
  let solution=result?.generateSolutionSet?.()||{},elapsed=Date.now()-start;
@@ -265,8 +279,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  // audited refinements that actually improve the requested objective.
  const primaryObjective=slots.reduce((n,s)=>n+Math.round(solution[s.id]||0)*variables[s.id].cost,0);
  const costBound=constraint({max:primaryObjective+1e-8});
- const sessionIds=new Set(slots.map(s=>s.id)),slotById=new Map(slots.map(slot=>[slot.id,slot]));
- for(const [id,data] of Object.entries(variables)){coefficient(id,costBound,data.cost||0);data.capacity=sessionIds.has(id)?slotById.get(id).nonHome+slotById.get(id).home:0;data.sessions=sessionIds.has(id)?1:0;}
+ const sessionIds=new Set(slots.map(s=>s.id)),capacityIds=new Set(allocations.map(allocation=>allocation.id));
+ for(const [id,data] of Object.entries(variables)){coefficient(id,costBound,data.cost||0);data.capacity=capacityIds.has(id)?1:0;data.sessions=sessionIds.has(id)?1:0;}
  const objectiveValue=(values,objective)=>Object.entries(variables).reduce((n,[id,data])=>n+(values[id]||0)*(data[objective]||0),0);
  const refine=(objective,budget)=>{
   if(deadline-Date.now()<=25)return false;
