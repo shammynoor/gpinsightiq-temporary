@@ -12,10 +12,10 @@ function betterPlan(plan,previous){
 function retainedPlan(plan,timedOut=false){return {...plan,approximate:true,optimisationTimedOut:timedOut,optimisationInterrupted:!timedOut};}
 function estimateAsync(...args){
  const onProgress=typeof args[6]==='function'?args.pop():null;
- if(typeof Worker==='undefined')return Promise.resolve(estimate(...args,onProgress));
+ if(typeof Worker==='undefined')return Promise.resolve({rows:[],error:'This browser cannot run the background integer optimiser. Use a browser with Web Worker support and try again.'});
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=soft-preference-cost-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=global-mip-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -28,6 +28,7 @@ function estimateAsync(...args){
  worker.onmessage=event=>{
   if(job.done||pending!==job)return;
   const message=event.data;
+  if(message?.type==='ready'){clearTimeout(job.timer);job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),31000);return;}
   if(message?.type==='diagnostics'){job.diagnostics=message.diagnostics;return;}
   if(message?.type==='incumbent'){if(isVerifiedPlan(message.result)&&betterPlan(message.result,job.best)){job.best=message.result;try{onProgress?.(message.result);}catch(error){/* Progress observers cannot affect the solve. */}}return;}
   finish(message?.type==='complete'?message.result:message);
@@ -206,7 +207,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   }
   recordRule();
  }
- let verifiedCheckpoint=null,verifiedValues=null;
+ let verifiedCheckpoint=null,verifiedValues=null,mipLowerBound;
  const inspection=window.SessionBuilderDiagnostics?.checkModel(model,ruleSources,Math.min(deadline-1000,Date.now()+500));if(inspection&&typeof onDiagnostics==='function')onDiagnostics(inspection);
  function publishCandidate(candidate){
   if(!audit(candidate))return;
@@ -253,8 +254,41 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   }
   return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
  });
- const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*s.rate,0),costLowerBound=Number.isFinite(inspection?.costLowerBound)&&inspection.costLowerBound<=cost+1e-5?Math.max(0,Math.min(cost,inspection.costLowerBound)):undefined,costGap=Number.isFinite(costLowerBound)&&cost>0?Math.max(0,(cost-costLowerBound)/cost):undefined;
- return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false};
+ const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*variables[s.id].cost,0),lower=mipLowerBound??inspection?.costLowerBound,costLowerBound=Number.isFinite(lower)&&lower<=cost+1e-5?Math.max(0,Math.min(cost,lower)):undefined,costGap=Number.isFinite(costLowerBound)&&cost>0?Math.max(0,(cost-costLowerBound)/cost):undefined;
+ return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false,solverName:window.SessionBuilderMip?'HiGHS':'legacy',costOptimal:!!flags.costOptimal,costBoundKind:mipLowerBound!=null?'integer':'fractional'};
+ }
+ // Production uses a global MIP solve. All staffing and allocation decisions
+ // are solved together, so percentage/distribution rules cannot trap a local
+ // single-session cleanup. Every incumbent still passes the independent audit.
+ if(window.SessionBuilderMip){
+  let primary;
+  try{
+   primary=window.SessionBuilderMip.solve(model,{timeLimit:Math.max(1,Math.min(25000,deadline-Date.now()-4000)),onIncumbent:publishCandidate});
+   if(Number.isFinite(primary.lowerBound))mipLowerBound=primary.lowerBound;
+   if(primary.feasible)publishCandidate(primary.values);
+  }catch(error){
+   return verifiedCheckpoint?retainedPlan(verifiedCheckpoint):fail('The integer optimiser could not complete. Your previous plan is unchanged. Try Reset planner again.');
+  }
+  if(!verifiedValues)return primary.infeasible?fail('No plan can meet all current demand, clinician limits, working patterns and required rules. Review Planner checks.'):
+   {...fail('The integer optimiser reached its limit before finding a verified plan. This does not prove the settings are infeasible.'),errorCode:'TIMEOUT'};
+  const acceptedCost=slots.reduce((n,s)=>n+Math.round(verifiedValues[s.id]||0)*variables[s.id].cost,0);
+  const costOptimal=!!primary.optimal&&Math.abs(acceptedCost-primary.objective)<.005;
+  const sessionIds=new Set(slots.map(s=>s.id)),allocationIds=new Set(allocations.map(a=>a.id));
+  const objectiveValue=(v,key)=>Object.entries(variables).reduce((n,[id,data])=>n+(v[id]||0)*(data[key]||0),0);
+  const freeze=key=>{const c=constraint({max:objectiveValue(verifiedValues,key)+1e-6});for(const [id,data]of Object.entries(variables))coefficient(id,c,data[key]||0);};
+  freeze('cost');
+  for(const [id,data]of Object.entries(variables)){data.capacity=allocationIds.has(id)?1:0;data.sessions=sessionIds.has(id)?1:0;}
+  for(const [objective,budget]of [['capacity',2500],['sessions',750],['balance',500]]){
+   if(objective==='balance'&&!distributionPenalties.length)continue;
+   if(deadline-Date.now()<25)break;
+   model.optimize=objective;
+   try{
+    const refined=window.SessionBuilderMip.solve(model,{timeLimit:Math.max(1,Math.min(budget,deadline-Date.now())),values:verifiedValues,onIncumbent:publishCandidate});
+    if(refined.feasible)publishCandidate(refined.values);
+   }catch(error){/* Retain the best independently verified plan. */}
+   if(objective!=='balance')freeze(objective);
+  }
+  return buildPlan(verifiedValues,{approximate:!costOptimal,costOptimal,optimisationTimedOut:!costOptimal&&Date.now()>=deadline-25});
  }
  // Find an integer feasible plan before spending the remaining time on cost.
  // This phase uses exactly the same demand, eligibility and required rules.

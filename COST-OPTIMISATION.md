@@ -95,3 +95,13 @@ Regression coverage now includes deliberately oversized feasible seeds, cheaper 
 
 ### Soft preferences during cost reduction
 Transportation-based cost reduction recomputes continuous preference slack before the independent full-model audit. Unmet Prefer spread rules remain reported as unmet preferences; they cannot silently become hard constraints that veto cheaper valid staffing. Required rules, clinician minimums/maximums, working patterns, and integer appointments are still audited without relaxation. Regression coverage includes a fixed trainee minimum with no Thursday availability and a soft five-day spread.
+
+
+### Global integer optimisation (HiGHS 1.16.0)
+The production worker now loads a pinned, locally served HiGHS WebAssembly engine and solves all session and allocation decisions together. The former first-feasible seed and local deletion heuristic are bypassed in production: coupled percentage and distribution rules require coordinated staffing changes. All original constraints remain, and every incumbent is independently audited before display.
+
+Annual cost is the primary objective, followed by productive capacity, session count and preferred distributions without increasing the cost. Refinements warm-start from the retained solution. The total solve budget remains 30 seconds after engine initialization. Loading or solver failures retain the previous plan with an explicit error; there is no silent fallback to the old heuristic. Native models are disposed after each solve. No practice data is transmitted to a solver service.
+
+The UI says Minimum cost proven only when an audited plan attains the global integer solver optimum. Otherwise it shows an unproven minimum and the available lower bound/gap. Whole appointments can exceed fractional predicted need; required clinician minima, eligibility and indivisible session capacity can still require some surplus. The solver does not change user settings to remove that surplus.
+
+Validation covers exhaustive small integer optima, coordinated reductions under exact clinician shares, current-scale staffing with weekly routine spread, small rule edits, visit capacity, clinician limits and working patterns, plus cancellation and a real Chrome Web Worker/WASM execution.
