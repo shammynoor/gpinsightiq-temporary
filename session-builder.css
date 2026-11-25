@@ -234,3 +234,9 @@
 #sessionBuilderPage .session-clinician-limit-head{gap:12px}
 
 #sessionBuilderPage .session-clinician-pattern:not([open]) .session-clinician-daily-options{display:none}
+
+#sessionBuilderPage .session-builder-planner-surface{border:1.5px solid #adc2d3;box-shadow:0 5px 18px #17395b1a}
+#sessionBuilderPage .session-builder-plan-table th,#sessionBuilderPage .session-builder-plan-table td{border-right:2px solid #c1d0dd;border-bottom:2px solid #c1d0dd}
+#sessionBuilderPage .session-builder-plan-table tr>:last-child{border-right:0}
+#sessionBuilderPage .session-builder-plan-table tfoot tr:last-child>*{border-bottom:0}
+#sessionBuilderPage .session-builder-plan-table tfoot tr:first-child>*{border-top:2px solid #adc2d3}
