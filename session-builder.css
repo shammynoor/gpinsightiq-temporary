@@ -215,3 +215,22 @@
 #sessionBuilderPage .session-clinician-daily-heading{font-size:12px;font-weight:700;color:#49667b}
 #sessionBuilderPage .session-clinician-daily-options>span{font-size:13px}
 #sessionBuilderPage .session-clinician-daily-hint{grid-column:1/-1;font-size:11px;line-height:1.4;color:#607e92}
+
+/* Keep the clinician editor inside its six columns, including native controls. */
+#sessionBuilderPage .session-clinician-table-wrap{overflow:visible}
+#sessionBuilderPage .session-clinician-table{min-width:0;width:100%;table-layout:fixed}
+#sessionBuilderPage .session-clinician-table th:nth-child(n){width:auto;min-width:0}
+#sessionBuilderPage .session-clinician-table th,#sessionBuilderPage .session-clinician-table td{padding:10px 8px;overflow-wrap:anywhere}
+#sessionBuilderPage .session-clinician-table input,#sessionBuilderPage .session-clinician-table select{box-sizing:border-box;min-width:0;max-width:100%;margin:0;font-size:12px}
+#sessionBuilderPage .session-clinician-limits{gap:4px;min-width:0}
+#sessionBuilderPage .session-clinician-limits select{flex:1 1 0;width:0;padding:7px 18px 7px 6px}
+#sessionBuilderPage .session-clinician-pattern{position:relative;min-width:0;width:100%;box-sizing:border-box}
+#sessionBuilderPage .session-clinician-pattern summary{box-sizing:border-box;min-width:0;width:100%;padding:8px 24px 8px 8px;font-size:12px}
+#sessionBuilderPage .session-clinician-daily-options{position:absolute;top:100%;left:0;z-index:40;box-sizing:border-box;width:290px;min-width:0;max-width:calc(100vw - 48px);box-shadow:0 8px 24px #17395b26}
+#sessionBuilderPage .session-clinician-rate{min-width:0;gap:4px}
+#sessionBuilderPage .session-clinician-rate input{width:100%;max-width:none;min-width:0;padding:7px 6px}
+#sessionBuilderPage .session-clinician-leave{width:100%;max-width:none;padding:7px 6px}
+#sessionBuilderPage .session-clinician-table .session-clinician-sickness{width:100%;max-width:none;padding:7px 14px 7px 5px}
+#sessionBuilderPage .session-clinician-limit-head{gap:12px}
+
+#sessionBuilderPage .session-clinician-pattern:not([open]) .session-clinician-daily-options{display:none}
