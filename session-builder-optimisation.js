@@ -14,7 +14,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=full-capacity-allocation-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=session-limits-v1');
  const job={key,worker,promise,resolve,best:null,done:false};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -76,7 +76,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  const variable=(data,integer=false)=>{const id='v'+sequence++;variables[id]=data;if(integer)ints[id]=1;return id;};
  const coefficient=(id,c,value)=>{if(value)variables[id][c]=(variables[id][c]||0)+value;};
  const minCapacity=Math.min(...candidates.flatMap(c=>[c.nonHome,c.home]).filter(n=>n>0),1);
- const limitSum=Object.values(limits).reduce((n,l)=>n+(l.min||0),0),ruleSum=hard.filter(r=>r.kind==='minimum').reduce((n,r)=>n+r.minimum*(r.scope==='both'?2:1)*(r.scope==='week'?1:r.days.length),0);
+ const limitSum=Object.values(limits).reduce((n,l)=>n+(l.min||0),0),ruleSum=hard.filter(r=>r.kind==='minimum').reduce((n,r)=>n+(r.minimum??0)*(r.scope==='both'?2:1)*(r.scope==='week'?1:r.days.length),0);
  const bound=Math.max(1,Math.ceil(values.reduce((a,b)=>a+b,0)/minCapacity)+limitSum+ruleSum+10);
  if(bound>10000)return fail('Demand is too large for interactive cost optimisation. Check session capacities.');
  const workforce=new Map();
@@ -121,7 +121,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  const selected=(r,a)=>r.kind==='mix'||r.appointmentPool==='selected'?(r.appointmentTypes||[]).map(normal).includes(a.name):api.sharePool(r)==='urgent'?a.pool==='sameDay'||a.pool==='weekly':true;
  const ruleExpressions=[],distributionPenalties=[];
  for(const rule of active){
-  if(!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||!Number.isFinite(rule.minimum)||rule.minimum<0)return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return fail('Invalid Planning Rule. Review the enabled rules.');
   if(rule.kind==='sessionDistribution'){
    if(rule.scope!=='week'||typeof rule.sessionTypeId!=='string'||!Number.isInteger(rule.sessionTolerance)||rule.sessionTolerance<1||rule.sessionTolerance>500)return fail('Invalid session spread rule.');
    if(rule.sessionTypeId&&!types.some(type=>type.id===rule.sessionTypeId))return fail('The session spread rule refers to a missing session type.');
@@ -156,7 +156,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
    }
    continue;
   }
-  if(rule.kind==='minimum'&&(!Number.isInteger(rule.minimum)||rule.minimum<1||!types.some(t=>t.id===rule.sessionTypeId)))return fail('A minimum-session rule refers to a missing session type or invalid minimum.');
+  if(rule.kind==='minimum'&&([rule.minimum,rule.maximum].some(n=>n!=null&&(!Number.isSafeInteger(n)||n<0))||rule.minimum!=null&&rule.maximum!=null&&rule.maximum<rule.minimum||!types.some(t=>t.id===rule.sessionTypeId)))return fail('A session-limits rule has invalid bounds or refers to a missing session type.');
   if(rule.kind!=='minimum'){
    const refs=[subject(rule),...api.shareDenominators(rule)],valid=ref=>ref?.kind==='group'?groups.includes(ref.name):ref?.kind==='type'&&Object.hasOwn(clinicians,ref.name);
    if(refs.some(ref=>!valid(ref))||rule.minimum>100||!['atLeast','atMost','exact'].includes(rule.comparison||'atLeast'))return fail('A percentage rule has invalid clinician selections or bounds.');
@@ -175,7 +175,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
     const coefficient=(numerator?1:0)-rule.minimum/100*(denominator?1:0);if(coefficient)expression.terms.push([a.id,coefficient]);
    }
    if(rule.strength!=='must')continue;
-   const comparison=rule.comparison||'atLeast',bound=rule.kind==='minimum'?{min:rule.minimum}:comparison==='atMost'?{max:0}:comparison==='exact'?{equal:0}:{min:0},id=constraint(bound);
+   const comparison=rule.comparison||'atLeast',bound=rule.kind==='minimum'?{...(rule.minimum!=null?{min:rule.minimum}:{}),...(rule.maximum!=null?{max:rule.maximum}:{})}:comparison==='atMost'?{max:0}:comparison==='exact'?{equal:0}:{min:0},id=constraint(bound);
    for(const [variable,value] of expression.terms)coefficient(variable,id,value);
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
@@ -219,11 +219,11 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
     measurements.push({day:expression.day,numerator,denominator,target:expression.target,tolerance:expression.tolerance});continue;
    }
    const value=expression.terms.reduce((n,[id,c])=>n+(chosen[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(chosen[id]||0),0),comparison=rule.comparison||'atLeast';
-   const ok=rule.kind==='minimum'?value>=rule.minimum-1e-5:(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
+   const ok=rule.kind==='minimum'?(rule.minimum==null||value>=rule.minimum-1e-5)&&(rule.maximum==null||value<=rule.maximum+1e-5):(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
    if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));
    measurements.push({numerator,denominator});
   }
-  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
+  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
  });
  const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*s.rate,0);
  return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:false};

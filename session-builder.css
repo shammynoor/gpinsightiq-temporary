@@ -176,3 +176,7 @@
 #sessionBuilderRequirements{--capacity-daily:#e94e70;--capacity-weekly:#d9b425;--capacity-routine:#76b79e;--capacity-planned:#aab8cb;--capacity-home:#efc0a6}
 #sessionBuilderPage .session-builder-plan-table{min-width:950px}
 #sessionBuilderPage .session-builder-capacity-table{min-width:850px}
+
+#sessionBuilderPage .session-rule-limits{display:flex;gap:12px;flex-wrap:wrap}
+#sessionBuilderPage .session-rule-limits label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:600}
+#sessionBuilderPage .session-rule-limits input{width:150px;max-width:100%;font-weight:400}

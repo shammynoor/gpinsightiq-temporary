@@ -70,10 +70,10 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const ruleDays=rule=>rule.scope==='week'?[rule.days[0]]:rule.days;
  const dayNames=['Monday','Tuesday','Wednesday','Thursday','Friday'];
  const issues=rule=>{
-  if(!['minimum','share','mix'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||!Number.isFinite(rule.minimum)||rule.minimum<0)return 'Invalid planning rule.';
+  if(!['minimum','share','mix'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return 'Invalid planning rule.';
   if(rule.kind==='minimum'){
    const matches=rows.filter(row=>row.sourceId===rule.sessionTypeId);
-   if(!Number.isInteger(rule.minimum)||rule.minimum<1)return 'Minimum sessions must be a positive whole number.';
+   if([rule.minimum,rule.maximum].some(n=>n!=null&&(!Number.isSafeInteger(n)||n<0))||rule.minimum!=null&&rule.maximum!=null&&rule.maximum<rule.minimum)return 'Session limits must be non-negative whole numbers, with maximum at least minimum.';
    if(!matches.some(row=>row.group))return 'A required session type is missing or needs an eligible clinician group or clinician. Check Planning Rules.';
   }else{
    const subject=shareSubject(rule),denominators=rule.kind==='mix'?[]:shareDenominators(rule),valid=ref=>ref&&['group','type'].includes(ref.kind)&&typeof ref.name==='string'&&(ref.kind==='group'?groups.includes(ref.name):!!options.clinicians&&Object.hasOwn(options.clinicians,ref.name));
@@ -92,14 +92,18 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  const placements=[],unmetDemand=[];
  const count=(row,day,period)=>period==='day'?row.periods.morning[day]+row.periods.afternoon[day]:row.periods[period][day];
  const dayShort=['Mon','Tue','Wed','Thu','Fri'];
- const available=(row,day,period)=>{if(!constrained)return true;const pattern=clinicianLimits[row.clinician]?.workingPattern;return !Array.isArray(pattern)||pattern.includes(dayShort[day]+' '+(period==='morning'?'AM':'PM'));};
+ const available=(row,day,period)=>{if(!fitsSessionLimits(row,day,period))return false;if(!constrained)return true;const pattern=clinicianLimits[row.clinician]?.workingPattern;return !Array.isArray(pattern)||pattern.includes(dayShort[day]+' '+(period==='morning'?'AM':'PM'));};
  const choosePeriod=(day,row)=>{const morning=!row||available(row,day,'morning'),afternoon=!row||available(row,day,'afternoon');if(!morning&&!afternoon)return null;if(!morning)return 'afternoon';if(!afternoon)return 'morning';return rows.reduce((s,r)=>s+r.periods.morning[day],0)<=rows.reduce((s,r)=>s+r.periods.afternoon[day],0)?'morning':'afternoon';};
  const availableSlot=(row,start=0)=>{for(let i=0;i<5;i++){const day=(start+i)%5,period=choosePeriod(day,row);if(period)return {day,period};}return null;};
  const room=row=>!constrained?Infinity:row.clinician?Math.max(0,(clinicianLimits[row.clinician]?.max??Infinity)-(clinicianCounts[row.clinician]||0)):0;
  const ruleSlot=(row,day,period,rule)=>{if(period==='week'){for(const d of rule.days){const p=choosePeriod(d-1,row);if(p)return {day:d-1,period:p};}return null;}const p=period==='day'?choosePeriod(day,row):available(row,day,period)?period:null;return p?{day,period:p}:null;};
  const countForRule=(row,rule,day,period)=>period==='week'?rule.days.reduce((sum,d)=>sum+count(row,d-1,'day'),0):count(row,day,period);
+ const fitsSessionLimits=(row,day,period,n=1)=>hard.filter(rule=>rule.kind==='minimum'&&rule.maximum!=null&&rule.sessionTypeId===row.sourceId&&rule.days.includes(day+1)).every(rule=>{
+  const scope=rule.scope==='both'?period:rule.scope;if(scope!=='week'&&scope!=='day'&&scope!==period)return true;
+  const current=rows.filter(candidate=>candidate.sourceId===row.sourceId).reduce((sum,candidate)=>sum+countForRule(candidate,rule,day,scope),0);return current+n<=rule.maximum;
+ });
  const add=(row,day,period,pool,n,forcedType=null,forcedPool=null)=>{
-  if(!n)return true;if(room(row)<n||!period||!available(row,day,period))return false;if(constrained)clinicianCounts[row.clinician]=(clinicianCounts[row.clinician]||0)+n;row.periods[period][day]+=n;
+  if(!n)return true;if(room(row)<n||!period||!available(row,day,period)||!fitsSessionLimits(row,day,period,n))return false;if(constrained)clinicianCounts[row.clinician]=(clinicianCounts[row.clinician]||0)+n;row.periods[period][day]+=n;
   if(pool==='daily')row.days[day]+=n;else row[pool]+=n;
   placements.push({id:row.id,sourceId:row.sourceId,clinician:row.clinician,day,period,pool,count:n,forcedType,forcedPool});return true;
  };
@@ -112,7 +116,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  for(const rule of hard.filter(rule=>rule.kind==='minimum').sort((a,b)=>(a.scope==='day')-(b.scope==='day'))){
   const candidates=rows.filter(row=>row.sourceId===rule.sessionTypeId&&row.group);
   for(const d of ruleDays(rule))for(const scope of periods(rule)){
-   const day=d-1,missing=Math.max(0,rule.minimum-candidates.reduce((sum,row)=>sum+countForRule(row,rule,day,scope),0));
+   const day=d-1,missing=Math.max(0,(rule.minimum??0)-candidates.reduce((sum,row)=>sum+countForRule(row,rule,day,scope),0));
    for(let i=0;i<missing;i++){const row=candidates.filter(row=>room(row)>0&&ruleSlot(row,day,scope,rule)).sort((a,b)=>room(b)-room(a))[0];if(!row)return {rows,error:'Required sessions cannot be scheduled within clinician maximums and working patterns. Check Planning Rules and Clinician Setup.'};const slot=ruleSlot(row,day,scope,rule);add(row,slot.day,slot.period,'daily',1);}
   }
  }
@@ -330,7 +334,7 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
   }
   return gaps;
  };
- const requiredRulesMet=()=>hard.every(rule=>!issues(rule)&&ruleDays(rule).every(d=>periods(rule).every(period=>rule.kind==='minimum'?rows.filter(row=>row.sourceId===rule.sessionTypeId).reduce((n,row)=>n+countForRule(row,rule,d-1,period),0)>=rule.minimum:share(rule,d-1,period).ok)));
+ const requiredRulesMet=()=>hard.every(rule=>!issues(rule)&&ruleDays(rule).every(d=>periods(rule).every(period=>rule.kind==='minimum'?rows.filter(row=>row.sourceId===rule.sessionTypeId).reduce((n,row)=>n+countForRule(row,rule,d-1,period),0)>=(rule.minimum??0)&&(rule.maximum==null||rows.filter(row=>row.sourceId===rule.sessionTypeId).reduce((n,row)=>n+countForRule(row,rule,d-1,period),0)<=rule.maximum):share(rule,d-1,period).ok)));
  if(flowForBreakdown&&requiredRulesMet()){
   let changed=true;
   while(changed){changed=false;
@@ -354,7 +358,9 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
    const day=d-1;
    if(rule.kind==='minimum'){
     const matching=rows.filter(row=>row.sourceId===rule.sessionTypeId),actual=matching.reduce((sum,row)=>sum+countForRule(row,rule,day,period),0);
-    if(actual<rule.minimum)failures.push(dayNames[day]+' '+period+': '+actual+' of '+rule.minimum+' '+(matching[0]?.name||'required')+' sessions.');
+    if(rule.minimum!=null&&actual<rule.minimum)failures.push(dayNames[day]+' '+period+': '+actual+' of '+rule.minimum+' '+(matching[0]?.name||'required')+' sessions.');
+    if(rule.maximum!=null&&actual>rule.maximum)failures.push(dayNames[day]+' '+period+': '+actual+' sessions exceeds maximum '+rule.maximum+'.');
+    measurements.push({day,period,actual,minimum:rule.minimum??null,maximum:rule.maximum??null});
    }else{const state=share(rule,day,period);measurements.push({day,period,numerator:state.numerator,denominator:state.denominator});if(!state.ok){
     let reason='';
     if(rule.kind==='mix'){
