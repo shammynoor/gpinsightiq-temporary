@@ -8,3 +8,15 @@ test('cheaper clinician substitutions preserve clinician minima and exact sessio
 test('zero-appointment required on-call sessions can also use a cheaper eligible clinician',()=>{const {p}=run(setup(1),[type('On-call',['Expensive','Cheap'],0)],{Expensive:{annualRate:2000,max:10},Cheap:{annualRate:1000,max:10}},0,[{id:'on',kind:'minimum',enabled:true,strength:'must',scope:'day',days:[1],minimum:1,maximum:1,sessionTypeId:'On-call'}]);assert.equal(p.error,undefined);assert.equal(p.annualCost,1000);assert.equal(p.clinicianCounts.Cheap,1);assert.equal(p.totalCapacity,0);});
 test('equal-cost replacements are accepted only when they reduce surplus capacity',()=>{const {p}=run(setup(1),[type('A',['Expensive'],20),type('B',['Cheap'],5)],{Expensive:{annualRate:1000,max:10},Cheap:{annualRate:500,max:3}},8);assert.equal(p.error,undefined);assert.equal(p.annualCost,1000);assert.equal(p.clinicianCounts.Cheap,2);assert.equal(p.totalCapacity,10);assert.ok(p.capacitySameDay[0]>=8);});
 test('cost repair retains an exact appointment mix while removing unnecessary sessions',()=>{const t=type('A',['GP'],10);t.appointmentTypes=['Same Day','Routine'];const {p}=run(setup(5),[t],{GP:{annualRate:1000,max:10}},1,[{id:'half',kind:'mix',enabled:true,strength:'must',scope:'day',days:[1],minimum:50,comparison:'exact',shareSubject:{kind:'type',name:'GP'},appointmentTypes:['Routine']}]);assert.equal(p.error,undefined);assert.equal(p.annualCost,1000);assert.equal(p.totalCapacity,10);assert.equal(p.routineCapacity,5);assert.equal(p.capacitySameDay[0],5);assert.equal(p.ruleResults[0].ok,true);});
+
+test('unmet soft spread preferences cannot veto removal of excess paid sessions',()=>{
+ const c={window:{},Date};vm.createContext(c);vm.runInContext(fs.readFileSync('session-builder-cost-polish.js','utf8'),c);
+ const slot={id:'s',clinician:'GP',day:0,nonHome:10,home:0,rate:1000};
+ const variables={s:{cost:1000,capacity:-10,spread:-1},a:{capacity:1,need:1},soft:{balance:1,spread:1}};
+ const constraints={capacity:{equal:0},need:{min:12},spread:{min:0}};
+ const audit=v=>Number.isInteger(v.s)&&Number.isInteger(v.a)&&v.a===10*v.s&&v.a>=12&&v.soft>=v.s;
+ const accepted=[];
+ c.window.SessionBuilderCostPolish.improve({slots:[slot],allocations:[{id:'a',slot,pool:'sameDay',name:'Same Day'}],variables,constraints,values:{s:5,a:50,soft:5},demand:{sameDay:[12,0,0,0,0],homeVisit:[0,0,0,0,0],weekly:0,routine:0,planned:0},limits:{GP:{min:0,max:10}},active:[],audit,accept:v=>accepted.push(v),deadline:Date.now()+1000});
+ assert.equal(accepted.at(-1)?.s,2);assert.equal(accepted.at(-1)?.soft,2);
+ assert.ok(accepted.every(audit));
+});

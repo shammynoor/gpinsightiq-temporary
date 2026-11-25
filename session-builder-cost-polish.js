@@ -57,6 +57,18 @@ function improve({slots,allocations,variables,constraints,values,demand,limits,a
    const chosen=mode.choices.slice().sort((a,b)=>score(a)-score(b))[0];result[chosen.id]+=spare;if(['sameDay','homeVisit'].includes(chosen.pool))poolTotals[chosen.pool][chosen.slot.day]+=spare;else poolTotals[chosen.pool]+=spare;
   }
   for(const slot of slots){const daily=bySlot.get(slot.id).filter(a=>a.pool==='sameDay');if(daily.length<2)continue;const total=daily.reduce((n,a)=>n+result[a.id],0),weights=daily.map(a=>Math.max(0,demand.byType?.sameDay?.[a.name]?.[slot.day]||0)),sum=weights.reduce((a,b)=>a+b,0),shares=daily.map((a,i)=>({a,target:total*(sum?weights[i]/sum:1/daily.length)}));let remainder=total;for(const share of shares){result[share.a.id]=Math.floor(share.target+1e-9);remainder-=result[share.a.id];}shares.sort((a,b)=>(b.target-Math.floor(b.target))-(a.target-Math.floor(a.target)));for(let i=0;i<remainder;i++)result[shares[i%shares.length].a.id]++;}
+  // Soft distribution rules use continuous slack. Recompute it after changing
+  // counts: leaving it at zero would turn an unmet preference into a hard veto.
+  for(const [id,data]of Object.entries(variables))if(data.balance===1){
+   let needed=0;
+   for(const [key,coefficient]of Object.entries(data)){
+    const bounds=constraints[key];if(!bounds||!coefficient)continue;
+    const total=slotOnly.get(key).terms.reduce((sum,[other,term])=>sum+(other===id?0:(result[other]||0))*term,0);
+    if(coefficient>0&&bounds.min!=null)needed=Math.max(needed,(bounds.min-total)/coefficient);
+    if(coefficient<0&&bounds.max!=null)needed=Math.max(needed,(bounds.max-total)/coefficient);
+   }
+   result[id]=needed;
+  }
   return audit(result)?result:repair(candidate);
  }
  const costly=slots.slice().sort((a,b)=>b.rate-a.rate||(counts[b.id]||0)-(counts[a.id]||0));
