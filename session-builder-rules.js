@@ -112,9 +112,14 @@ function renderSessionBuilderRules(){
  const page=byId('sessionBuilderRulesPanel'),body=byId('sessionBuilderRulesBody');if(!page||!body)return;
  if(!canEditSessionBuilder()){page.hidden=true;body.replaceChildren();return;}
  const groups=configuredGroups();body.replaceChildren();
+ const ruleGroups=new Map();
+ for(const [kind,title] of [['minimum','Session limits'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly appointment distribution'],['sessionDistribution','Session spread']]){
+  const count=sessionBuilderRules.filter(rule=>rule.kind===kind).length;if(!count)continue;
+  const section=document.createElement('section'),heading=document.createElement('h4'),badge=document.createElement('span'),list=document.createElement('div');section.className='session-rule-group';section.dataset.ruleKind=kind;heading.textContent=title;badge.className='session-rule-group-count';badge.textContent=String(count);heading.append(badge);list.className='session-rule-group-list';section.append(heading,list);body.append(section);ruleGroups.set(kind,list);
+ }
  for(const rule of sessionBuilderRules){
   const ruleNumber=sessionBuilderRules.indexOf(rule)+1;
-  const outer=document.createElement('tr'),outerCell=document.createElement('td'),details=document.createElement('details'),summary=document.createElement('summary'),row=document.createElement('div');outer.dataset.ruleId=rule.id;outerCell.colSpan=5;details.className='session-rule-card';details.open=openRules.has(rule.id);summary.textContent=(rule.enabled?'':'Off · ')+ruleSummary(rule);details.append(summary);row.className='session-rule-controls';details.addEventListener('toggle',()=>{if(details.open)openRules.add(rule.id);else openRules.delete(rule.id);});
+  const details=document.createElement('details'),summary=document.createElement('summary'),row=document.createElement('div');details.dataset.ruleId=rule.id;details.className='session-rule-card';details.open=openRules.has(rule.id);summary.textContent=(rule.enabled?'':'Off · ')+ruleSummary(rule);details.append(summary);row.className='session-rule-controls';details.addEventListener('toggle',()=>{if(details.open)openRules.add(rule.id);else openRules.delete(rule.id);});
   const enabled=document.createElement('div'),toggle=document.createElement('input');toggle.type='checkbox';toggle.checked=rule.enabled;toggle.setAttribute('aria-label','Enable rule '+(sessionBuilderRules.indexOf(rule)+1));toggle.addEventListener('change',()=>{try{patch(rule,'enabled',toggle.checked)}catch(error){toggle.checked=!toggle.checked;byId('sessionBuilderRulesSaveStatus').textContent=error.message;}});enabled.append(toggle);row.append(enabled);
   const when=document.createElement('div');when.append(select('Period for rule '+ruleNumber,['distribution','sessionDistribution'].includes(rule.kind)?[['week','Each week']]:visibleScopes,dayScope(rule.scope),value=>patch(rule,'scope',value)));
   const preset=presets.find(([, ,days])=>JSON.stringify([...rule.days].sort())===JSON.stringify(days));
@@ -195,7 +200,7 @@ function renderSessionBuilderRules(){
   requirement.append(clause);
   const issues=issuesFor(rule,sessionBuilderTypes,groups);if(issues.length){const warning=document.createElement('p');warning.className='session-rule-issue';warning.textContent=issues.join(' ');requirement.append(warning);}row.append(requirement);
   const strength=document.createElement('div');strength.append(select('Strength for rule '+ruleNumber,[['must','Must meet'],['prefer','Prefer']],rule.strength,value=>patch(rule,'strength',value)));row.append(strength);
-  const actions=document.createElement('div'),remove=document.createElement('button');remove.type='button';remove.className='session-builder-remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove rule '+(sessionBuilderRules.indexOf(rule)+1));remove.addEventListener('click',()=>{if(!canEditSessionBuilder())return;commit(sessionBuilderRules.filter(item=>item.id!==rule.id));renderSessionBuilderRules();});actions.append(remove);row.append(actions);details.append(row);outerCell.append(details);outer.append(outerCell);body.append(outer);
+  const actions=document.createElement('div'),remove=document.createElement('button');remove.type='button';remove.className='session-builder-remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove rule '+(sessionBuilderRules.indexOf(rule)+1));remove.addEventListener('click',()=>{if(!canEditSessionBuilder())return;commit(sessionBuilderRules.filter(item=>item.id!==rule.id));renderSessionBuilderRules();});actions.append(remove);row.append(actions);details.append(row);ruleGroups.get(rule.kind)?.append(details);
  }
  byId('sessionBuilderRulesEmpty').hidden=sessionBuilderRules.length>0;
  const result=byId('sessionBuilderRuleValidation');if(result.dataset.checked==='true')showValidation();
