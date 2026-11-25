@@ -73,10 +73,19 @@ function readAverageDemand(){
  const result={demand,start,end,weeks:weeks.length,forecast};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
 let requirementsRun=0,requirementsSolving=false,requirementsRenderedKey=null,requirementsCurrentKey=null,requirementsHasPlan=false;
+let plannerProgressTimer=null,plannerSolveSeconds=30,plannerProgressStartedAt=0;
+window.addEventListener?.('session-builder-solve-ready',()=>{if(requirementsSolving)plannerProgressStartedAt=Date.now();});
+function selectedSolveSeconds(){const value=Number(byId('sessionBuilderSolveTime')?.value||30);return [10,30,60].includes(value)?value:30;}
 function setPlannerBusy(busy){
  requirementsSolving=busy;
  const button=byId('sessionBuilderResetPlanner'),spinner=byId('sessionBuilderSolveSpinner'),label=byId('sessionBuilderResetLabel'),root=byId('sessionBuilderRequirements');
- if(button)button.disabled=busy;if(spinner)spinner.hidden=!busy;if(label)label.textContent=busy?'Solving…':'Reset planner';root?.setAttribute('aria-busy',String(busy));
+ if(button)button.disabled=busy;if(spinner)spinner.hidden=!busy;if(label)label.textContent=busy?'Optimising…':'Re-optimise planner';root?.setAttribute('aria-busy',String(busy));
+ if(plannerProgressTimer!==null){clearInterval(plannerProgressTimer);plannerProgressTimer=null;}
+ const timeSelect=byId('sessionBuilderSolveTime');if(timeSelect)timeSelect.disabled=busy;
+ plannerProgressStartedAt=0;const tick=()=>{if(!plannerProgressStartedAt){if(label)label.textContent='Loading optimiser…';return;}const tickStart=plannerProgressStartedAt,elapsed=Math.min(plannerSolveSeconds,Math.floor((Date.now()-tickStart)/1000));button?.style.setProperty('--solve-progress',Math.min(100,(Date.now()-tickStart)/(plannerSolveSeconds*10))+'%');if(label)label.textContent='Optimising… '+elapsed+' / '+plannerSolveSeconds+' s';};
+ button?.style.setProperty('--solve-progress','0%');
+ if(busy&&typeof setInterval==='function'){tick();plannerProgressTimer=setInterval(tick,100);}
+
 }
 async function renderSessionRequirements(settings={}){
  const reset=settings.reset===true;
@@ -95,17 +104,18 @@ async function renderSessionRequirements(settings={}){
  const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,dailyRules,{respectTypes:true,optimizeCost:true,clinicians:clinicianMap,clinicianLimits:wholeDayLimits,appointmentPools}];
  const key=JSON.stringify(args);requirementsCurrentKey=key;
  const solveStatus=byId('sessionBuilderSolveStatus');
+ const needs=byId('sessionBuilderNeedsOptimization');if(needs)needs.hidden=!(requirementsHasPlan&&key!==requirementsRenderedKey);
  if(!reset&&(requirementsRenderedKey!==null||requirementsSolving)){
-  if(!requirementsSolving&&solveStatus&&key!==requirementsRenderedKey)solveStatus.textContent='Settings or demand changed. Click Reset planner to recalculate.';
+  if(!requirementsSolving&&solveStatus&&key!==requirementsRenderedKey)solveStatus.textContent='Settings or demand changed. Click Re-optimise planner to recalculate.';
   return;
  }
  let estimate={rows:[],noPlan:true};
  const costLimits=args[5].clinicianLimits;
  if(reset){
   if(requirementsSolving)return;
-  const run=++requirementsRun;args[5]={...args[5],solveRequest:run};
-  setPlannerBusy(true);if(solveStatus)solveStatus.textContent='Solving planner — allowing up to 30 seconds…';
-  try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args,plan=>{if(run===requirementsRun&&requirementsSolving){if(solveStatus){const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0});solveStatus.textContent='Cost search: best verified candidate '+money.format(plan.annualCost)+'/year. Optimising within the 30-second limit…';}const warning=byId('sessionBuilderPlanWarning'),diagnostics=byId('sessionBuilderPlanDiagnostics');if(warning)warning.hidden=true;if(diagnostics)diagnostics.hidden=true;}}):window.SessionBuilderPlanning.estimateSessions(...args));}
+  const run=++requirementsRun;plannerSolveSeconds=selectedSolveSeconds();args[5]={...args[5],solveRequest:run,solveTimeSeconds:plannerSolveSeconds};
+  setPlannerBusy(true);if(solveStatus)solveStatus.textContent='Optimising planner…';
+  try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args,plan=>{if(run===requirementsRun&&requirementsSolving){if(solveStatus){const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0});solveStatus.textContent='Cost search: best verified candidate '+money.format(plan.annualCost)+'/year. Optimising within the '+plannerSolveSeconds+'-second limit…';}const warning=byId('sessionBuilderPlanWarning'),diagnostics=byId('sessionBuilderPlanDiagnostics');if(warning)warning.hidden=true;if(diagnostics)diagnostics.hidden=true;}}):window.SessionBuilderPlanning.estimateSessions(...args));}
   catch(error){estimate={rows:[],error:'Could not calculate workforce costs. Refresh the page and try again.'};}
   finally{if(run===requirementsRun)setPlannerBusy(false);}
   if(run!==requirementsRun||estimate.cancelled||!canEditSessionBuilder())return;
@@ -113,16 +123,16 @@ async function renderSessionRequirements(settings={}){
   window.SessionBuilderDiagnostics?.render(estimate.diagnostics,estimate);
   if(estimate.error&&requirementsHasPlan){
    const warning=byId('sessionBuilderPlanWarning');if(warning){warning.hidden=false;warning.textContent='Reset unsuccessful: '+estimate.error+' The previous plan is retained and may not match the current settings.';}
-   if(solveStatus)solveStatus.textContent='Reset failed — previous plan still shown. Click Reset planner to try again.';
+   if(solveStatus)solveStatus.textContent='Reset failed — previous plan still shown. Click Re-optimise planner to try again.';
    return;
   }
-  requirementsRenderedKey=key;requirementsHasPlan=!estimate.error;
+  requirementsRenderedKey=key;requirementsHasPlan=!estimate.error;if(needs)needs.hidden=key===requirementsCurrentKey;
  }
  const unavailable=!!estimate.error||!!estimate.noPlan;
  const costQuality=byId('sessionBuilderCostQuality');if(costQuality){costQuality.hidden=unavailable||!Number.isFinite(estimate.costLowerBound);if(!costQuality.hidden){const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0});costQuality.textContent='Annual cost '+money.format(estimate.annualCost)+' · '+(estimate.costOptimal?'Minimum cost proven':(estimate.costBoundKind==='integer'?'Solver lower bound ':'Fractional-model lower bound ')+money.format(estimate.costLowerBound)+' · Cost gap '+fmt((estimate.costGap||0)*100)+'%')+'.';costQuality.title=estimate.costOptimal?'HiGHS proved the minimum annual cost for the current demand, session settings, clinician limits and required rules.':estimate.costBoundKind==='integer'?'The solver has not yet proved minimum cost; the gap compares this plan with its best lower bound.':'The lower bound allows fractional decisions; a whole-number plan may cost more.';}}
  if(unavailable)estimate.rows=configuredTypes.map(row=>({id:row.id,name:row.name,group:[...new Set((row.eligibleClinicians||[]).map(name=>clinicianMap[name]).filter(Boolean))].join(' · '),periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}}));
  byId('sessionBuilderHistory').textContent=historyText;
- if(solveStatus)solveStatus.textContent=estimate.noPlan?'Click Reset planner to calculate the plan.':key!==requirementsCurrentKey?'Settings changed during solving. Click Reset planner to apply them.':estimate.error?(estimate.errorCode==='TIMEOUT'?'Timed out before a verified plan was returned. Click Reset planner to try again.':'No plan found. Click Reset planner to try again.'):estimate.optimisationTimedOut?'Valid plan found; optimisation timed out. Minimum cost is not proven.':estimate.optimisationInterrupted?'Valid plan retained after optimisation stopped. Minimum cost is not proven.':estimate.costOptimal?'Minimum-cost plan proven. Click Reset planner to solve again.':'Valid plan found; minimum cost is not proven. Click Reset planner to solve again.';
+ if(solveStatus)solveStatus.textContent=estimate.noPlan?'Click Re-optimise planner to calculate the plan.':key!==requirementsCurrentKey?'Settings changed during solving. Click Re-optimise planner to apply them.':estimate.error?(estimate.errorCode==='TIMEOUT'?'Timed out before a verified plan was returned. Click Re-optimise planner to try again.':'No plan found. Click Re-optimise planner to try again.'):estimate.optimisationTimedOut?'Valid plan found; optimisation timed out. Minimum cost is not proven.':estimate.optimisationInterrupted?'Valid plan retained after optimisation stopped. Minimum cost is not proven.':estimate.costOptimal?'Minimum-cost plan proven. Click Re-optimise planner to solve again.':'Valid plan found; minimum cost is not proven. Click Re-optimise planner to solve again.';
  const warning=byId('sessionBuilderPlanWarning');
  if(warning){
   const missing=estimate.unmetDemand||[],totals=new Map();
@@ -208,7 +218,7 @@ async function renderSessionRequirements(settings={}){
  const shareSummary=(estimate.ruleResults||[]).filter(result=>result.kind==='share'&&result.strength==='must'&&result.appointmentPool==='urgent').map(result=>{const values=result.measurements.filter(m=>m.denominator>0).map(m=>m.numerator/m.denominator*100);return values.length?result.clinicianGroup+' urgent share '+fmt(Math.min(...values))+'–'+fmt(Math.max(...values))+'% ('+({atLeast:'at least',atMost:'at most',exact:'exactly'}[result.comparison]||'at least')+' '+fmt(result.minimum)+'%)':result.clinicianGroup+' urgent share has no appointments to measure';});
  const clinicianSummary=Object.entries(estimate.clinicianCounts||{}).filter(([,count])=>count>0).map(([name,count])=>name+': '+count).join(' · ');
  const caption=byId('sessionBuilderPlanStatus');
- caption.textContent=estimate.noPlan?'Click Reset planner to calculate a costed session plan.':estimate.error||((estimate.costOptimal?'Minimum annual workforce cost proven for the current settings. ':'Best verified session plan found within the solving limit. ')+'Costs use the clinician types actually assigned. Sessions may contain a mix of eligible appointment types. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Planned care demand is pooled; any session eligible for a planned-care appointment type can cover it. Other demand is assigned to eligible sessions. Weekly clinician minimums, maximums, working patterns and required planning rules are enforced. Productive appointment capacity is combined across matching sessions before rounding down after leave and sickness; allocations round fractional need up. Predicted need remains an average. Session counts and costs are contracted weekly commitments. Every productive slot in a selected session is allocated to an eligible appointment type. Provision may exceed predicted need.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.plannedCapacity>0?' Planned care slots: '+fmt(estimate.plannedCapacity)+' per week.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Distribution adjusted to respect daily Clinician Setup limits.':'')+(estimate.approximate?' The displayed plan meets the checked constraints, but the solver has not proven that its cost is the lowest possible.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
+ caption.textContent=estimate.noPlan?'Click Re-optimise planner to calculate a costed session plan.':estimate.error||((estimate.costOptimal?'Minimum annual workforce cost proven for the current settings. ':'Best verified session plan found within the solving limit. ')+'Costs use the clinician types actually assigned. Sessions may contain a mix of eligible appointment types. Small coloured figures show planned appointment slots by type; daily urgent slots use the forecast appointment mix. Same-day urgent demand is pooled; eligible daily urgent sessions can contribute. Planned care demand is pooled; any session eligible for a planned-care appointment type can cover it. Other demand is assigned to eligible sessions. Weekly clinician minimums, maximums, working patterns and required planning rules are enforced. Productive appointment capacity is combined across matching sessions before rounding down after leave and sickness; allocations round fractional need up. Predicted need remains an average. Session counts and costs are contracted weekly commitments. Every productive slot in a selected session is allocated to an eligible appointment type. Provision may exceed predicted need.'+(clinicianSummary?' Clinician sessions/week: '+clinicianSummary+'.':'')+(estimate.plannedCapacity>0?' Planned care slots: '+fmt(estimate.plannedCapacity)+' per week.':'')+(estimate.unassignedDailyTypes?.length?' No session is eligible for '+estimate.unassignedDailyTypes.join(', ')+': their forecast remains in pooled urgent need but no slots are labelled for those types.':'')+(shareSummary.length?' '+shareSummary.join('; ')+'.':'')+(estimate.ruleAdjusted?' Distribution adjusted to respect daily Clinician Setup limits.':'')+(estimate.approximate?' The displayed plan meets the checked constraints, but the solver has not proven that its cost is the lowest possible.':'')+(estimate.ruleResults?.length?' Required rules checked: '+estimate.ruleResults.filter(r=>r.strength==='must').length+'. Preferences not met: '+estimate.ruleResults.filter(r=>r.strength==='prefer'&&!r.ok).length+'.':''));
 }
 function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;

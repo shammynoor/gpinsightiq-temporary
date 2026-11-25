@@ -1,6 +1,7 @@
 (function(){
 'use strict';
 let cached=null,pending=null,completed=null;
+const solveBudget=options=>[10,30,60].includes(options?.solveTimeSeconds)?options.solveTimeSeconds*1000:30000;
 function isVerifiedPlan(plan){
  return !!plan&&plan.verifiedPlan===true&&!plan.error&&Number.isFinite(plan.annualCost)&&plan.annualCost>=0&&Array.isArray(plan.rows)&&Array.isArray(plan.placements)&&Array.isArray(plan.ruleResults)&&plan.ruleResults.every(r=>r.strength!=='must'||r.ok||r.adjustedForClinicianSetup)&&Array.isArray(plan.unmetDemand)&&!plan.unmetDemand.length&&['capacitySameDay','capacityHomeVisit'].every(key=>Array.isArray(plan[key])&&plan[key].length===5&&plan[key].every(n=>Number.isSafeInteger(n)&&n>=0))&&['weeklyCapacity','routineCapacity','plannedCapacity','totalCapacity'].every(key=>Number.isSafeInteger(plan[key])&&plan[key]>=0)&&plan.capacitySameDay.reduce((a,b)=>a+b,0)+plan.capacityHomeVisit.reduce((a,b)=>a+b,0)+plan.weeklyCapacity+plan.routineCapacity+plan.plannedCapacity===plan.totalCapacity;
 }
@@ -13,9 +14,10 @@ function retainedPlan(plan,timedOut=false){return {...plan,approximate:true,opti
 function estimateAsync(...args){
  const onProgress=typeof args[6]==='function'?args.pop():null;
  if(typeof Worker==='undefined')return Promise.resolve({rows:[],error:'This browser cannot run the background integer optimiser. Use a browser with Web Worker support and try again.'});
+ const timeBudget=solveBudget(args[5]);
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=weekly-session-clinician-mix-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=optimised-planner-controls-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -28,13 +30,13 @@ function estimateAsync(...args){
  worker.onmessage=event=>{
   if(job.done||pending!==job)return;
   const message=event.data;
-  if(message?.type==='ready'){clearTimeout(job.timer);job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),31000);return;}
+  if(message?.type==='ready'){if(typeof window.dispatchEvent==='function')window.dispatchEvent(new Event('session-builder-solve-ready'));clearTimeout(job.timer);job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),timeBudget+1000);return;}
   if(message?.type==='diagnostics'){job.diagnostics=message.diagnostics;return;}
   if(message?.type==='incumbent'){if(isVerifiedPlan(message.result)&&betterPlan(message.result,job.best)){job.best=message.result;try{onProgress?.(message.result);}catch(error){/* Progress observers cannot affect the solve. */}}return;}
   finish(message?.type==='complete'?message.result:message);
  };
  worker.onerror=()=>finish({rows:[],error:'The background optimiser stopped before returning a verified plan. Click Reset planner to try again.'});
- job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),31000);
+ job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),timeBudget+1000);
  worker.postMessage(args);return promise;
 }
 function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint,onDiagnostics){
@@ -46,7 +48,7 @@ function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint,onD
  const raw=solve(types,modes,groups,demand,rules,options,onCheckpoint,report),result=raw.error&&diagnostics?{...raw,diagnostics}:raw;cached={key,result};return result;
 }
 function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostics){
- const deadline=Date.now()+30000;
+ const timeBudget=solveBudget(options),deadline=Date.now()+timeBudget;
  const fail=error=>({rows:[],error,costOptimised:true});
  if(!demand)return fail('Demand is unavailable for cost optimisation.');
  if(!window.solver?.Solve)return fail('The cost optimisation solver could not load. Refresh the page.');
@@ -353,7 +355,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  if(window.SessionBuilderMip){
   let primary;
   try{
-   primary=window.SessionBuilderMip.solve(model,{timeLimit:Math.max(1,Math.min(25000,deadline-Date.now()-4000)),onIncumbent:publishCandidate});
+   primary=window.SessionBuilderMip.solve(model,{timeLimit:Math.max(1,Math.min(timeBudget-4000,deadline-Date.now()-4000)),onIncumbent:publishCandidate});
    if(primary.infeasible&&setupSpreadLocks.length&&deadline-Date.now()>100){
     for(const id of setupSpreadLocks)delete constraints[id];setupSpreadAdjusted=true;
     primary=window.SessionBuilderMip.solve(model,{timeLimit:Math.max(1,deadline-Date.now()-4000),onIncumbent:publishCandidate});

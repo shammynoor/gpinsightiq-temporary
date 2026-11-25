@@ -240,3 +240,19 @@
 #sessionBuilderPage .session-builder-plan-table tr>:last-child{border-right:0}
 #sessionBuilderPage .session-builder-plan-table tfoot tr:last-child>*{border-bottom:0}
 #sessionBuilderPage .session-builder-plan-table tfoot tr:first-child>*{border-top:2px solid #adc2d3}
+
+#sessionBuilderPage .session-builder-planner-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+#sessionBuilderPage .session-builder-planner-heading h3{margin:0}
+#sessionBuilderPage .session-builder-help{position:relative}
+#sessionBuilderPage .session-builder-help summary{display:flex;align-items:center;justify-content:center;list-style:none;cursor:pointer;width:22px;height:22px;border:1px solid #9eb5c8;border-radius:50%;font-weight:700;color:#426981}
+#sessionBuilderPage .session-builder-help summary::-webkit-details-marker{display:none}
+#sessionBuilderPage .session-builder-help-content{display:none;position:absolute;top:28px;left:0;z-index:60;width:min(540px,75vw);max-height:360px;overflow:auto;padding:16px;background:#fff;border:1px solid #b7cbda;border-radius:10px;box-shadow:0 8px 28px #17395b26}
+#sessionBuilderPage .session-builder-help[open] .session-builder-help-content,#sessionBuilderPage .session-builder-help:hover .session-builder-help-content,#sessionBuilderPage .session-builder-help:focus-within .session-builder-help-content{display:block}
+#sessionBuilderPage .session-builder-needs-optimization{background:#fff2d8;border:1px solid #e4bd74;color:#79500d;border-radius:20px;padding:5px 10px;font-size:12px;font-weight:650}
+#sessionBuilderPage .session-builder-needs-optimization[hidden]{display:none}
+#sessionBuilderPage .session-builder-solve-actions{display:flex;align-items:end;gap:12px;width:100%;margin-bottom:10px}
+#sessionBuilderPage #sessionBuilderResetPlanner{position:relative;overflow:hidden;flex:1;width:auto}
+#sessionBuilderPage .session-builder-button-progress{position:absolute;inset:0 auto 0 0;width:var(--solve-progress,0%);background:#ffffff30;pointer-events:none;transition:width .1s linear}
+#sessionBuilderPage #sessionBuilderResetPlanner>span:not(.session-builder-button-progress){position:relative;z-index:1}
+#sessionBuilderPage .session-builder-time-limit{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;min-width:130px}
+#sessionBuilderPage .session-builder-time-limit select{width:100%;margin:0}
