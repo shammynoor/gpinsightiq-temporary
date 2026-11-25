@@ -208,3 +208,10 @@
 #sessionBuilderPage .session-builder-diagnostics summary{font-size:13px;font-weight:600;cursor:pointer}
 
 #sessionBuilderPage .session-builder-cost-quality{font-size:13px;color:#42647e;line-height:1.5;margin:8px 0 12px}
+
+#sessionBuilderPage .session-clinician-pattern{min-width:240px}
+#sessionBuilderPage .session-clinician-daily-options{display:grid;grid-template-columns:minmax(90px,1fr) 68px 68px;gap:8px;align-items:center;padding:12px;margin-top:4px;background:#fff;border:1px solid #d4e2eb;border-radius:8px;min-width:260px}
+#sessionBuilderPage .session-clinician-daily-options input{width:100%;min-width:0;box-sizing:border-box;padding:7px 8px;min-height:36px;font-size:13px}
+#sessionBuilderPage .session-clinician-daily-heading{font-size:12px;font-weight:700;color:#49667b}
+#sessionBuilderPage .session-clinician-daily-options>span{font-size:13px}
+#sessionBuilderPage .session-clinician-daily-hint{grid-column:1/-1;font-size:11px;line-height:1.4;color:#607e92}

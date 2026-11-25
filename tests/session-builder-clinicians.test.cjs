@@ -25,3 +25,11 @@ test('renaming a clinician retains absence settings',()=>{
  const c=setup();c.sessionBuilderClinicianLimits={'Old GP':{min:0,max:null,annualLeaveWeeks:6,sicknessPercent:10}};
  c.window.renameSessionBuilderClinicianType('Old GP','New GP');assert.equal(c.sessionBuilderClinicianLimits['New GP'].annualLeaveWeeks,6);assert.equal(c.sessionBuilderClinicianLimits['New GP'].sicknessPercent,10);
 });
+
+test('validates and preserves daily limits and their relationship with weekly totals',()=>{
+ const validate=setup().window.validateSessionBuilderClinicianLimits;
+ assert.equal(validate({GP:{min:0,max:20,dailySessions:{Mon:{min:2,max:5},Thu:{min:0,max:0},Fri:{min:0,max:null}}}}),true);
+ for(const dailySessions of [{Sat:{min:0,max:1}},{Mon:{min:3,max:2}},{Mon:{min:1.5,max:3}},{Mon:{min:0,max:-1}}])assert.throws(()=>validate({GP:{min:0,max:20,dailySessions}}));
+ assert.throws(()=>validate({GP:{min:0,max:3,dailySessions:{Mon:{min:4,max:5}}}}));
+ assert.throws(()=>validate({GP:{min:10,max:20,dailySessions:Object.fromEntries(['Mon','Tue','Wed','Thu','Fri'].map(day=>[day,{min:0,max:1}]))}}));
+});

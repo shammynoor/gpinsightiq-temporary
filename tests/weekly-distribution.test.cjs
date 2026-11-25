@@ -23,9 +23,9 @@ test('weekly urgent and home visits can be selected, and daily urgent rules cann
  const home=empty();home.homeVisit=[1,1,1,1,1];home.byType.homeVisit={Visit:[1,1,1,1,1]};p=run(c,home,[distribution('Visit')]);assert.equal(p.error,undefined);assert.equal(p.ruleResults[0].ok,true);
  const urgent=empty();urgent.sameDay=[10,0,0,0,0];urgent.byType.sameDay['Same Day']=[10,0,0,0,0];p=run(c,urgent,[distribution('Same Day','prefer')]);assert.equal(p.error,undefined);assert.ok(p.capacitySameDay[0]>=10);assert.equal(p.ruleResults[0].ok,false);
 });
-test('Must meet respects clinician patterns and reports a conflict; disabled rules do nothing',()=>{
+test('Must meet distribution adapts to clinician working days; disabled rules do nothing',()=>{
  const c=setup(),d=empty();d.routine=10;d.byType.routine={Routine:10};const r=distribution();
- const limited={GP:{annualRate:10000,annualLeaveWeeks:0,workingPattern:['Mon AM']}};assert.match(run(c,d,[r],limited).error,/No valid/);
+ const limited={GP:{annualRate:10000,annualLeaveWeeks:0,workingPattern:['Mon AM']}};const adapted=run(c,d,[r],limited);assert.equal(adapted.error,undefined);assert.equal(adapted.ruleResults[0].ok,true);assert.equal(adapted.rows[0].days[0],1);
  const p=run(c,d,[{...r,enabled:false}],limited);assert.equal(p.error,undefined);assert.equal(p.ruleResults.length,0);
 });
 test('distribution input checks targets, tolerance and removed allocation names',()=>{
