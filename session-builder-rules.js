@@ -6,16 +6,22 @@ const visibleScopes=[['day','Each day'],['week','Each week']];
 const dayScope=scope=>scope==='week'?'week':'day';
 const presets=[['all','Monday–Friday',[1,2,3,4,5]],['mwf','Monday, Wednesday, Friday',[1,3,5]],['tt','Tuesday, Thursday',[2,4]],...['Monday','Tuesday','Wednesday','Thursday','Friday'].map((name,i)=>[String(i+1),name+' only',[i+1]])];
 const configuredGroups=()=>clinicianGroupNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
+function eligibleSessionClinicians(type){
+ const names=typeof clinicianCategoryNames==='undefined'?[]:clinicianCategoryNames;
+ return names.filter(name=>name&&name!=='Uncategorised'&&isDashboardToggleOption(name)&&(Array.isArray(type?.eligibleClinicians)?type.eligibleClinicians.includes(name):(type?.clinicianTypes||[]).includes(clinicianGroupAssignments[name])));
+}
+function initialSessionMix(type){const name=eligibleSessionClinicians(type)[0];return name?{kind:'type',name}:undefined;}
 function validateRules(rules){
  if(!Array.isArray(rules))throw Error('Planning rules must be a list.');
  const ids=new Set();
  for(const rule of rules){
   if(!rule||typeof rule!=='object'||Array.isArray(rule)||typeof rule.id!=='string'||!rule.id||ids.has(rule.id))throw Error('Planning rules require unique identifiers.');ids.add(rule.id);
-  if(typeof rule.enabled!=='boolean'||!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!scopes.some(([key])=>key===rule.scope)||!['must','prefer'].includes(rule.strength))throw Error('Invalid planning rule type, period or strength.');
+  if(typeof rule.enabled!=='boolean'||!['minimum','share','mix','distribution','sessionDistribution','sessionClinicianMix'].includes(rule.kind)||!scopes.some(([key])=>key===rule.scope)||!['must','prefer'].includes(rule.strength))throw Error('Invalid planning rule type, period or strength.');
   if(!Array.isArray(rule.days)||!rule.days.length||rule.days.some(day=>!Number.isInteger(day)||day<1||day>5)||new Set(rule.days).size!==rule.days.length)throw Error('Choose at least one weekday.');
   if(rule.kind==='minimum'){if([rule.minimum,rule.maximum].some(n=>n!=null&&(!Number.isSafeInteger(n)||n<0)))throw Error('Session limits must be non-negative whole numbers or blank for no limit.');if(rule.minimum!=null&&rule.maximum!=null&&rule.maximum<rule.minimum)throw Error('Maximum sessions must be at least the minimum.');}else if(!Number.isFinite(rule.minimum)||rule.minimum<0||rule.minimum>100)throw Error('Use a percentage between zero and 100.');
   if(rule.kind==='distribution')window.SessionBuilderDistribution.validate(rule);
   if(rule.kind==='sessionDistribution'&&(rule.scope!=='week'||typeof rule.sessionTypeId!=='string'||!Number.isInteger(rule.sessionTolerance)||rule.sessionTolerance<1||rule.sessionTolerance>500))throw Error('Choose weekly session spread and a tolerance of at least one session.');
+  if(rule.kind==='sessionClinicianMix'&&(rule.scope!=='week'||rule.days.length!==5||typeof rule.sessionTypeId!=='string'||rule.shareSubject!==undefined&&rule.shareSubject?.kind!=='type'))throw Error('Session clinician mix uses one clinician type across the whole week.');
   if(rule.kind==='minimum'&&typeof rule.sessionTypeId!=='string')throw Error('Choose a session type.');
   if(rule.kind==='share'&&(typeof rule.clinicianGroup!=='string'||!['all','pair'].includes(rule.denominator)||typeof rule.comparisonGroup!=='string'))throw Error('Choose a clinician group and appointment denominator.');
   if(rule.appointmentPool!==undefined&&!['all','urgent','selected'].includes(rule.appointmentPool))throw Error('Choose all or urgent appointments.');
@@ -33,6 +39,13 @@ function issuesFor(rule,types,groups){
  const issues=[];
  if(rule.kind==='distribution'){const issue=window.SessionBuilderDistribution.issue(rule,groupUrgencyNames);return issue?[issue]:[];}
  if(rule.kind==='sessionDistribution')return rule.sessionTypeId&&!types.some(type=>type.id===rule.sessionTypeId)?['The session type has been removed; choose another.']:[];
+ if(rule.kind==='sessionClinicianMix'){
+  const type=types.find(type=>type.id===rule.sessionTypeId),names=typeof clinicianCategoryNames==='undefined'?[]:clinicianCategoryNames;
+  if(!type)issues.push('Choose an existing session type.');
+  if(rule.shareSubject?.kind!=='type'||!names.includes(rule.shareSubject.name))issues.push('Choose an existing clinician type.');
+  else if(type&&!eligibleSessionClinicians(type).includes(rule.shareSubject.name))issues.push('The selected clinician type is not eligible for this session. Update Session Setup or choose another clinician.');
+  return issues;
+ }
  if(rule.kind==='minimum'&&!types.some(type=>type.id===rule.sessionTypeId))issues.push('Choose an existing session type.');
  if(rule.kind==='share'||rule.kind==='mix'){
   const planning=window.SessionBuilderPlanning,subject=planning.shareSubject(rule),denominators=rule.kind==='mix'?[]:planning.shareDenominators(rule),clinicians=typeof clinicianCategoryNames==='undefined'?[]:clinicianCategoryNames;
@@ -55,7 +68,7 @@ window.renameSessionBuilderRuleGroup=(oldName,newName)=>{
 };
 window.renameSessionBuilderRuleClinicianType=(oldName,newName)=>{
  if(!canEditSessionBuilder())return;
- sessionBuilderRules=sessionBuilderRules.map(rule=>(rule.kind==='share'||rule.kind==='mix')?{...rule,...(rule.shareSubject?.kind==='type'&&rule.shareSubject.name===oldName?{shareSubject:{kind:'type',name:newName}}:{}),...(Array.isArray(rule.denominatorSelections)?{denominatorSelections:rule.denominatorSelections.map(ref=>ref.kind==='type'&&ref.name===oldName?{...ref,name:newName}:ref)}:{})}:rule);
+ sessionBuilderRules=sessionBuilderRules.map(rule=>(rule.kind==='share'||rule.kind==='mix'||rule.kind==='sessionClinicianMix')?{...rule,...(rule.shareSubject?.kind==='type'&&rule.shareSubject.name===oldName?{shareSubject:{kind:'type',name:newName}}:{}),...(Array.isArray(rule.denominatorSelections)?{denominatorSelections:rule.denominatorSelections.map(ref=>ref.kind==='type'&&ref.name===oldName?{...ref,name:newName}:ref)}:{})}:rule);
 };
 window.renameSessionBuilderRuleAppointmentType=(oldName,newName)=>{
  if(!canEditSessionBuilder())return;
@@ -73,7 +86,7 @@ function select(label,options,value,onChange){
 }
 function text(value){const span=document.createElement('span');span.textContent=value;return span;}
 function patch(rule,key,value){
- const next=sessionBuilderRules.map(item=>item.id===rule.id?{...item,...((key==='shareSubject'||key==='denominatorSelections')&&item.appointmentPool===undefined?{appointmentPool:window.SessionBuilderPlanning.sharePool(item)}:{}),[key]:value}:item);
+ const next=sessionBuilderRules.map(item=>item.id===rule.id?{...item,...((key==='shareSubject'||key==='denominatorSelections')&&item.kind!=='sessionClinicianMix'&&item.appointmentPool===undefined?{appointmentPool:window.SessionBuilderPlanning.sharePool(item)}:{}),[key]:value}:item);
  commit(next);renderSessionBuilderRules();
 }
 function inspectRules(){
@@ -98,6 +111,7 @@ window.inspectSessionBuilderRules=inspectRules;
 const openRules=new Set();
 function ruleSummary(rule){
  const when=(presets.find(([, ,days])=>JSON.stringify([...rule.days].sort())===JSON.stringify(days))?.[1]||'Selected days')+' · '+(visibleScopes.find(([key])=>key===dayScope(rule.scope))?.[1]||'Each day'),strength=rule.strength==='must'?'Must meet':'Prefer';
+ if(rule.kind==='sessionClinicianMix'){const session=sessionBuilderTypes.find(type=>type.id===rule.sessionTypeId)?.name||'Choose session type',target=({'atLeast':'At least','atMost':'At most','exact':'Exactly'}[rule.comparison||'exact']);return target+' '+rule.minimum+'% of '+session+' sessions provided by '+(rule.shareSubject?.name||'choose clinician type')+' · Each week · '+strength;}
  if(rule.kind==='sessionDistribution'){const name=rule.sessionTypeId?sessionBuilderTypes.find(type=>type.id===rule.sessionTypeId)?.name||'Removed session type':'Each session type';return name+' · roughly even spread · ±'+rule.sessionTolerance+' session'+(rule.sessionTolerance===1?'':'s')+' · '+when+' · '+strength;}
  if(rule.kind==='distribution'){
   const allocation=rule.appointmentTypes?.[0]||'Choose allocation',spread=rule.distributionMode==='custom'?rule.days.map(day=>['Mon','Tue','Wed','Thu','Fri'][day-1]+' '+(rule.distributionTargets?.[day]||0)+'%').join(', '):'Even spread';
@@ -113,7 +127,7 @@ function renderSessionBuilderRules(){
  if(!canEditSessionBuilder()){page.hidden=true;body.replaceChildren();return;}
  const groups=configuredGroups();body.replaceChildren();
  const ruleGroups=new Map();
- for(const [kind,title] of [['minimum','Session limits'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly appointment distribution'],['sessionDistribution','Session spread']]){
+ for(const [kind,title] of [['minimum','Session limits'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly appointment distribution'],['sessionDistribution','Session spread'],['sessionClinicianMix','Session clinician mix']]){
   const count=sessionBuilderRules.filter(rule=>rule.kind===kind).length;if(!count)continue;
   const section=document.createElement('section'),heading=document.createElement('h4'),badge=document.createElement('span'),list=document.createElement('div');section.className='session-rule-group';section.dataset.ruleKind=kind;heading.textContent=title;badge.className='session-rule-group-count';badge.textContent=String(count);heading.append(badge);list.className='session-rule-group-list';section.append(heading,list);body.append(section);ruleGroups.set(kind,list);
  }
@@ -121,16 +135,29 @@ function renderSessionBuilderRules(){
   const ruleNumber=sessionBuilderRules.indexOf(rule)+1;
   const details=document.createElement('details'),summary=document.createElement('summary'),row=document.createElement('div');details.dataset.ruleId=rule.id;details.className='session-rule-card';details.open=openRules.has(rule.id);summary.textContent=(rule.enabled?'':'Off · ')+ruleSummary(rule);details.append(summary);row.className='session-rule-controls';details.addEventListener('toggle',()=>{if(details.open)openRules.add(rule.id);else openRules.delete(rule.id);});
   const enabled=document.createElement('div'),toggle=document.createElement('input');toggle.type='checkbox';toggle.checked=rule.enabled;toggle.setAttribute('aria-label','Enable rule '+(sessionBuilderRules.indexOf(rule)+1));toggle.addEventListener('change',()=>{try{patch(rule,'enabled',toggle.checked)}catch(error){toggle.checked=!toggle.checked;byId('sessionBuilderRulesSaveStatus').textContent=error.message;}});enabled.append(toggle);row.append(enabled);
-  const when=document.createElement('div');when.append(select('Period for rule '+ruleNumber,['distribution','sessionDistribution'].includes(rule.kind)?[['week','Each week']]:visibleScopes,dayScope(rule.scope),value=>patch(rule,'scope',value)));
+  const when=document.createElement('div');when.append(select('Period for rule '+ruleNumber,['distribution','sessionDistribution','sessionClinicianMix'].includes(rule.kind)?[['week','Each week']]:visibleScopes,dayScope(rule.scope),value=>patch(rule,'scope',value)));
   const preset=presets.find(([, ,days])=>JSON.stringify([...rule.days].sort())===JSON.stringify(days));
   const dayOptions=presets.map(([key,label])=>[key,label]);if(!preset)dayOptions.push(['custom','Custom: '+rule.days.map(day=>['Mon','Tue','Wed','Thu','Fri'][day-1]).join(', ')]);
-  when.append(select('Weekdays for rule '+ruleNumber,dayOptions,preset?.[0]||'custom',key=>{const choice=presets.find(([id])=>id===key);if(choice){if(rule.kind==='distribution')commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,days:[...choice[2]],distributionTargets:window.SessionBuilderDistribution.initialTargets(choice[2])}:item));else patch(rule,'days',[...choice[2]]);renderSessionBuilderRules();}}));row.append(when);
+  if(rule.kind!=='sessionClinicianMix')when.append(select('Weekdays for rule '+ruleNumber,dayOptions,preset?.[0]||'custom',key=>{const choice=presets.find(([id])=>id===key);if(choice){if(rule.kind==='distribution')commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,days:[...choice[2]],distributionTargets:window.SessionBuilderDistribution.initialTargets(choice[2])}:item));else patch(rule,'days',[...choice[2]]);renderSessionBuilderRules();}}));row.append(when);
   const requirement=document.createElement('div');
-  requirement.append(select('Rule type '+ruleNumber,[['minimum','Session limits'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly appointment distribution'],['sessionDistribution','Session spread']],rule.kind,kind=>{
-   commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,kind,...(kind==='distribution'?{scope:'week',distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{scope:'week',sessionTolerance:1}:{}),maximum:null,minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:'atLeast',appointmentTypes:kind==='mix'?(groupUrgencyNames.includes('Routine')?['Routine']:[]):[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:groups[0]||'',denominator:'all',comparisonGroup:''}:item));renderSessionBuilderRules();
+  requirement.append(select('Rule type '+ruleNumber,[['minimum','Session limits'],['share','Clinician appointment share'],['mix','Appointment mix'],['distribution','Weekly appointment distribution'],['sessionDistribution','Session spread'],['sessionClinicianMix','Session clinician mix']],rule.kind,kind=>{
+   commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,kind,...(kind==='sessionClinicianMix'?{scope:'week',days:[1,2,3,4,5],shareSubject:initialSessionMix(sessionBuilderTypes[0])}:{}),...(kind==='distribution'?{scope:'week',distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{scope:'week',sessionTolerance:1}:{}),maximum:null,minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:kind==='sessionClinicianMix'?'exact':'atLeast',appointmentTypes:kind==='mix'?(groupUrgencyNames.includes('Routine')?['Routine']:[]):[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:groups[0]||'',denominator:'all',comparisonGroup:''}:item));renderSessionBuilderRules();
   }));
   let clause;
-  if(rule.kind==='sessionDistribution'){
+  if(rule.kind==='sessionClinicianMix'){
+   clause=document.createElement('div');clause.className='session-rule-clause';
+   const type=sessionBuilderTypes.find(type=>type.id===rule.sessionTypeId),clinicians=eligibleSessionClinicians(type);
+   clause.append(select('Session type for rule '+ruleNumber,[['','Choose session type'],...sessionBuilderTypes.map(type=>[type.id,type.name])],rule.sessionTypeId,value=>{
+    const nextType=sessionBuilderTypes.find(type=>type.id===value),eligible=eligibleSessionClinicians(nextType),subject=eligible.includes(rule.shareSubject?.name)?rule.shareSubject:initialSessionMix(nextType);
+    commit(sessionBuilderRules.map(item=>item.id===rule.id?{...item,sessionTypeId:value,shareSubject:subject}:item));renderSessionBuilderRules();
+   }));
+   clause.append(select('Comparison for rule '+ruleNumber,[['atLeast','At least'],['exact','Exactly'],['atMost','At most']],rule.comparison||'exact',value=>patch(rule,'comparison',value)));
+   const percentage=document.createElement('input');percentage.type='number';percentage.min='0';percentage.max='100';percentage.step='0.1';percentage.required=true;percentage.value=String(rule.minimum);percentage.setAttribute('aria-label','Session percentage for rule '+ruleNumber);
+   percentage.addEventListener('input',()=>percentage.setCustomValidity(''));
+   percentage.addEventListener('change',()=>{try{if(percentage.value===''||!percentage.checkValidity())throw Error('Enter a percentage from zero to 100.');patch(rule,'minimum',Number(percentage.value));}catch(error){percentage.setCustomValidity(error.message);percentage.reportValidity();}});
+   clause.append(percentage,text('% of these sessions provided by'),select('Clinician type for rule '+ruleNumber,[['','Choose clinician type'],...clinicians.map(name=>[name,name])],rule.shareSubject?.name||'',value=>{if(value)patch(rule,'shareSubject',{kind:'type',name:value});}));
+   clause.append(text('Count sessions across Monday–Friday, including sessions with no appointment slots. Click Reset planner to apply changes.'));
+  }else if(rule.kind==='sessionDistribution'){
    clause=document.createElement('div');clause.className='session-rule-clause';
    clause.append(text('Spread'),select('Session type for rule '+ruleNumber,[['','Each session type'],...sessionBuilderTypes.map(type=>[type.id,type.name])],rule.sessionTypeId||'',value=>patch(rule,'sessionTypeId',value)));
    const tolerance=document.createElement('input');tolerance.type='number';tolerance.min='1';tolerance.max='500';tolerance.step='1';tolerance.value=String(rule.sessionTolerance);tolerance.setAttribute('aria-label','Session spread tolerance for rule '+ruleNumber);
@@ -214,7 +241,7 @@ function showValidation(){
 byId('sessionBuilderAddRule')?.addEventListener('click',()=>{
  if(!canEditSessionBuilder())return;
  const kind=byId('sessionBuilderNewRuleKind').value,id=crypto.randomUUID();openRules.add(id);
- commit([...sessionBuilderRules,{id,enabled:true,kind,scope:['distribution','sessionDistribution'].includes(kind)?'week':'day',days:[1,2,3,4,5],...(kind==='distribution'?{distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{sessionTolerance:1}:{}),maximum:null,minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:'atLeast',appointmentTypes:kind==='mix'&&groupUrgencyNames.includes('Routine')?['Routine']:[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:configuredGroups()[0]||'',denominator:'all',comparisonGroup:'',strength:['distribution','sessionDistribution'].includes(kind)?'prefer':'must'}]);renderSessionBuilderRules();
+ commit([...sessionBuilderRules,{id,enabled:true,kind,...(kind==='sessionClinicianMix'?{shareSubject:initialSessionMix(sessionBuilderTypes[0])}:{}),scope:['distribution','sessionDistribution','sessionClinicianMix'].includes(kind)?'week':'day',days:[1,2,3,4,5],...(kind==='distribution'?{distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{sessionTolerance:1}:{}),maximum:null,minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:kind==='sessionClinicianMix'?'exact':'atLeast',appointmentTypes:kind==='mix'&&groupUrgencyNames.includes('Routine')?['Routine']:[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:configuredGroups()[0]||'',denominator:'all',comparisonGroup:'',strength:['distribution','sessionDistribution'].includes(kind)?'prefer':'must'}]);renderSessionBuilderRules();
 });
 byId('sessionBuilderValidateRules')?.addEventListener('click',showValidation);
 const tabs=[['clinician','Clinician'],['types','Types'],['rules','Rules'],['planner','Planner']];

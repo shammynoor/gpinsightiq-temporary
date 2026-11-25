@@ -15,7 +15,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve({rows:[],error:'This browser cannot run the background integer optimiser. Use a browser with Web Worker support and try again.'});
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=bounded-session-spread-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=weekly-session-clinician-mix-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -155,7 +155,23 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  for(const rule of active){
   const previousConstraints=new Set(Object.keys(constraints));
   const recordRule=()=>{if(rule.strength==='must')ruleSources.push({id:rule.id,label:window.SessionBuilderDiagnostics?.ruleLabel(rule,types)||rule.id,constraints:Object.keys(constraints).filter(id=>!previousConstraints.has(id))});};
-  if(!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(!['minimum','share','mix','distribution','sessionDistribution','sessionClinicianMix'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(rule.kind==='sessionClinicianMix'){
+   const ref=subject(rule),definition=types.find(t=>t.id===rule.sessionTypeId),comparison=rule.comparison||'exact';
+   if(rule.scope!=='week'||rule.days.length!==5||new Set(rule.days).size!==5||!definition||ref?.kind!=='type'||!Object.hasOwn(clinicians,ref.name)||!(definition.eligibleClinicians||[]).includes(ref.name)||rule.minimum>100||!['atLeast','atMost','exact'].includes(comparison))return fail('Session clinician mix requires an existing session type, an eligible clinician type, a weekly percentage from 0 to 100 and a valid comparison.');
+   const chosen=slots.filter(s=>s.sourceId===rule.sessionTypeId),expression={rule,sessionClinicianMix:true,scope:{days:[0,1,2,3,4],periods},terms:[],numerator:[],denominator:chosen.map(s=>s.id)};
+   for(const slot of chosen){const isSubject=slot.clinician===ref.name;if(isSubject)expression.numerator.push(slot.id);const k=(isSubject?1:0)-rule.minimum/100;if(k)expression.terms.push([slot.id,k]);}
+   ruleExpressions.push(expression);
+   const bounds=comparison==='atMost'?{max:0}:comparison==='exact'?{equal:0}:{min:0},id=constraint(bounds);
+   for(const [v,k]of expression.terms)coefficient(v,id,k);
+   if(rule.strength==='prefer'){
+    // Count session deviations, including zero-appointment on-call sessions.
+    const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);
+    if(comparison==='exact'){delete constraints[id].equal;constraints[id].max=0;coefficient(slack,id,-1);const lower=constraint({min:0});for(const [v,k]of expression.terms)coefficient(v,lower,k);coefficient(slack,lower,1);}
+    else coefficient(slack,id,comparison==='atMost'?-1:1);
+   }
+   recordRule();continue;
+  }
   if(rule.kind==='sessionDistribution'){
    if(rule.scope!=='week'||typeof rule.sessionTypeId!=='string'||!Number.isInteger(rule.sessionTolerance)||rule.sessionTolerance<1||rule.sessionTolerance>500)return fail('Invalid session spread rule.');
    if(rule.sessionTypeId&&!types.some(type=>type.id===rule.sessionTypeId))return fail('The session spread rule refers to a missing session type.');
@@ -260,7 +276,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
     const coefficient=(numerator?1:0)-rule.minimum/100*(denominator?1:0);if(coefficient)expression.terms.push([a.id,coefficient]);
    }
    if(rule.strength!=='must')continue;
-   const comparison=rule.comparison||'atLeast',bound=rule.kind==='minimum'?{...(rule.minimum!=null?{min:rule.minimum}:{}),...(rule.maximum!=null?{max:rule.maximum}:{})}:comparison==='atMost'?{max:0}:comparison==='exact'?{equal:0}:{min:0},id=constraint(bound);
+   const comparison=rule.comparison||(rule.kind==='sessionClinicianMix'?'exact':'atLeast'),bound=rule.kind==='minimum'?{...(rule.minimum!=null?{min:rule.minimum}:{}),...(rule.maximum!=null?{max:rule.maximum}:{})}:comparison==='atMost'?{max:0}:comparison==='exact'?{equal:0}:{min:0},id=constraint(bound);
    for(const [variable,value] of expression.terms)coefficient(variable,id,value);
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
@@ -321,12 +337,12 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
     if(numerator<expression.lower*denominator-1e-5||numerator>expression.upper*denominator+1e-5)failures.push(daysShort[expression.day]+': outside the '+expression.target+'% target ±'+expression.tolerance+' percentage points.');
     measurements.push({day:expression.day,numerator,denominator,target:expression.target,tolerance:expression.tolerance});continue;
    }
-   const value=expression.terms.reduce((n,[id,c])=>n+(chosen[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(chosen[id]||0),0),comparison=rule.comparison||'atLeast';
-   const ok=rule.kind==='minimum'?(rule.minimum==null||value>=rule.minimum-1e-5)&&(rule.maximum==null||value<=rule.maximum+1e-5):(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
+   const value=expression.terms.reduce((n,[id,c])=>n+(chosen[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(chosen[id]||0),0),comparison=rule.comparison||(rule.kind==='sessionClinicianMix'?'exact':'atLeast');
+   const ok=rule.kind==='minimum'?(rule.minimum==null||value>=rule.minimum-1e-5)&&(rule.maximum==null||value<=rule.maximum+1e-5):(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||rule.kind==='sessionClinicianMix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
    if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));
    measurements.push({numerator,denominator});
   }
-  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,adjustedForClinicianSetup:setupSpreadAdjusted&&rule.kind==='distribution'&&failures.length>0&&ruleExpressions.some(e=>e.rule===rule&&e.setupPriority),failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
+  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,adjustedForClinicianSetup:setupSpreadAdjusted&&rule.kind==='distribution'&&failures.length>0&&ruleExpressions.some(e=>e.rule===rule&&e.setupPriority),failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||(rule.kind==='sessionClinicianMix'?'exact':'atLeast'),appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name,...(rule.kind==='sessionClinicianMix'?{sessionTypeId:rule.sessionTypeId}:{})};
  });
  const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*variables[s.id].cost,0),lower=mipLowerBound??inspection?.costLowerBound,costLowerBound=Number.isFinite(lower)&&lower<=cost+1e-5?Math.max(0,Math.min(cost,lower)):undefined,costGap=Number.isFinite(costLowerBound)&&cost>0?Math.max(0,(cost-costLowerBound)/cost):undefined;
  return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:ruleResults.some(r=>r.adjustedForClinicianSetup),solverName:window.SessionBuilderMip?'HiGHS':'legacy',costOptimal:!!flags.costOptimal,costBoundKind:mipLowerBound!=null?'integer':'fractional'};
