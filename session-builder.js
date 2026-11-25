@@ -158,7 +158,7 @@ async function renderSessionRequirements(settings={}){
   if(cost.unassigned){const line=document.createElement('span');line.textContent='Choose eligible clinician types';detail.append(line);}
   cell.append(detail);
  }
- const grandSplit={};
+ const grandSplit={},dailySplits=Array.from({length:5},()=>({}));
  for(const row of estimate.rows){
   const cells=[];for(let day=0;day<5;day++)cells.push(unavailable?null:row.periods.morning[day]+row.periods.afternoon[day]);
   const rowSplit={};if(!unavailable)for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])mergeSplit(rowSplit,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
@@ -168,7 +168,7 @@ async function renderSessionRequirements(settings={}){
   if(!unavailable){
    for(let day=0;day<5;day++){
     const split={};for(const period of ['morning','afternoon'])mergeSplit(split,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
-    appendSplit(tr.children[1+day],split);
+    mergeSplit(dailySplits[day],split);appendSplit(tr.children[1+day],split);
    }
    appendSplit(tr.children[8],rowSplit);
    const definition=configuredTypes.find(type=>type.id===row.id);
@@ -182,7 +182,7 @@ async function renderSessionRequirements(settings={}){
  const totals=[];for(let day=0;day<5;day++)totals.push(unavailable?null:estimate.rows.reduce((sum,row)=>sum+row.periods.morning[day]+row.periods.afternoon[day],0));
  const totalAppointments=Object.values(grandSplit).reduce((sum,value)=>sum+value,0);
  const totalRow=addCells(foot,'Total',[...totals,null,unavailable?null:totals.reduce((a,b)=>a+b,0),unavailable?null:totalAppointments]);
- if(!unavailable){appendSplit(totalRow.children[8],grandSplit);renderCost(totalRow.children[6],window.SessionBuilderCosting.total(rowCosts));}
+ if(!unavailable){for(let day=0;day<5;day++)appendSplit(totalRow.children[1+day],dailySplits[day]);appendSplit(totalRow.children[8],grandSplit);renderCost(totalRow.children[6],window.SessionBuilderCosting.total(rowCosts));}
  const summary=byId('sessionBuilderCapacityBody');summary.replaceChildren();
  const capacityRow=(label,daily,weekly,{home=false,provided=false}={})=>{
   const tr=document.createElement('tr'),th=document.createElement('th');th.scope='row';th.textContent=label;tr.className=home?'capacity-home':'';if(home&&!provided)tr.className+=' capacity-visits-start';if(provided)tr.className+=' capacity-provided';th.className='capacity-label';tr.append(th);
