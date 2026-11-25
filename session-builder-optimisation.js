@@ -2,7 +2,7 @@
 'use strict';
 let cached=null,pending=null,completed=null;
 function isVerifiedPlan(plan){
- return !!plan&&plan.verifiedPlan===true&&!plan.error&&Number.isFinite(plan.annualCost)&&plan.annualCost>=0&&Array.isArray(plan.rows)&&Array.isArray(plan.placements)&&Array.isArray(plan.ruleResults)&&plan.ruleResults.every(r=>r.strength!=='must'||r.ok)&&Array.isArray(plan.unmetDemand)&&!plan.unmetDemand.length&&['capacitySameDay','capacityHomeVisit'].every(key=>Array.isArray(plan[key])&&plan[key].length===5&&plan[key].every(n=>Number.isSafeInteger(n)&&n>=0))&&['weeklyCapacity','routineCapacity','plannedCapacity','totalCapacity'].every(key=>Number.isSafeInteger(plan[key])&&plan[key]>=0);
+ return !!plan&&plan.verifiedPlan===true&&!plan.error&&Number.isFinite(plan.annualCost)&&plan.annualCost>=0&&Array.isArray(plan.rows)&&Array.isArray(plan.placements)&&Array.isArray(plan.ruleResults)&&plan.ruleResults.every(r=>r.strength!=='must'||r.ok)&&Array.isArray(plan.unmetDemand)&&!plan.unmetDemand.length&&['capacitySameDay','capacityHomeVisit'].every(key=>Array.isArray(plan[key])&&plan[key].length===5&&plan[key].every(n=>Number.isSafeInteger(n)&&n>=0))&&['weeklyCapacity','routineCapacity','plannedCapacity','totalCapacity'].every(key=>Number.isSafeInteger(plan[key])&&plan[key]>=0)&&plan.capacitySameDay.reduce((a,b)=>a+b,0)+plan.capacityHomeVisit.reduce((a,b)=>a+b,0)+plan.weeklyCapacity+plan.routineCapacity+plan.plannedCapacity===plan.totalCapacity;
 }
 function betterPlan(plan,previous){
  if(!previous)return true;
@@ -14,7 +14,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-incumbent-recovery-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=full-capacity-allocation-v1');
  const job={key,worker,promise,resolve,best:null,done:false};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -81,8 +81,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  if(bound>10000)return fail('Demand is too large for interactive cost optimisation. Check session capacities.');
  const workforce=new Map();
  for(const [name] of Object.entries(clinicians)){const l=limits[name]||{};workforce.set(name,constraint({min:l.min||0,max:l.max??bound}));}
- // Cover forecast need; excess is minimised after the cost search so that an
- // arbitrary cap cannot rule out a cheaper plan or a valid required rule.
+ // Forecast need is a lower bound. Allocate every productive slot in each
+ // selected session; provision may exceed need.
  const needConstraints={sameDay:demand.sameDay.map(n=>constraint({min:Math.ceil(n)})),homeVisit:demand.homeVisit.map(n=>constraint({min:Math.ceil(n)})),weekly:constraint({min:Math.ceil(demand.weekly)}),routine:constraint({min:Math.ceil(demand.routine)}),planned:constraint({min:Math.ceil(demand.planned||0)})};
  // Preserve type eligibility for weekly urgent/routine demand. Planned care and
  // daily urgent demand are pooled, matching the planner's existing definitions.
@@ -101,11 +101,11 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   const tie=Math.min(1e-7,0.01/(Math.max(1,bound*Object.keys(clinicians).length)));
   const id=variable({cost:Math.round(candidate.rate*100)+tie},true);coefficient(id,workforce.get(candidate.clinician),1);
   const slot={...candidate,id,day,period};slots.push(slot);
-  const nonHome=constraint({max:0}),home=constraint({max:0});coefficient(id,nonHome,-candidate.nonHome);coefficient(id,home,-candidate.home);
+  const nonHome=constraint({equal:0}),home=constraint({equal:0});coefficient(id,nonHome,-candidate.nonHome);coefficient(id,home,-candidate.home);
   const choices=[...new Map(candidate.allowed.map(([name,pool])=>[pool==='planned'?plannedLabel:name,{name:normal(name),pool}])).values()];
   for(const choice of choices)if(choice.pool==='homeVisit'?candidate.home>0:candidate.nonHome>0)addAllocation(slot,choice.name,choice.pool,choice.pool==='homeVisit'?home:nonHome);
-  // Capacity after leave/sickness is an expectation. Integer appointments cannot
-  // exceed it; spare whole slots are added to the display after allocation.
+  // Each consultation-mode capacity must be fully assigned to eligible types.
+  // A positive capacity without an eligible type prevents using this session.
   const daily=allocations.filter(a=>a.slot===slot&&a.pool==='sameDay');
   const weights=daily.map(a=>Math.max(0,demand.byType?.sameDay?.[a.name]?.[day]||0)),sum=weights.reduce((a,b)=>a+b,0);
   if(daily.length>1)for(let i=0;i<daily.length-1;i++){
@@ -181,14 +181,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   }
  }
  let verifiedCheckpoint=null;
- function safeSurplus(candidate){
-  for(const [pool,needs] of Object.entries({sameDay:demand.sameDay,homeVisit:demand.homeVisit,weekly:[demand.weekly],routine:[demand.routine],planned:[demand.planned||0]}))for(let day=0;day<needs.length;day++){
-   const amount=allocations.filter(a=>a.pool===pool&&(!['sameDay','homeVisit'].includes(pool)||a.slot.day===day)).reduce((n,a)=>n+(candidate[a.id]||0),0),threshold=Math.max(1000,Math.ceil(needs[day]*10)+100);
-   if(amount>threshold)return false;
-  }return true;
- }
  function publishCandidate(candidate){
-  if(!audit(candidate)||!safeSurplus(candidate))return;
+  if(!audit(candidate))return;
   const plan=buildPlan(candidate);
   if(!isVerifiedPlan(plan)||!betterPlan(plan,verifiedCheckpoint))return;
   verifiedCheckpoint=plan;
@@ -210,11 +204,6 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  for(const slot of slots){const count=Math.round(chosen[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
  for(const a of allocations){const n=Math.round(chosen[a.id]||0);if(!n)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
   if(a.pool==='sameDay'){capacitySameDay[a.slot.day]+=n;capacitySameDayByPeriod[a.slot.period][a.slot.day]+=n;}else if(a.pool==='homeVisit')capacityHomeVisit[a.slot.day]+=n;else if(a.pool==='weekly')weeklyCapacity+=n;else if(a.pool==='routine')routineCapacity+=n;else if(a.pool==='planned')plannedCapacity+=n;
- }
- for(const slot of slots){
-  const count=Math.round(chosen[slot.id]||0);if(!count)continue;
-  const capacity=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7),used=allocations.filter(a=>a.slot===slot).reduce((n,a)=>n+Math.round(chosen[a.id]||0),0),unused=capacity-used;
-  if(unused>0){const target=appointmentBreakdown[slot.sourceId]||(appointmentBreakdown[slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[slot.day][slot.period];cell.Unallocated=(cell.Unallocated||0)+unused;}
  }
  const ruleResults=active.map(rule=>{
   const failures=[],measurements=[];
@@ -252,7 +241,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
   }
   return Object.entries(constraints).every(([id,b])=>{const n=totals[id],e=1e-5;return (b.min==null||n>=b.min-e)&&(b.max==null||n<=b.max+e)&&(b.equal==null||Math.abs(n-b.equal)<=e);});
  }
- if(!result?.feasible||!result.bounded||!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,costTimeLimited||Date.now()>=deadline-25):costTimeLimited?{...fail('Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'),errorCode:'TIMEOUT'}:fail('No valid costed plan was found. Check clinician minimums/maximums, working patterns, session eligibility and required rules. No invalid plan is shown.');
+ if(!result?.feasible||!result.bounded||!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint,costTimeLimited||Date.now()>=deadline-25):costTimeLimited?{...fail('Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'),errorCode:'TIMEOUT'}:fail('No valid costed plan was found. Check clinician minimums/maximums, working patterns, session eligibility and required rules. Every productive slot must have an eligible appointment type for its consultation mode. No invalid plan is shown.');
  publishCandidate(solution);
  // Keep the best cost found, then reduce total productive capacity. Only accept
  // audited refinements that actually improve the requested objective.
@@ -272,33 +261,9 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  {const capacityBound=constraint({max:objectiveValue(solution,'capacity')+1e-7});for(const [id,data] of Object.entries(variables))coefficient(id,capacityBound,data.capacity||0);}
  const sessionsRefined=refine('sessions',750);
  {const sessionBound=constraint({max:objectiveValue(solution,'sessions')+1e-7});for(const id of sessionIds)coefficient(id,sessionBound,1);}
- const allocationIds=new Set(allocations.map(item=>item.id));
- for(const [id,data] of Object.entries(variables))data.allocated=allocationIds.has(id)?1:0;
- const allocationsRefined=refine('allocated',500);
- {const allocationBound=constraint({max:objectiveValue(solution,'allocated')+1e-7});for(const id of allocationIds)coefficient(id,allocationBound,1);}
  if(distributionPenalties.length)refine('balance',500);
- // Remove any allocations that are not needed by a demand constraint or rule.
- // Sessions and their costs stay fixed; removed slots become unallocated.
- const totals=Object.fromEntries(Object.keys(constraints).map(id=>[id,0]));
- for(const [id,data] of Object.entries(variables))for(const [key,coefficient] of Object.entries(data))if(Object.hasOwn(totals,key))totals[key]+=(solution[id]||0)*coefficient;
- let pruned=true;
- while(pruned){pruned=false;for(const allocation of allocations){
-  const id=allocation.id,current=Math.round(solution[id]||0);if(current<=0)continue;let removable=current;
-  for(const [key,coefficient] of Object.entries(variables[id])){
-   if(!Object.hasOwn(constraints,key)||!coefficient)continue;const limit=constraints[key],total=totals[key];
-   if(coefficient>0&&(limit.min!=null||limit.equal!=null))removable=Math.min(removable,Math.floor((total-(limit.equal??limit.min)+1e-7)/coefficient));
-   if(coefficient<0&&(limit.max!=null||limit.equal!=null))removable=Math.min(removable,Math.floor(((limit.equal??limit.max)-total+1e-7)/(-coefficient)));
-  }
-  removable=Math.max(0,removable);if(!removable)continue;solution[id]=current-removable;
-  for(const [key,coefficient] of Object.entries(variables[id]))if(Object.hasOwn(totals,key))totals[key]-=removable*coefficient;pruned=true;
- }}
  if(!audit(solution))return verifiedCheckpoint?retainedPlan(verifiedCheckpoint):fail('The calculated plan could not be verified. No invalid plan is shown.');
- // Do not publish extreme results if the time-limited search has not converged.
- for(const [pool,needs] of Object.entries({sameDay:demand.sameDay,homeVisit:demand.homeVisit,weekly:[demand.weekly],routine:[demand.routine],planned:[demand.planned||0]}))for(let day=0;day<needs.length;day++){
-  const amount=allocations.filter(a=>a.pool===pool&&(!['sameDay','homeVisit'].includes(pool)||a.slot.day===day)).reduce((n,a)=>n+(solution[a.id]||0),0),threshold=Math.max(1000,Math.ceil(needs[day]*10)+100);
-  if(amount>threshold)return verifiedCheckpoint?retainedPlan(verifiedCheckpoint):fail('The optimiser produced an unusually large appointment surplus. Review required rules and clinician settings, then try again.');
- }
- const finalPlan=buildPlan(solution,{approximate:costTimeLimited||!capacityRefined||!sessionsRefined||!allocationsRefined,optimisationTimedOut:costTimeLimited||Date.now()>=deadline-25});
+ const finalPlan=buildPlan(solution,{approximate:costTimeLimited||!capacityRefined||!sessionsRefined,optimisationTimedOut:costTimeLimited||Date.now()>=deadline-25});
  publishCandidate(solution);
  return isVerifiedPlan(finalPlan)&&betterPlan(finalPlan,verifiedCheckpoint)?finalPlan:verifiedCheckpoint||fail('The calculated plan could not be verified.');
 

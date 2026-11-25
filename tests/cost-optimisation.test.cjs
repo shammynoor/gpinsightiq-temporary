@@ -96,13 +96,13 @@ test('rejects an oversized weekly allocation even if the solver reports it as fe
  c.window.solver.Solve=function(model,...args){const result=original.call(this,model,...args),get=result.generateSolutionSet.bind(result);result.generateSolutionSet=()=>{const solution=get(),entry=Object.entries(json.constraints).find(([,v])=>v.min===1&&v.max==null);assert.ok(entry,'weekly need constraint exists');const id=Object.keys(json.variables).find(id=>json.variables[id].cost===0&&json.variables[id][entry[0]]===1);assert.ok(id);solution[id]=19537;return solution;};return result;};
  try{const p=run([type('guard',['GP'],13,['Within 3 Days'])],d,{GP:{annualRate:0,workingPattern:['Mon AM']}});assert.equal(p.error,undefined);assert.equal(p.verifiedPlan,true);assert.ok(p.weeklyCapacity>=1&&p.weeklyCapacity<=1000);}finally{c.window.solver.Solve=original;}
 });
-test('visits are allocated to meet demand and excess visit slots stay unallocated',()=>{
+test('visits allocate the full session capacity even when it exceeds predicted need',()=>{
  const d=empty();d.homeVisit[2]=10.8;d.byType.homeVisit={Visit:[0,0,10.8,0,0]};const t=type('visits',['GP'],0,['Visit']);t.appointmentsByMode['Home Visit']=20;
- const p=run([t],d,{GP:{annualRate:1000,workingPattern:['Wed AM'],max:1}});assert.equal(p.error,undefined);assert.equal(p.capacityHomeVisit[2],11);assert.equal(p.annualCost,1000);assert.equal(p.appointmentBreakdown.visits[2].morning.Unallocated,9);
+ const p=run([t],d,{GP:{annualRate:1000,workingPattern:['Wed AM'],max:1}});assert.equal(p.error,undefined);assert.equal(p.capacityHomeVisit[2],20);assert.equal(p.annualCost,1000);assert.equal(p.appointmentBreakdown.visits[2].morning.Visit,20);assert.equal(p.appointmentBreakdown.visits[2].morning.Unallocated,undefined);
 });
 test('cost takes priority over spare capacity when two valid plans are available',()=>{
  const d=empty();d.homeVisit[2]=10.8;d.byType.homeVisit={Visit:[0,0,10.8,0,0]};const cheap=type('cheap',['Cheap'],0,['Visit']),expensive=type('expensive',['Expensive'],0,['Visit']);cheap.appointmentsByMode['Home Visit']=20;expensive.appointmentsByMode['Home Visit']=11;
- const p=run([cheap,expensive],d,{Cheap:{annualRate:1000,workingPattern:['Wed AM']},Expensive:{annualRate:1001,workingPattern:['Wed AM']}});assert.equal(p.error,undefined);assert.equal(p.annualCost,1000);assert.equal(p.capacityHomeVisit[2],11);assert.equal(p.clinicianCounts.Cheap,1);
+ const p=run([cheap,expensive],d,{Cheap:{annualRate:1000,workingPattern:['Wed AM']},Expensive:{annualRate:1001,workingPattern:['Wed AM']}});assert.equal(p.error,undefined);assert.equal(p.annualCost,1000);assert.equal(p.capacityHomeVisit[2],20);assert.equal(p.clinicianCounts.Cheap,1);
 });
 test('required mix can exceed the old artificial daily surplus cap',()=>{
  const d=empty();d.routine=24;d.byType.routine={Routine:24};const rule={id:'mix-extra',kind:'mix',enabled:true,strength:'must',scope:'day',days:[1],minimum:50,comparison:'exact',shareSubject:{kind:'type',name:'GP'},appointmentTypes:['Routine']};
