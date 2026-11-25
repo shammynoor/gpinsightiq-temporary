@@ -110,6 +110,7 @@ async function renderSessionRequirements(settings={}){
   finally{if(run===requirementsRun)setPlannerBusy(false);}
   if(run!==requirementsRun||estimate.cancelled||!canEditSessionBuilder())return;
   if(!history.forecast)estimate.error='Urgent forecast unavailable. Check report history and practice list-size settings.';
+  window.SessionBuilderDiagnostics?.render(estimate.diagnostics,estimate);
   if(estimate.error&&requirementsHasPlan){
    const warning=byId('sessionBuilderPlanWarning');if(warning){warning.hidden=false;warning.textContent='Reset unsuccessful: '+estimate.error+' The previous plan is retained and may not match the current settings.';}
    if(solveStatus)solveStatus.textContent='Reset failed — previous plan still shown. Click Reset planner to try again.';

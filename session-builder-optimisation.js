@@ -14,11 +14,12 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve(estimate(...args));
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=aggregate-capacity-30s-v1');
- const job={key,worker,promise,resolve,best:null,done:false};pending=job;
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-diagnostics-v1');
+ const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
   if(!result?.error&&!isVerifiedPlan(result))result={rows:[],error:'The optimiser did not return a verified plan. Click Reset planner to try again.'};
+  if(result?.error)result={...result,diagnostics:result.diagnostics||job.diagnostics};
   if(result.error&&job.best)result=retainedPlan(job.best,result.errorCode==='TIMEOUT');
   else if(isVerifiedPlan(result)&&job.best&&!betterPlan(result,job.best))result={...job.best,approximate:true,optimisationTimedOut:!!result.optimisationTimedOut,optimisationInterrupted:!!result.optimisationInterrupted};
   job.done=true;worker.terminate();clearTimeout(job.timer);pending=null;completed={key,result};resolve(result);
@@ -26,6 +27,7 @@ function estimateAsync(...args){
  worker.onmessage=event=>{
   if(job.done||pending!==job)return;
   const message=event.data;
+  if(message?.type==='diagnostics'){job.diagnostics=message.diagnostics;return;}
   if(message?.type==='incumbent'){if(isVerifiedPlan(message.result)&&betterPlan(message.result,job.best))job.best=message.result;return;}
   finish(message?.type==='complete'?message.result:message);
  };
@@ -33,12 +35,15 @@ function estimateAsync(...args){
  job.timer=setTimeout(()=>finish({rows:[],errorCode:'TIMEOUT',error:'Optimisation timed out before returning a verified plan. This does not prove the settings are infeasible. Click Reset planner to try again.'}),31000);
  worker.postMessage(args);return promise;
 }
-function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint){
+function estimate(types,modes,groups,demand,rules=[],options={},onCheckpoint,onDiagnostics){
  const key=JSON.stringify([types,modes,groups,demand,rules,options]);
  if(cached?.key===key)return cached.result;
- const result=solve(types,modes,groups,demand,rules,options,onCheckpoint);cached={key,result};return result;
+ const diagnostics=window.SessionBuilderDiagnostics?.analyse(types,modes,groups,demand,rules,options);
+ if(diagnostics&&typeof onDiagnostics==='function')onDiagnostics(diagnostics);
+ const report=model=>{if(diagnostics){diagnostics.model=model;if(typeof onDiagnostics==='function')onDiagnostics(diagnostics);}};
+ const raw=solve(types,modes,groups,demand,rules,options,onCheckpoint,report),result=raw.error&&diagnostics?{...raw,diagnostics}:raw;cached={key,result};return result;
 }
-function solve(types,modes,groups,demand,rules,options,onCheckpoint){
+function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostics){
  const deadline=Date.now()+30000;
  const fail=error=>({rows:[],error,costOptimised:true});
  if(!demand)return fail('Demand is unavailable for cost optimisation.');
@@ -137,8 +142,10 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
  const scopes=rule=>rule.scope==='week'?[{days:rule.days.map(d=>d-1),periods}]:rule.days.flatMap(d=>(rule.scope==='both'?periods:[rule.scope]).map(p=>({days:[d-1],periods:p==='day'?periods:[p]})));
  const inScope=(slot,scope)=>scope.days.includes(slot.day)&&scope.periods.includes(slot.period);
  const selected=(r,a)=>r.kind==='mix'||r.appointmentPool==='selected'?(r.appointmentTypes||[]).map(normal).includes(a.name):api.sharePool(r)==='urgent'?a.pool==='sameDay'||a.pool==='weekly':true;
- const ruleExpressions=[],distributionPenalties=[];
+ const ruleExpressions=[],distributionPenalties=[],ruleSources=[];
  for(const rule of active){
+  const previousConstraints=new Set(Object.keys(constraints));
+  const recordRule=()=>{if(rule.strength==='must')ruleSources.push({id:rule.id,label:window.SessionBuilderDiagnostics?.ruleLabel(rule,types)||rule.id,constraints:Object.keys(constraints).filter(id=>!previousConstraints.has(id))});};
   if(!['minimum','share','mix','distribution','sessionDistribution'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return fail('Invalid Planning Rule. Review the enabled rules.');
   if(rule.kind==='sessionDistribution'){
    if(rule.scope!=='week'||typeof rule.sessionTypeId!=='string'||!Number.isInteger(rule.sessionTolerance)||rule.sessionTolerance<1||rule.sessionTolerance>500)return fail('Invalid session spread rule.');
@@ -155,7 +162,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
      if(rule.strength==='prefer'){const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);}
     }
    }
-   continue;
+   recordRule();continue;
   }
   if(rule.kind==='distribution'){
    if(!window.SessionBuilderDistribution)return fail('The weekly distribution rules could not load. Refresh the page.');
@@ -172,7 +179,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
      coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);
     }
    }
-   continue;
+   recordRule();continue;
   }
   if(rule.kind==='minimum'&&([rule.minimum,rule.maximum].some(n=>n!=null&&(!Number.isSafeInteger(n)||n<0))||rule.minimum!=null&&rule.maximum!=null&&rule.maximum<rule.minimum||!types.some(t=>t.id===rule.sessionTypeId)))return fail('A session-limits rule has invalid bounds or refers to a missing session type.');
   if(rule.kind!=='minimum'){
@@ -197,8 +204,10 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint){
    for(const [variable,value] of expression.terms)coefficient(variable,id,value);
    if(rule.kind==='share'&&!(rule.minimum===0&&comparison==='atLeast')){const positive=constraint({min:1});for(const variable of expression.denominator)coefficient(variable,positive,1);}
   }
+  recordRule();
  }
  let verifiedCheckpoint=null,verifiedValues=null;
+ const inspection=window.SessionBuilderDiagnostics?.checkModel(model,ruleSources,Math.min(deadline-1000,Date.now()+500));if(inspection&&typeof onDiagnostics==='function')onDiagnostics(inspection);
  function publishCandidate(candidate){
   if(!audit(candidate))return;
   const plan=buildPlan(candidate);

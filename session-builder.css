@@ -195,3 +195,14 @@
 #sessionBuilderPage .session-rule-groups input[type=checkbox]{width:16px;height:16px;min-height:0;margin:5px 0;padding:0;accent-color:#1268a8}
 #sessionBuilderPage .session-rule-group .session-rule-denominator>select{flex:1 1 150px}
 @media(max-width:900px){#sessionBuilderPage .session-rule-groups{grid-template-columns:minmax(0,1fr)}}
+
+#sessionBuilderPage .session-builder-diagnostics{margin:14px 0;padding:18px 20px;border:1px solid #cbdce9;border-radius:12px;background:#f4f8fb;color:#234a68}
+#sessionBuilderPage .session-builder-diagnostics[hidden]{display:none}
+#sessionBuilderPage .session-builder-diagnostics h3{font-size:16px;margin:0 0 9px}
+#sessionBuilderPage .session-builder-diagnostics h4{font-size:14px;margin:16px 0 8px}
+#sessionBuilderPage .session-builder-diagnostics p{font-size:13px;line-height:1.5;margin:6px 0}
+#sessionBuilderPage .session-builder-diagnostics ul{padding-left:20px;margin:8px 0;font-size:13px;line-height:1.5}
+#sessionBuilderPage .session-builder-diagnostics li{margin:8px 0}
+#sessionBuilderPage .session-builder-diagnostics button{display:inline-block;width:auto;min-height:30px;margin:5px 8px 5px 0;padding:5px 10px;border:1px solid #b9cfdf;border-radius:6px;background:#fff;color:#146aa5;font:inherit;font-size:12px;cursor:pointer}
+#sessionBuilderPage .session-builder-diagnostics details{margin-top:14px}
+#sessionBuilderPage .session-builder-diagnostics summary{font-size:13px;font-weight:600;cursor:pointer}
