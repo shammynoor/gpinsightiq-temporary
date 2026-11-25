@@ -15,7 +15,7 @@ function estimateAsync(...args){
  if(typeof Worker==='undefined')return Promise.resolve({rows:[],error:'This browser cannot run the background integer optimiser. Use a browser with Web Worker support and try again.'});
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=daily-clinician-limits-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=bounded-session-spread-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -161,17 +161,62 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
    if(rule.sessionTypeId&&!types.some(type=>type.id===rule.sessionTypeId))return fail('The session spread rule refers to a missing session type.');
    const targetTypes=rule.sessionTypeId?types.filter(type=>type.id===rule.sessionTypeId):types;
    for(const type of targetTypes){
-    const chosen=slots.filter(slot=>slot.sourceId===type.id),weekly=chosen.map(slot=>slot.id);
-    const workingDays=new Map([...new Set(chosen.map(slot=>slot.clinician))].map(name=>{const available=[...new Set(chosen.filter(slot=>slot.clinician===name).map(slot=>slot.day))],selected=available.filter(day=>rule.days.includes(day+1));return [name,selected.length?selected:available];}));
+    const chosen=slots.filter(slot=>slot.sourceId===type.id),weekly=chosen.map(slot=>slot.id),targetTerms=Array.from({length:5},()=>[]),targetGroups=[];
+    for(const name of new Set(chosen.map(slot=>slot.clinician))){
+     const mine=chosen.filter(slot=>slot.clinician===name),available=[...new Set(mine.map(slot=>slot.day))],selectedDays=available.filter(day=>rule.days.includes(day+1)),days=selectedDays.length?selectedDays:available;
+     const other=Array.from({length:5},(_,day)=>slots.filter(slot=>slot.clinician===name&&slot.sourceId!==type.id&&slot.day===day).map(slot=>slot.id));
+     const bounded=hasDailyBounds(name),cap=limits[name]?.max??bound,group={name,mine:mine.map(slot=>slot.id),days,other,bounded,cap};targetGroups.push(group);
+     if(!bounded){for(const day of days)for(const slot of mine)targetTerms[day].push([slot.id,1/days.length]);continue;}
+     // q[d] is the exact water-filled target after reserving that clinician's
+     // other session types: clamp(level, dailyMin-other, dailyMax-other).
+     // Binary regimes encode the clamp; the weekly total is a decision, not a
+     // target guessed from a previous plan. Actual daily limits stay separate.
+     const total=constraint({equal:0});for(const slot of mine)coefficient(slot.id,total,-1);let overflow=null;
+     if(rule.strength==='prefer'){overflow=variable({cost:0,balance:1});coefficient(overflow,total,1);distributionPenalties.push(overflow);}
+     if(limits[name]?.max!=null&&limits[name].min===limits[name].max&&other.every(ids=>!ids.length)){
+      // If this clinician can only perform this type and their weekly total is
+      // fixed, the water-fill is a constant. This exact simplification avoids
+      // unnecessary binary regimes without estimating a variable weekly count.
+      const ranges=days.map(day=>{const b=dailyBound(name,day)||{min:0,max:null};return {day,min:b.min||0,max:Math.min(b.max??cap,cap)};}),wanted=Math.min(cap,ranges.reduce((n,b)=>n+b.max,0));let low=0,high=cap;
+      for(let iteration=0;iteration<70;iteration++){const h=(low+high)/2,sum=ranges.reduce((n,b)=>n+Math.min(b.max,Math.max(b.min,h)),0);if(sum<wanted)low=h;else high=h;}
+      for(const b of ranges){const q=variable({cost:0}),fixed=constraint({equal:Math.min(b.max,Math.max(b.min,(low+high)/2))});coefficient(q,fixed,1);coefficient(q,total,1);targetTerms[b.day].push([q,1]);}
+      continue;
+     }
+     if(overflow!==null){
+      // A soft rule may need to spill sessions outside its selected days, but
+      // cannot manufacture spill to shrink otherwise achievable targets.
+      // overflow = max(0, T - sum(selected residual daily maxima)).
+      const upperSum=days.reduce((n,day)=>n+Math.min(dailyBound(name,day)?.max??cap,cap),0),bigM=upperSum+cap+1,positive=variable({cost:0},true),binary=constraint({max:1});coefficient(positive,binary,1);
+      const difference=[[overflow,1],...mine.map(slot=>[slot.id,-1]),...days.flatMap(day=>other[day].map(id=>[id,-1]))];
+      const lower=constraint({min:-upperSum}),upper=constraint({max:bigM-upperSum}),zero=constraint({max:0});
+      for(const [id,k]of difference){coefficient(id,lower,k);coefficient(id,upper,k);}coefficient(positive,upper,bigM);coefficient(overflow,zero,1);coefficient(positive,zero,-bigM);
+     }
+     const level=variable({cost:0}),levelBound=constraint({max:cap});coefficient(level,levelBound,1);
+     for(const day of days){
+      const b=dailyBound(name,day)||{min:0,max:null},lo=b.min||0,hi=Math.min(b.max??cap,cap),bigM=2*(cap+Math.max(lo,hi)+1),q=variable({cost:0});
+      targetTerms[day].push([q,1]);coefficient(q,total,1);const qb=constraint({max:cap});coefficient(q,qb,1);
+      const reserve=other[day].map(id=>[id,1]),filled=[[q,1],...reserve],height=[[level,1],...reserve];
+      const row=(terms,bounds)=>{const id=constraint(bounds);for(const [v,k]of terms)coefficient(v,id,k);};
+      row(filled,{min:lo,max:hi});
+      const low=variable({cost:0},true),middle=variable({cost:0},true),high=variable({cost:0},true);
+      row([[low,1],[middle,1],[high,1]],{equal:1});
+      const conditional=(terms,bounds,z)=>{
+       if(bounds.min!=null)row([...terms,[z,-bigM]],{min:bounds.min-bigM});
+       if(bounds.max!=null)row([...terms,[z,bigM]],{max:bounds.max+bigM});
+      };
+      conditional(height,{max:lo},low);conditional(filled,{min:lo,max:lo},low);
+      conditional(height,{min:lo,max:hi},middle);conditional([[q,1],[level,-1]],{min:0,max:0},middle);
+      conditional(height,{min:hi},high);conditional(filled,{min:hi,max:hi},high);
+     }
+    }
     for(let day=0;day<5;day++){
-     const daily=chosen.filter(slot=>slot.day===day).map(slot=>slot.id),targets=chosen.map(slot=>{const days=workingDays.get(slot.clinician);return [slot.id,days.includes(day)?1/days.length:0];}),tolerance=targets.some(([,weight])=>weight>0)?rule.sessionTolerance:0;
-     ruleExpressions.push({rule,sessionDistribution:true,sessionName:type.name,day,numerator:daily,denominator:weekly,targets,tolerance,setupPriority:chosen.some(slot=>hasDailyBounds(slot.clinician))});
-     // An unavailable day (or a sole working day) can be a tautology.
-     if(chosen.every(slot=>Math.abs((slot.day===day?1:0)-(targets.find(([id])=>id===slot.id)?.[1]||0))<1e-12))continue;
+     const daily=chosen.filter(slot=>slot.day===day).map(slot=>slot.id),targets=targetTerms[day],tolerance=targets.length?rule.sessionTolerance:0;
+     ruleExpressions.push({rule,sessionDistribution:true,sessionName:type.name,day,numerator:daily,denominator:weekly,targetGroups,tolerance});
+     const terms=new Map(daily.map(id=>[id,1]));for(const [id,k]of targets)terms.set(id,(terms.get(id)||0)-k);
+     if([...terms.values()].every(k=>Math.abs(k)<1e-12))continue;
      const upperConstraint=constraint({max:tolerance}),lowerConstraint=constraint({min:-tolerance});
-     for(const id of daily){coefficient(id,upperConstraint,1);coefficient(id,lowerConstraint,1);}
-     for(const [id,weight] of targets){coefficient(id,upperConstraint,-weight);coefficient(id,lowerConstraint,-weight);}
-     if(rule.strength==='prefer'||chosen.some(slot=>hasDailyBounds(slot.clinician))){const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);if(rule.strength==='must'){const lock=constraint({max:0});coefficient(slack,lock,1);setupSpreadLocks.push(lock);}}
+     for(const [id,k]of terms){coefficient(id,upperConstraint,k);coefficient(id,lowerConstraint,k);}
+     if(rule.strength==='prefer'){const slack=variable({cost:0,balance:1});distributionPenalties.push(slack);coefficient(slack,upperConstraint,-1);coefficient(slack,lowerConstraint,1);}
     }
    }
    recordRule();continue;
@@ -248,11 +293,26 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  for(const a of allocations){const n=Math.round(chosen[a.id]||0);if(!n)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
   if(a.pool==='sameDay'){capacitySameDay[a.slot.day]+=n;capacitySameDayByPeriod[a.slot.period][a.slot.day]+=n;}else if(a.pool==='homeVisit')capacityHomeVisit[a.slot.day]+=n;else if(a.pool==='weekly')weeklyCapacity+=n;else if(a.pool==='routine')routineCapacity+=n;else if(a.pool==='planned')plannedCapacity+=n;
  }
+ const sessionTargetCache=new Map();
+ const sessionTargets=group=>{
+  if(sessionTargetCache.has(group))return sessionTargetCache.get(group);
+  const result=[0,0,0,0,0],total=group.mine.reduce((n,id)=>n+Math.round(chosen[id]||0),0);
+  if(!group.bounded){for(const day of group.days)result[day]=total/group.days.length;}
+  else{
+   // Recompute from purchased sessions and real residual day limits. Reporting
+   // never trusts auxiliary target variables or a solver's claimed rule status.
+   const bounds=group.days.map(day=>{const b=dailyBound(group.name,day)||{min:0,max:null},other=group.other[day].reduce((n,id)=>n+Math.round(chosen[id]||0),0);return {day,min:Math.max(0,(b.min||0)-other),max:Math.max(0,Math.min(b.max??group.cap,group.cap)-other)};});
+   const target=Math.min(total,bounds.reduce((n,b)=>n+b.max,0));let low=0,high=group.cap;
+   for(let iteration=0;iteration<70;iteration++){const level=(low+high)/2,sum=bounds.reduce((n,b)=>n+Math.min(b.max,Math.max(b.min,level)),0);if(sum<target)low=level;else high=level;}
+   for(const b of bounds)result[b.day]=Math.min(b.max,Math.max(b.min,(low+high)/2));
+  }
+  sessionTargetCache.set(group,result);return result;
+ };
  const ruleResults=active.map(rule=>{
   const failures=[],measurements=[];
   for(const expression of ruleExpressions.filter(e=>e.rule===rule)){
    if(expression.sessionDistribution){
-    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),target=expression.targets.reduce((n,[id,weight])=>n+Math.round(chosen[id]||0)*weight,0);
+    const numerator=expression.numerator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+Math.round(chosen[id]||0),0),target=expression.targetGroups.reduce((n,group)=>n+sessionTargets(group)[expression.day],0);
     if(Math.abs(numerator-target)>expression.tolerance+1e-5)failures.push(expression.sessionName+' · '+daysShort[expression.day]+': outside the session spread target.');
     measurements.push({sessionType:expression.sessionName,day:expression.day,numerator,denominator,target,tolerance:expression.tolerance});continue;
    }
@@ -266,7 +326,7 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
    if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));
    measurements.push({numerator,denominator});
   }
-  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,adjustedForClinicianSetup:setupSpreadAdjusted&&['sessionDistribution','distribution'].includes(rule.kind)&&failures.length>0&&ruleExpressions.some(e=>e.rule===rule&&e.setupPriority),failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
+  return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,adjustedForClinicianSetup:setupSpreadAdjusted&&rule.kind==='distribution'&&failures.length>0&&ruleExpressions.some(e=>e.rule===rule&&e.setupPriority),failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||'atLeast',appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name};
  });
  const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*variables[s.id].cost,0),lower=mipLowerBound??inspection?.costLowerBound,costLowerBound=Number.isFinite(lower)&&lower<=cost+1e-5?Math.max(0,Math.min(cost,lower)):undefined,costGap=Number.isFinite(costLowerBound)&&cost>0?Math.max(0,(cost-costLowerBound)/cost):undefined;
  return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:ruleResults.some(r=>r.adjustedForClinicianSetup),solverName:window.SessionBuilderMip?'HiGHS':'legacy',costOptimal:!!flags.costOptimal,costBoundKind:mipLowerBound!=null?'integer':'fractional'};

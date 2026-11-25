@@ -1,6 +1,6 @@
 'use strict';
 self.window=self;
-importScripts('vendor/javascript-lp-solver-1.0.3.js?v=daily-clinician-limits-v1','vendor/highs.js?v=1.16.0','session-builder-mip.js?v=daily-clinician-limits-v1','session-builder-distribution.js?v=daily-clinician-limits-v1','session-builder-planning.js?v=daily-clinician-limits-v1','session-builder-diagnostics.js?v=daily-clinician-limits-v1','session-builder-optimisation.js?v=daily-clinician-limits-v1');
+importScripts('vendor/javascript-lp-solver-1.0.3.js?v=bounded-session-spread-v1','vendor/highs.js?v=1.16.0','session-builder-mip.js?v=bounded-session-spread-v1','session-builder-distribution.js?v=bounded-session-spread-v1','session-builder-planning.js?v=bounded-session-spread-v1','session-builder-diagnostics.js?v=bounded-session-spread-v1','session-builder-optimisation.js?v=bounded-session-spread-v1');
 self.onmessage=async event=>{
  try{
   const highs=await Module({locateFile:file=>new URL('vendor/'+file,self.location.href).href});

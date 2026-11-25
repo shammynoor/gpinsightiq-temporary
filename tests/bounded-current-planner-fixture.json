@@ -1,0 +1,541 @@
+[
+  [
+    {
+      "id": "session-0",
+      "name": "session-0",
+      "clinicianTypes": [
+        "GP"
+      ],
+      "appointmentTypes": [
+        "Within 3 Days",
+        "Follow-Up",
+        "Same Day",
+        "Routine"
+      ],
+      "appointmentsByMode": {
+        "Phone": 6,
+        "Home Visit": 0,
+        "Face to Face": 9
+      },
+      "eligibleClinicians": [
+        "Clinician 4",
+        "Clinician 7"
+      ]
+    },
+    {
+      "id": "session-1",
+      "name": "session-1",
+      "clinicianTypes": [
+        "Urgent Care Team"
+      ],
+      "appointmentTypes": [
+        "Within 3 Days",
+        "Visit",
+        "Same Day"
+      ],
+      "appointmentsByMode": {
+        "Phone": 4,
+        "Home Visit": 1,
+        "Face to Face": 12
+      },
+      "eligibleClinicians": [
+        "Clinician 8",
+        "Clinician 3"
+      ]
+    },
+    {
+      "id": "session-2",
+      "name": "session-2",
+      "clinicianTypes": [
+        "GP"
+      ],
+      "appointmentTypes": [
+        "Visit"
+      ],
+      "appointmentsByMode": {
+        "Phone": 0,
+        "Home Visit": 4,
+        "Face to Face": 0
+      },
+      "eligibleClinicians": [
+        "Clinician 4",
+        "Clinician 7"
+      ]
+    },
+    {
+      "id": "session-3",
+      "name": "session-3",
+      "clinicianTypes": [
+        "GP"
+      ],
+      "appointmentTypes": [],
+      "appointmentsByMode": {
+        "Phone": 0,
+        "Home Visit": 0,
+        "Face to Face": 0
+      },
+      "eligibleClinicians": [
+        "Clinician 4",
+        "Clinician 7"
+      ]
+    },
+    {
+      "id": "session-4",
+      "name": "session-4",
+      "clinicianTypes": [
+        "GP"
+      ],
+      "appointmentTypes": [
+        "Same Day",
+        "Within 3 Days",
+        "Routine",
+        "Follow-Up",
+        "Visit"
+      ],
+      "appointmentsByMode": {
+        "Phone": 2,
+        "Home Visit": 1,
+        "Face to Face": 3
+      },
+      "eligibleClinicians": [
+        "Clinician 6"
+      ]
+    },
+    {
+      "id": "session-5",
+      "name": "session-5",
+      "clinicianTypes": [],
+      "appointmentTypes": [
+        "Same Day",
+        "Within 3 Days",
+        "Routine",
+        "Follow-Up"
+      ],
+      "appointmentsByMode": {
+        "Phone": 4,
+        "Home Visit": 0,
+        "Face to Face": 4
+      },
+      "eligibleClinicians": [
+        "Clinician 4",
+        "Clinician 7"
+      ]
+    },
+    {
+      "id": "session-6",
+      "name": "session-6",
+      "clinicianTypes": [],
+      "appointmentTypes": [
+        "Same Day",
+        "Within 3 Days",
+        "Routine"
+      ],
+      "appointmentsByMode": {
+        "Phone": 2,
+        "Home Visit": 0,
+        "Face to Face": 2
+      },
+      "eligibleClinicians": [
+        "Clinician 10"
+      ]
+    }
+  ],
+  [
+    "Face to Face",
+    "Phone",
+    "Home Visit"
+  ],
+  [
+    "GP",
+    "Urgent Care Team",
+    "Physiotherapy",
+    "Mental Health",
+    "Uncategorised"
+  ],
+  {
+    "sameDay": [
+      130.5,
+      95.1,
+      83.2,
+      96,
+      92.2
+    ],
+    "homeVisit": [
+      11.4,
+      13.1,
+      10.8,
+      10.4,
+      8.6
+    ],
+    "weekly": 277.8,
+    "routine": 339.5,
+    "planned": 330,
+    "eligibleDailyTypes": [
+      "Same Day"
+    ],
+    "eligiblePlannedTypes": [
+      "Follow-Up"
+    ],
+    "types": {
+      "sameDay": [
+        "Same Day"
+      ],
+      "homeVisit": [
+        "Visit"
+      ],
+      "weekly": [
+        "Within 3 Days"
+      ],
+      "routine": [
+        "Routine"
+      ],
+      "planned": [
+        "Follow-Up"
+      ]
+    },
+    "byType": {
+      "sameDay": {
+        "Same Day": [
+          130.5,
+          95.1,
+          83.2,
+          96,
+          92.2
+        ]
+      },
+      "homeVisit": {
+        "Visit": [
+          11.4,
+          13.1,
+          10.8,
+          10.4,
+          8.6
+        ]
+      },
+      "weekly": {
+        "Within 3 Days": 277.8
+      },
+      "routine": {
+        "Routine": 339.5
+      },
+      "planned": {
+        "Follow-Up": 330
+      }
+    }
+  },
+  [
+    {
+      "id": "rule-0",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "minimum",
+      "scope": "day",
+      "enabled": true,
+      "maximum": 1,
+      "minimum": 1,
+      "strength": "must",
+      "denominator": "all",
+      "sessionTypeId": "session-2",
+      "clinicianGroup": "GP",
+      "comparisonGroup": ""
+    },
+    {
+      "id": "rule-1",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "minimum",
+      "scope": "day",
+      "enabled": true,
+      "maximum": 2,
+      "minimum": 2,
+      "strength": "must",
+      "denominator": "all",
+      "sessionTypeId": "session-3",
+      "clinicianGroup": "GP",
+      "comparisonGroup": ""
+    },
+    {
+      "id": "rule-2",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "minimum",
+      "scope": "day",
+      "enabled": true,
+      "maximum": 2,
+      "minimum": 2,
+      "strength": "must",
+      "denominator": "all",
+      "sessionTypeId": "session-5",
+      "clinicianGroup": "GP",
+      "comparisonGroup": ""
+    },
+    {
+      "id": "rule-3",
+      "days": [
+        1,
+        3,
+        5
+      ],
+      "kind": "minimum",
+      "scope": "day",
+      "enabled": true,
+      "minimum": 2,
+      "strength": "must",
+      "comparison": "atLeast",
+      "denominator": "all",
+      "sessionTypeId": "session-4",
+      "clinicianGroup": "GP",
+      "comparisonGroup": "",
+      "appointmentTypes": []
+    },
+    {
+      "id": "rule-4",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "minimum",
+      "scope": "day",
+      "enabled": true,
+      "minimum": 2,
+      "strength": "must",
+      "comparison": "atLeast",
+      "denominator": "all",
+      "sessionTypeId": "session-0",
+      "clinicianGroup": "GP",
+      "comparisonGroup": "",
+      "appointmentTypes": []
+    },
+    {
+      "id": "rule-5",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "sessionDistribution",
+      "scope": "week",
+      "enabled": true,
+      "maximum": null,
+      "minimum": 0,
+      "strength": "must",
+      "comparison": "atLeast",
+      "denominator": "all",
+      "sessionTypeId": "session-4",
+      "clinicianGroup": "GP",
+      "comparisonGroup": "",
+      "appointmentTypes": [],
+      "sessionTolerance": 1
+    },
+    {
+      "id": "rule-6",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "distribution",
+      "scope": "week",
+      "enabled": true,
+      "maximum": null,
+      "minimum": 0,
+      "strength": "must",
+      "comparison": "atLeast",
+      "denominator": "all",
+      "sessionTypeId": "session-0",
+      "clinicianGroup": "GP",
+      "comparisonGroup": "",
+      "appointmentTypes": [
+        "Routine"
+      ],
+      "distributionMode": "even",
+      "distributionTargets": {},
+      "distributionTolerance": 4
+    },
+    {
+      "id": "rule-7",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "distribution",
+      "scope": "week",
+      "enabled": true,
+      "maximum": null,
+      "minimum": 0,
+      "strength": "must",
+      "comparison": "atLeast",
+      "denominator": "all",
+      "sessionTypeId": "session-0",
+      "clinicianGroup": "GP",
+      "comparisonGroup": "",
+      "appointmentTypes": [
+        "Follow-Up"
+      ],
+      "distributionMode": "even",
+      "distributionTargets": {},
+      "distributionTolerance": 4
+    },
+    {
+      "id": "rule-8",
+      "days": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "kind": "share",
+      "scope": "day",
+      "enabled": true,
+      "maximum": null,
+      "minimum": 20,
+      "strength": "must",
+      "comparison": "atLeast",
+      "denominator": "all",
+      "sessionTypeId": "session-0",
+      "clinicianGroup": "GP",
+      "appointmentPool": "selected",
+      "comparisonGroup": "",
+      "appointmentTypes": [
+        "Same Day"
+      ],
+      "denominatorSelections": [
+        {
+          "kind": "group",
+          "name": "GP"
+        },
+        {
+          "kind": "group",
+          "name": "Urgent Care Team"
+        }
+      ]
+    }
+  ],
+  {
+    "respectTypes": true,
+    "optimizeCost": true,
+    "clinicians": {
+      "Clinician 0": "Urgent Care Team",
+      "Clinician 1": "Uncategorised",
+      "Clinician 2": "GP",
+      "Clinician 3": "Urgent Care Team",
+      "Clinician 4": "GP",
+      "Clinician 5": "Uncategorised",
+      "Clinician 6": "GP",
+      "Clinician 7": "GP",
+      "Clinician 8": "Urgent Care Team",
+      "Clinician 9": "Physiotherapy",
+      "Clinician 10": "Mental Health"
+    },
+    "clinicianLimits": {
+      "Clinician 0": {
+        "max": 0,
+        "min": 0
+      },
+      "Clinician 2": {
+        "max": null,
+        "min": 0,
+        "annualRate": 18000
+      },
+      "Clinician 3": {
+        "max": null,
+        "min": 0,
+        "annualRate": 8000,
+        "sicknessPercent": 5
+      },
+      "Clinician 4": {
+        "max": 18,
+        "min": 18,
+        "annualRate": 22000
+      },
+      "Clinician 6": {
+        "max": 30,
+        "min": 30,
+        "annualRate": 10,
+        "dailySessions": {
+          "Fri": {
+            "max": null,
+            "min": 2
+          },
+          "Mon": {
+            "max": null,
+            "min": 2
+          },
+          "Thu": {
+            "max": 2,
+            "min": 2
+          },
+          "Tue": {
+            "max": null,
+            "min": 2
+          },
+          "Wed": {
+            "max": null,
+            "min": 2
+          }
+        },
+        "workingPattern": [
+          "Mon AM",
+          "Mon PM",
+          "Tue AM",
+          "Tue PM",
+          "Wed AM",
+          "Wed PM",
+          "Thu AM",
+          "Thu PM",
+          "Fri AM",
+          "Fri PM"
+        ]
+      },
+      "Clinician 7": {
+        "max": null,
+        "min": 0,
+        "annualRate": 14000
+      },
+      "Clinician 8": {
+        "max": null,
+        "min": 0,
+        "annualRate": 8000
+      },
+      "Clinician 10": {
+        "max": 10,
+        "min": 10,
+        "annualRate": 2000
+      }
+    },
+    "appointmentPools": {
+      "Same Day": "sameDay",
+      "Within 3 Days": "weekly",
+      "Routine": "routine",
+      "Follow-Up": "planned",
+      "Follow-up Extra": "planned",
+      "Visit": "homeVisit"
+    }
+  }
+]

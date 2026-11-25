@@ -16,10 +16,10 @@ test('spread combines clinician-specific working patterns without overriding fix
  assert.equal(p.error,undefined);assert.equal(p.costOptimal,true);assert.equal(p.rows[0].days[0],20);assert.ok(p.rows[0].days.slice(1).every(n=>[2,3].includes(n)));assert.equal(p.ruleResults[0].ok,true);assert.equal(p.clinicianCounts.A,20);assert.equal(p.clinicianCounts.B,10);
 });
 
-test('daily clinician limits override an incompatible required even session spread',()=>{
+test('fixed daily clinician limits define the capacity-adjusted required spread',()=>{
  const dailySessions={Mon:{min:2,max:2},Tue:{min:4,max:4},Wed:{min:1,max:1},Thu:{min:0,max:0},Fri:{min:3,max:3}};
  const p=run({Resident:{min:10,max:10,annualRate:100,annualLeaveWeeks:0,dailySessions}});
- assert.equal(p.error,undefined);assert.equal(p.verifiedPlan,true);assert.equal(p.costOptimal,true);assert.deepEqual([...p.rows[0].days],[2,4,1,0,3]);assert.equal(p.clinicianCounts.Resident,10);assert.equal(p.ruleResults[0].adjustedForClinicianSetup,true);assert.equal(p.ruleAdjusted,true);
+ assert.equal(p.error,undefined);assert.equal(p.verifiedPlan,true);assert.equal(p.costOptimal,true);assert.deepEqual([...p.rows[0].days],[2,4,1,0,3]);assert.equal(p.clinicianCounts.Resident,10);assert.equal(p.ruleResults[0].ok,true);assert.equal(p.ruleResults[0].adjustedForClinicianSetup,false);assert.equal(p.ruleAdjusted,false);
 });
 test('feasible required spread stays enforced alongside daily clinician maximums',()=>{
  const p=run({Resident:{min:10,max:10,annualRate:100,annualLeaveWeeks:0,dailySessions:{Mon:{min:1,max:3},Thu:{min:0,max:0}}}});
