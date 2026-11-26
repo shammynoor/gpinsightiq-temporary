@@ -353,8 +353,8 @@
 #sessionBuilderPage .session-layout-tally dl>div{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #dce9ef;color:#4f6a7d;font-size:12px}
 #sessionBuilderPage .session-layout-tally dd{margin:0;color:#173e5b;font-size:15px;font-weight:700}
 #sessionBuilderPage .session-layout-tally .session-layout-tally-total{font-weight:700;color:#173e5b}
-#sessionBuilderPage .session-layout-block-choice.visit{background:#fdf0e7;border-color:#f2dcca;border-left-color:#d99468;color:#805236}
-#sessionBuilderPage .session-layout-placed.visit{background:#f8e9dd;border-left-color:#d99468;color:#805236}
+#sessionBuilderPage .session-layout-block-choice.visit,#sessionBuilderPage .session-layout-block-choice.visittriage{background:#fdf0e7;border-color:#f2dcca;border-left-color:#d99468;color:#805236}
+#sessionBuilderPage .session-layout-placed.visit,#sessionBuilderPage .session-layout-placed.visittriage{background:#f8e9dd;border-left-color:#d99468;color:#805236}
 @media(max-width:650px){#sessionBuilderPage .session-layout-workspace{grid-template-columns:1fr}#sessionBuilderPage .session-layout-timetable-content{grid-template-columns:minmax(0,1fr) 105px;gap:8px}#sessionBuilderPage .session-layout-tally{padding:9px 7px}#sessionBuilderPage .session-layout-tally dl>div{font-size:11px;gap:3px}#sessionBuilderPage .session-layout-tally h4{font-size:11px}#sessionBuilderPage .session-layout-timeline{grid-template-columns:40px minmax(0,1fr)}#sessionBuilderPage .session-layout-slot{padding-left:3px}#sessionBuilderPage .session-layout-placed{padding-left:3px;font-size:9px}}
 
 #sessionBuilderPage .session-layout-save-bar{display:flex;align-items:center;gap:12px;margin:0 0 18px;flex-wrap:wrap}

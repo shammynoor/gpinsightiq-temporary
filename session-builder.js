@@ -31,7 +31,7 @@ function validateRows(rows){
   if(row.eligibleClinicians!==undefined&&(!Array.isArray(row.eligibleClinicians)||row.eligibleClinicians.some(type=>typeof type!=='string'||!type.trim())||new Set(row.eligibleClinicians.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.eligibleClinicians.length))throw Error('Choose each eligible clinician type only once.');
   if(row.appointmentTypes!==undefined&&(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.appointmentTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.appointmentTypes.length))throw Error('Choose each appointment type only once.');
   if(row.layout!==undefined){
-   const layout=row.layout,types={face15:15,face10:10,phone10:10,phone5:5,visit30:30,catchup10:10,admin:15};
+   const layout=row.layout,types={face15:15,face10:10,phone10:10,phone5:5,visit30:30,visittriage10:10,catchup10:10,admin:15};
    if(!layout||typeof layout!=='object'||!Number.isInteger(layout.start)||!Number.isInteger(layout.end)||layout.start<0||layout.end>1440||layout.start%5||layout.end%5||layout.end<=layout.start||layout.end-layout.start>720||!Array.isArray(layout.blocks)||layout.blocks.length>144)throw Error('Invalid session layout.');
    let previous=layout.start;
    for(const block of [...layout.blocks].sort((a,b)=>a.start-b.start)){

@@ -7,6 +7,7 @@ const choices=[
  {id:'phone10',label:'Phone call',minutes:10,kind:'phone'},
  {id:'phone5',label:'Phone call',minutes:5,kind:'phone'},
  {id:'visit30',label:'Visit',minutes:30,kind:'visit'},
+ {id:'visittriage10',label:'Visit triage',minutes:10,kind:'visittriage'},
  {id:'catchup10',label:'Catch-up',minutes:10,kind:'catchup'},
  {id:'admin',label:'Admin',minutes:15,kind:'admin'}
 ];
@@ -18,6 +19,7 @@ const clock=value=>String(Math.floor(value/60)).padStart(2,'0')+':'+String(value
 const message=text=>{byId('sessionLayoutStatus').textContent=text};
 // Use the same consultation-mode colours as Slot Settings, including its defaults.
 function applyConsultColour(element,kind){
+ if(kind==='visittriage')kind='visit';
  const patterns={face:/^(?:f2f|facetoface|inperson|clinicappointment|inclinic)$/,phone:/^(?:phone|telephone|telephoneconsultation|phonecall|telephony)$/,visit:/^(?:visit|homevisit|homevisiting|domiciliary|housecall)$/};
  if(!patterns[kind])return;
  const normal=name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -67,8 +69,8 @@ function renderTimeline(){
  const root=byId('sessionLayoutTimeline');root.replaceChildren();const count=(draft.end-draft.start)/5;
  root.style.setProperty('--session-layout-rows',count);byId('sessionLayoutDuration').textContent=(draft.end-draft.start)/60+' hours';
  byId('sessionLayoutCount').textContent=draft.blocks.length+' '+(draft.blocks.length===1?'block':'blocks');
- const tally={face:0,phone:0,visit:0};for(const block of draft.blocks){const kind=choices.find(choice=>choice.id===block.type)?.kind;if(Object.hasOwn(tally,kind))tally[kind]++;}
- byId('sessionLayoutFaceCount').textContent=String(tally.face);byId('sessionLayoutPhoneCount').textContent=String(tally.phone);byId('sessionLayoutVisitCount').textContent=String(tally.visit);byId('sessionLayoutTotalCount').textContent=String(tally.face+tally.phone+tally.visit);
+ const tally={face:0,phone:0,visit:0,visittriage:0};for(const block of draft.blocks){const kind=choices.find(choice=>choice.id===block.type)?.kind;if(Object.hasOwn(tally,kind))tally[kind]++;}
+ byId('sessionLayoutFaceCount').textContent=String(tally.face);byId('sessionLayoutPhoneCount').textContent=String(tally.phone);byId('sessionLayoutVisitCount').textContent=String(tally.visit);byId('sessionLayoutVisitTriageCount').textContent=String(tally.visittriage);byId('sessionLayoutTotalCount').textContent=String(tally.face+tally.phone+tally.visit+tally.visittriage);
  for(let i=0;i<count;i++){
   const time=draft.start+i*5,slot=document.createElement('button');slot.type='button';slot.className='session-layout-slot'+(time%30===0?' major':'');slot.style.gridRow=String(i+1);slot.setAttribute('aria-label','Add selected block at '+clock(time));
   if(time%15===0||i===0){const label=document.createElement('span');label.textContent=clock(time);slot.append(label);}
