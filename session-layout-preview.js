@@ -6,6 +6,7 @@ const choices=[
  {id:'face10',label:'Face-to-face',minutes:10,kind:'face'},
  {id:'phone10',label:'Phone call',minutes:10,kind:'phone'},
  {id:'phone5',label:'Phone call',minutes:5,kind:'phone'},
+ {id:'visit30',label:'Visit',minutes:30,kind:'visit'},
  {id:'catchup10',label:'Catch-up',minutes:10,kind:'catchup'}
 ];
 const drafts=new Map();let draft=null,selected=null,movingBlock=null,dragKind='';
@@ -40,6 +41,8 @@ function renderTimeline(){
  const root=byId('sessionLayoutTimeline');root.replaceChildren();const count=(draft.end-draft.start)/5;
  root.style.setProperty('--session-layout-rows',count);byId('sessionLayoutDuration').textContent=(draft.end-draft.start)/60+' hours';
  byId('sessionLayoutCount').textContent=draft.blocks.length+' '+(draft.blocks.length===1?'block':'blocks');
+ const tally={face:0,phone:0,visit:0};for(const block of draft.blocks){const kind=choices.find(choice=>choice.id===block.type)?.kind;if(Object.hasOwn(tally,kind))tally[kind]++;}
+ byId('sessionLayoutFaceCount').textContent=String(tally.face);byId('sessionLayoutPhoneCount').textContent=String(tally.phone);byId('sessionLayoutVisitCount').textContent=String(tally.visit);byId('sessionLayoutTotalCount').textContent=String(tally.face+tally.phone+tally.visit);
  for(let i=0;i<count;i++){
   const time=draft.start+i*5,slot=document.createElement('button');slot.type='button';slot.className='session-layout-slot'+(time%30===0?' major':'');slot.style.gridRow=String(i+1);slot.setAttribute('aria-label','Add selected block at '+clock(time));
   if(time%15===0||i===0){const label=document.createElement('span');label.textContent=clock(time);slot.append(label);}
