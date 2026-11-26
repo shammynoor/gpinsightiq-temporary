@@ -370,5 +370,5 @@
 
 /* Subtle depth for palette and timetable blocks. */
 #sessionBuilderPage .session-layout-block-choice,#sessionBuilderPage .session-layout-placed{box-shadow:0 2px 5px rgba(32,57,75,.15)}
-#sessionBuilderPage .session-layout-block-choice.catchup,#sessionBuilderPage .session-layout-placed.catchup{color:#77848c;background:#f8f9fa;border:1px solid #d8dfe3;border-left:4px solid #c5cfd5}
+#sessionBuilderPage .session-layout-block-choice.catchup,#sessionBuilderPage .session-layout-placed.catchup{color:#77848c;background:#f8f9fa;border:0}
 #sessionBuilderPage .session-layout-block-choice strong,#sessionBuilderPage .session-layout-block-choice span,#sessionBuilderPage .session-layout-placed span{color:inherit}
