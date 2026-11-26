@@ -75,6 +75,8 @@ function readAverageDemand(){
 let requirementsRun=0,requirementsSolving=false,requirementsRenderedKey=null,requirementsCurrentKey=null,requirementsHasPlan=false;
 let plannerProgressTimer=null,plannerSolveSeconds=30,plannerProgressStartedAt=0;
 window.addEventListener?.('session-builder-solve-ready',()=>{if(requirementsSolving)plannerProgressStartedAt=Date.now();});
+let restoredTimeScope=null;
+byId('sessionBuilderSolveTime')?.addEventListener('change',()=>window.SessionBuilderPlanStorage?.saveTime(selectedSolveSeconds()));
 function selectedSolveSeconds(){const value=Number(byId('sessionBuilderSolveTime')?.value||30);return [10,30,60].includes(value)?value:30;}
 function setPlannerBusy(busy){
  requirementsSolving=busy;
@@ -91,26 +93,31 @@ async function renderSessionRequirements(settings={}){
  const reset=settings.reset===true;
  const root=byId('sessionBuilderRequirements');if(!root)return;
  if(!canEditSessionBuilder()){root.hidden=true;return;}root.hidden=false;
- const history=readAverageDemand(),demand=history.demand;
+ let history=readAverageDemand(),demand=history.demand;
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- const historyText=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine, planned-care and home-visiting need use averages from the last 52 completed weeks ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
- const clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
- const configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
- const appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=appointmentCategoryFor(name).trim().toLowerCase(),mode=window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
+ let historyText=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine, planned-care and home-visiting need use averages from the last 52 completed weeks ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
+ let clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
+ let configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
+ let appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=appointmentCategoryFor(name).trim().toLowerCase(),mode=window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
  const wholeDayLimits=Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limit])=>[name,{...limit,...(Array.isArray(limit.workingPattern)?{workingPattern:['Mon','Tue','Wed','Thu','Fri'].flatMap(day=>limit.workingPattern.some(period=>period.startsWith(day+' '))?[day+' AM',day+' PM']:[])}:{})}]));
  const dailyRules=typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules.map(rule=>({...rule,scope:rule.scope==='week'?'week':'day'}));
  const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,dailyRules,{respectTypes:true,optimizeCost:true,clinicians:clinicianMap,clinicianLimits:wholeDayLimits,appointmentPools}];
  const key=JSON.stringify(args);requirementsCurrentKey=key;
+ const storage=window.SessionBuilderPlanStorage,scope=storage?.scope(),saved=storage?.read();
+ if(scope&&scope!==restoredTimeScope){const control=byId('sessionBuilderSolveTime');if(control&&[10,30,60].includes(saved?.seconds))control.value=String(saved.seconds);restoredTimeScope=scope;}
+ const restored=!reset&&requirementsRenderedKey===null?saved?.snapshot:null;
+ if(restored){requirementsRenderedKey=restored.key;requirementsHasPlan=true;configuredTypes=restored.args[0];clinicianMap=restored.args[5].clinicians;appointmentPools=restored.args[5].appointmentPools;demand=restored.args[3];history={...history,forecast:restored.forecastAvailable};historyText=restored.historyText;}
+
  const solveStatus=byId('sessionBuilderSolveStatus');
  const needs=byId('sessionBuilderNeedsOptimization');if(needs)needs.hidden=!(requirementsHasPlan&&key!==requirementsRenderedKey);
- if(!reset&&(requirementsRenderedKey!==null||requirementsSolving)){
-  if(!requirementsSolving&&solveStatus&&key!==requirementsRenderedKey)solveStatus.textContent='Settings or demand changed. Click Re-optimise planner to recalculate.';
+ if(!reset&&!restored&&(requirementsRenderedKey!==null||requirementsSolving)){
+  if(!requirementsSolving&&solveStatus)solveStatus.textContent=key!==requirementsRenderedKey?'Settings or demand changed. Click Re-optimise planner to recalculate.':'Saved plan ready. Click Re-optimise planner to solve again.';
   return;
  }
- let estimate={rows:[],noPlan:true};
- const costLimits=args[5].clinicianLimits;
+ let estimate=restored?.plan||{rows:[],noPlan:true};
+ const costLimits=restored?.args[5].clinicianLimits||args[5].clinicianLimits;
  if(reset){
   if(requirementsSolving)return;
   const run=++requirementsRun;plannerSolveSeconds=selectedSolveSeconds();args[5]={...args[5],solveRequest:run,solveTimeSeconds:plannerSolveSeconds};
@@ -127,12 +134,13 @@ async function renderSessionRequirements(settings={}){
    return;
   }
   requirementsRenderedKey=key;requirementsHasPlan=!estimate.error;if(needs)needs.hidden=key===requirementsCurrentKey;
+  if(!estimate.error)storage?.savePlan({key,args,plan:estimate,historyText,forecastAvailable:!!history.forecast},plannerSolveSeconds);
  }
  const unavailable=!!estimate.error||!!estimate.noPlan;
  const costQuality=byId('sessionBuilderCostQuality');if(costQuality){costQuality.hidden=unavailable||!Number.isFinite(estimate.costLowerBound);if(!costQuality.hidden){const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0});costQuality.textContent='Annual cost '+money.format(estimate.annualCost)+' · '+(estimate.costOptimal?'Minimum cost proven':(estimate.costBoundKind==='integer'?'Solver lower bound ':'Fractional-model lower bound ')+money.format(estimate.costLowerBound)+' · Cost gap '+fmt((estimate.costGap||0)*100)+'%')+'.';costQuality.title=estimate.costOptimal?'HiGHS proved the minimum annual cost for the current demand, session settings, clinician limits and required rules.':estimate.costBoundKind==='integer'?'The solver has not yet proved minimum cost; the gap compares this plan with its best lower bound.':'The lower bound allows fractional decisions; a whole-number plan may cost more.';}}
  if(unavailable)estimate.rows=configuredTypes.map(row=>({id:row.id,name:row.name,group:[...new Set((row.eligibleClinicians||[]).map(name=>clinicianMap[name]).filter(Boolean))].join(' · '),periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}}));
  byId('sessionBuilderHistory').textContent=historyText;
- if(solveStatus)solveStatus.textContent=estimate.noPlan?'Click Re-optimise planner to calculate the plan.':key!==requirementsCurrentKey?'Settings changed during solving. Click Re-optimise planner to apply them.':estimate.error?(estimate.errorCode==='TIMEOUT'?'Timed out before a verified plan was returned. Click Re-optimise planner to try again.':'No plan found. Click Re-optimise planner to try again.'):estimate.optimisationTimedOut?'Valid plan found; optimisation timed out. Minimum cost is not proven.':estimate.optimisationInterrupted?'Valid plan retained after optimisation stopped. Minimum cost is not proven.':estimate.costOptimal?'Minimum-cost plan proven. Click Re-optimise planner to solve again.':'Valid plan found; minimum cost is not proven. Click Re-optimise planner to solve again.';
+ if(solveStatus)solveStatus.textContent=estimate.noPlan?'Click Re-optimise planner to calculate the plan.':requirementsRenderedKey!==requirementsCurrentKey?'Settings changed since this plan was calculated. Click Re-optimise planner to apply them.':estimate.error?(estimate.errorCode==='TIMEOUT'?'Timed out before a verified plan was returned. Click Re-optimise planner to try again.':'No plan found. Click Re-optimise planner to try again.'):estimate.optimisationTimedOut?'Valid plan found; optimisation timed out. Minimum cost is not proven.':estimate.optimisationInterrupted?'Valid plan retained after optimisation stopped. Minimum cost is not proven.':estimate.costOptimal?'Minimum-cost plan proven. Click Re-optimise planner to solve again.':'Valid plan found; minimum cost is not proven. Click Re-optimise planner to solve again.';
  const warning=byId('sessionBuilderPlanWarning');
  if(warning){
   const missing=estimate.unmetDemand||[],totals=new Map();
