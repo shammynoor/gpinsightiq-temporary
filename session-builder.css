@@ -302,3 +302,6 @@
 #sessionBuilderPage .session-builder-capacity-table thead tr .capacity-weekday{text-align:center}
 #sessionBuilderPage .session-builder-capacity-table .capacity-label{border-right:2px solid var(--capacity-divider)}
 #sessionBuilderPage .session-builder-capacity-table .capacity-daily-total-heading,#sessionBuilderPage .session-builder-capacity-table .capacity-daily-total{background:#f3f8fb;font-weight:700;text-align:center}
+/* Shared thin dividers for clinician groups in both planner tables. */
+#sessionBuilderPage .session-builder-plan-table tbody .session-builder-plan-group-row th,
+#sessionBuilderPage .session-builder-clinician-summary-table tbody .session-builder-clinician-summary-group th{width:auto;text-align:left;background:#fff;color:#46708b;font-size:12px;line-height:1.3;font-weight:700;padding:5px 12px;border-top:2px solid #b8d0dd;border-right:0;border-bottom:1px solid #dce8f0}
