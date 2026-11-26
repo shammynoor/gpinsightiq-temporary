@@ -30,15 +30,13 @@ function applyConsultColour(element,kind){
  }
  if(!/^#[0-9a-f]{6}$/i.test(colour))return;
  const rgb=[1,3,5].map(index=>parseInt(colour.slice(index,index+2),16));
+ const background=rgb.map(value=>Math.round(value*0.2+255*0.8));
  const luminance=values=>values.map(value=>{const c=value/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4;}).reduce((sum,c,index)=>sum+c*[0.2126,0.7152,0.0722][index],0);
- const background=luminance(rgb),contrast=values=>{const text=luminance(values);return (Math.max(background,text)+0.05)/(Math.min(background,text)+0.05);};
- // Keep the same hue while darkening; use a pale tint when the background is too dark.
- let text=rgb.map(value=>Math.round(value*0.5));
- if(contrast(text)<4.5){
-  if((background+0.05)/0.05>=4.5){for(let factor=0.45;factor>=0;factor-=0.05){text=rgb.map(value=>Math.round(value*Math.max(0,factor)));if(contrast(text)>=4.5)break;}}
-  else{for(let factor=0.7;factor<=1.01;factor+=0.05){text=rgb.map(value=>Math.round(value+(255-value)*Math.min(1,factor)));if(contrast(text)>=4.5)break;}}
- }
- element.style.backgroundColor=colour;element.style.borderColor=colour;element.style.color='rgb('+text.join(',')+')';
+ const bgLight=luminance(background),contrast=values=>(bgLight+0.05)/(luminance(values)+0.05);
+ // Pale version of the configured colour makes its darker text clearly visible.
+ let factor=0.53,text=rgb.map(value=>Math.round(value*factor));
+ while(contrast(text)<4.5&&factor>0.1){factor-=0.05;text=rgb.map(value=>Math.round(value*factor));}
+ element.style.backgroundColor='rgb('+background.join(',')+')';element.style.borderLeftColor=colour;element.style.color='rgb('+text.join(',')+')';
 }
 function renderPalette(){
  const container=byId('sessionLayoutBlocks');container.replaceChildren();
