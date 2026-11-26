@@ -23,5 +23,6 @@ function allocated(placements,sourceId,limits={}){
  for(const p of placements)if(sourceId==null||p.sourceId===sourceId)counts.set(p.clinician,(counts.get(p.clinician)||0)+p.count);
  return total([...counts].map(([name,count])=>equalSplit(count,name?[name]:[],limits)));
 }
-window.SessionBuilderCosting=Object.freeze({equalSplit,total,allocated});
+function coveredSessions(employed,limit={}){return employed*(52-(limit.annualLeaveWeeks??5))/52*(1-(limit.sicknessPercent??0)/100);}
+window.SessionBuilderCosting=Object.freeze({equalSplit,total,allocated,coveredSessions});
 })();

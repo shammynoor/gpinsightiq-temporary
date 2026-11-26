@@ -213,12 +213,12 @@ async function renderSessionRequirements(settings={}){
  const clinicianBody=byId('sessionBuilderClinicianSummaryBody'),clinicianFoot=byId('sessionBuilderClinicianSummaryFoot');
  if(clinicianBody&&clinicianFoot){
   clinicianBody.replaceChildren();clinicianFoot.replaceChildren();
-  const addClinicianRow=(parent,name,sessions,cost)=>{const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=name;row.append(label);for(const text of [sessions,cost]){const cell=document.createElement('td');cell.textContent=text;row.append(cell);}parent.append(row);};
-  if(unavailable){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=3;cell.textContent='Re-optimise the planner to see clinician sessions and costs.';row.append(cell);clinicianBody.append(row);}
+  const addClinicianRow=(parent,name,needed,sessions,cost)=>{const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=name;row.append(label);for(const text of [needed,sessions,cost]){const cell=document.createElement('td');cell.textContent=text;row.append(cell);}parent.append(row);};
+  if(unavailable){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=4;cell.textContent='Re-optimise the planner to see clinician sessions and costs.';row.append(cell);clinicianBody.append(row);}
   else{
    const totalCost=window.SessionBuilderCosting.total(rowCosts),parts=totalCost.parts.filter(part=>part.sessions>0).sort((a,b)=>a.name.localeCompare(b.name,'en-GB'));
-   for(const part of parts)addClinicianRow(clinicianBody,part.name,shareFormat.format(part.sessions),part.missing?'Rate needed':money.format(part.pence/100));
-   addClinicianRow(clinicianFoot,'Total',shareFormat.format(parts.reduce((sum,part)=>sum+part.sessions,0)),totalCost.complete?money.format(totalCost.pence/100):'Incomplete');
+   for(const part of parts){part.neededSessions=Math.round(window.SessionBuilderCosting.coveredSessions(part.sessions,costLimits[part.name])*100)/100;addClinicianRow(clinicianBody,part.name,shareFormat.format(part.neededSessions),shareFormat.format(part.sessions),part.missing?'Rate needed':money.format(part.pence/100));}
+   addClinicianRow(clinicianFoot,'Total',shareFormat.format(parts.reduce((sum,part)=>sum+part.neededSessions,0)),shareFormat.format(parts.reduce((sum,part)=>sum+part.sessions,0)),totalCost.complete?money.format(totalCost.pence/100):'Incomplete');
   }
  }
  const normal=name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'');

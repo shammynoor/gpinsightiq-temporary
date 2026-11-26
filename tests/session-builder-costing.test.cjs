@@ -34,3 +34,5 @@ test('editing an annualised rate immediately refreshes the cost table and retain
  const rate=byId('sessionBuilderClinicianBody').children[1].children[3].children[0].children[1];rate.value='12500';rate.events.change();
  assert.equal(ctx.sessionBuilderClinicianLimits['GP Partner'].annualRate,12500);assert.equal(ctx.sessionBuilderClinicianLimits['GP Partner'].max,10);assert.equal(ctx.sessionBuilderClinicianLimits['GP Partner'].sicknessPercent,5);assert.equal(saves,1);assert.equal(refreshes,1);
 });
+
+test('average session cover applies leave and sickness once',()=>{const c={window:{}};require('node:vm').runInNewContext(require('node:fs').readFileSync('session-builder-costing.js','utf8'),c);const f=c.window.SessionBuilderCosting.coveredSessions;assert.ok(Math.abs(f(10,{annualLeaveWeeks:6,sicknessPercent:0})-10*46/52)<1e-10);assert.ok(Math.abs(f(10,{annualLeaveWeeks:6,sicknessPercent:10})-10*46/52*.9)<1e-10);assert.equal(f(10,{annualLeaveWeeks:0}),10);assert.equal(f(10,{annualLeaveWeeks:52}),0);assert.equal(f(10,{sicknessPercent:100}),0);});
