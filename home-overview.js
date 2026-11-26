@@ -316,7 +316,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   const hit=svgElement('rect',{x:x-spacing/2,y:top,width:spacing,height:bottom-top,fill:'transparent'});
   const interval=hasBand(row)?' (85% prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
   const soFar=row.nowcast?' · '+integer(row.nowcast.rawObserved)+' bookings so far · Report: '+row.nowcast.asOfLabel:
-   (i===0?' · Bookings-so-far projection unavailable; ':' · ')+'Seasonal model with a 6-week half-life';
+   (i===0?' · Bookings-so-far projection unavailable; ':' · ')+'Seasonal model with a 6-week half-life'+(section==='routine'?'; includes weekend bookings':'');
   const detail=section==='acute'?' recommended slots · Urgent Forecast → Predictions':' predicted'+interval+soFar;
   hit.append(svgElement('title',{},(i===0?'This week, ':'')+fmtLong(row.weekStart)+': '+integer(row.estimate)+detail));
   svg.append(hit);
@@ -446,7 +446,7 @@ function capacityComparisonLine(comparison){
   'We averaged '+describeChange(value)+' slots per week than '+label+'.';
 }
 function renderCare(section,options,metrics){
- const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks,viewHistory,viewAdjustedHistory,viewStart}=options;
+ const {history,adjustedHistory,forecast,groups,bookingMap,latestCompleteWeek,today,axis,historyStart,holidayWeeks,peakForecast,coveredCapacityWeeks,viewHistory,viewAdjustedHistory,viewStart,forecastIssue}=options;
  const currentFour=adjustedHistory.slice(-4).filter((_,i)=>!holidayWeeks.has(shift(latestCompleteWeek,(i-3)*7)));
  const recentMean=currentFour.length>=2&&currentFour.every(Number.isFinite)?currentFour.reduce((a,b)=>a+b,0)/currentFour.length:null;
  const regularForecast=forecast.slice(1).filter(row=>section==='acute'||!holidayWeeks.has(row.weekStart));
@@ -454,7 +454,7 @@ function renderCare(section,options,metrics){
  const completeForecast=predicted.length>0&&predicted.length===regularForecast.length;
  const meanForecast=completeForecast?predicted.reduce((a,b)=>a+b.estimate,0)/predicted.length:null;
  const change=recentMean!==null&&meanForecast!==null?signedTrend(meanForecast,recentMean):null;
- setOutlook(section,change!==null?percent(change):'—',change===null?'Comparison unavailable':'Next 4 weeks vs last 4 weeks');
+ setOutlook(section,change!==null?percent(change):'—',change===null?(forecastIssue||'Comparison unavailable'):'Next 4 weeks vs last 4 weeks');
  renderChart(section,viewHistory,forecast,section==='acute'?'#f03265':'#0b9c7f',axis,viewStart,viewAdjustedHistory);
  const sumWeeks=weeks=>weeks.reduce((sum,w)=>sum+(bookingMap.get(w)||0),0);
  const currentWeeks=Array.from({length:4},(_,i)=>shift(latestCompleteWeek,-(3-i)*7));
@@ -804,7 +804,7 @@ function update(){
    // End the historical line at the observed value, without smoothing the fan anchor.
    const lastObserved=adjustedHistory.findLastIndex(Number.isFinite);
    if(lastObserved>=0)history[lastObserved]=adjustedHistory[lastObserved];
-   let projection,peakForecast=[];
+   let projection,peakForecast=[],forecastIssue='';
    if(acute){
     peakForecast=urgentForecast?.rows||[];
     const forecastByWeek=new Map(peakForecast.map(row=>[row.weekStart,row]));
@@ -815,6 +815,7 @@ function update(){
     });
    }else{
     const predictor=window.getHomeOverviewPredictor?.(groupNames[care]);
+    if(predictor?.weekendCoverageAvailable===false)forecastIssue='Weekend booking history unavailable';
     projection=Array.from({length:5},(_,i)=>{
      const weekStart=shift(presentMonday,i*7);
      const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
@@ -827,7 +828,7 @@ function update(){
      projection[0]={weekStart:presentMonday,estimate:nowcast.estimate,...bounds,nowcast};
     }
    }
-   series.push({care,history,adjustedHistory,forecast:projection,peakForecast,groups:groupNames[care],bookingMap:weekCounts});
+   series.push({care,history,adjustedHistory,forecast:projection,forecastIssue,peakForecast,groups:groupNames[care],bookingMap:weekCounts});
   }
   const datedCoverage=coverage.filter(range=>GPCorrectness.validDate(range.asOf));
   const coveredCapacityWeeks=new Set(GPCorrectness.completeWeeks(datedCoverage,shift(latestCompleteWeek,7),56)

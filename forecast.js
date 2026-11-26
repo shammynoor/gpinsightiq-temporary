@@ -456,15 +456,25 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
     if(valid&&observedDays>=4)weeklyResiduals.push({week:w,error:observed-expected});
    }
    // Adjust the seasonal level using complete weeks, with weight halving over the specified number of calendar weeks.
-   let weightedError=0,weightSum=0;
-   for(const {week,error} of weeklyResiduals){
-    const age=(Date.parse(forecastWeek)-Date.parse(week))/604800000-1;
+   let weightedError=0,weightSum=0,weightedWeekend=0,weekendWeight=0;
+   // The home chart's history is Monday–Sunday. Count actual bookings made on
+   // Saturday and Sunday as well, including valid weeks with zero bookings.
+   // A report must cover both days before their absence can be treated as zero.
+   const sevenDayHome=capacitySourcePage==='homePage';
+   const coveredDay=day=>slotReportCoverage.some(range=>range.start<=day&&range.end>=day&&(!GPCorrectness.validDate(range.asOf)||day<range.asOf));
+   for(const residual of weeklyResiduals){
+    const {week,error}=residual,age=(Date.parse(forecastWeek)-Date.parse(week))/604800000-1;
     const weight=2**(-age/recencyHalfLife);
-    weightedError+=weight*error;
-    weightSum+=weight;
+    weightedError+=weight*error;weightSum+=weight;
+    const saturday=shift(week,5),sunday=shift(week,6);
+    if(sevenDayHome&&coveredDay(saturday)&&coveredDay(sunday)){
+     residual.weekend=[saturday,sunday].reduce((sum,day)=>sum+capacityGroups.reduce((n,name)=>n+normalise(day,(parts.get(day)||new Map()).get(name)||0),0),0);
+     weightedWeekend+=weight*residual.weekend;weekendWeight+=weight;
+    }
    }
-   const weeklyLevelAdjustment=capacitySourcePage==='homePage'&&weightSum?weightedError/weightSum:0;
-   const weeklyErrors=weeklyResiduals.map(({error})=>error);
+   const weeklyLevelAdjustment=sevenDayHome&&weightSum?weightedError/weightSum:0;
+   const weekendEstimate=sevenDayHome&&weekendWeight?weightedWeekend/weekendWeight:0;
+   const weeklyErrors=weeklyResiduals.filter(row=>!sevenDayHome||Number.isFinite(row.weekend)).map(row=>row.error+(sevenDayHome?row.weekend-weekendEstimate:0));
    const residualBounds=(values,coverage)=>{
     if(values.length<8)return null;
     const sorted=[...values].sort((a,b)=>a-b);
@@ -474,8 +484,8 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
    };
    capacityPrediction.range=(bucket,weekly,coverage=.70,horizon=1)=>{
     const seasonalEstimate=capacityPrediction(bucket,weekly);
-    if(!Number.isFinite(seasonalEstimate))return null;
-    const estimate=Math.max(0,Math.ceil(seasonalEstimate+(weekly?weeklyLevelAdjustment:0)));
+    if(!Number.isFinite(seasonalEstimate)||weekly&&sevenDayHome&&!weekendWeight)return null;
+    const estimate=Math.max(0,Math.ceil(seasonalEstimate+(weekly?weeklyLevelAdjustment+weekendEstimate:0)));
     const dow=new Date(bucket+'T12:00:00Z').getUTCDay();
     const values=weekly?weeklyErrors:dailyResiduals.get(dow)||[];
     const errors=residualBounds(values,coverage);
@@ -485,6 +495,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
    capacityPrediction.historyStart=start;
    capacityPrediction.historyEnd=end;
    capacityPrediction.historicalSamples=weeklyResiduals.length;
+   capacityPrediction.weekendCoverageAvailable=!sevenDayHome||weekendWeight>0;
    }
    forecastRenderCache.capacity={records,signature:cacheKey,capacityPrediction};
    return capacityPrediction;
