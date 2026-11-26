@@ -220,7 +220,10 @@ async function renderSessionRequirements(settings={}){
   if(unavailable){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=4;cell.textContent='Re-optimise the planner to see clinician sessions and costs.';row.append(cell);clinicianBody.append(row);}
   else{
    const totalCost=window.SessionBuilderCosting.total(rowCosts),parts=totalCost.parts.filter(part=>part.sessions>0).sort((a,b)=>a.name.localeCompare(b.name,'en-GB'));
-   for(const part of parts){part.neededSessions=Math.round(window.SessionBuilderCosting.coveredSessions(part.sessions,costLimits[part.name])*100)/100;addClinicianRow(clinicianBody,part.name,shareFormat.format(part.neededSessions),shareFormat.format(part.sessions),part.missing?'Rate needed':money.format(part.pence/100));}
+   const grouped=new Map();
+   for(const part of parts){part.neededSessions=Math.round(window.SessionBuilderCosting.coveredSessions(part.sessions,costLimits[part.name])*100)/100;const group=clinicianMap[part.name]||'Uncategorised';if(!grouped.has(group))grouped.set(group,[]);grouped.get(group).push(part);}
+   const groupOrder=[...new Set([...Object.values(clinicianMap).filter(name=>name&&name!=='Uncategorised'),'Uncategorised'])];
+   for(const group of groupOrder){const members=grouped.get(group);if(!members?.length)continue;const heading=document.createElement('tr'),cell=document.createElement('th');heading.className='session-builder-clinician-summary-group';cell.colSpan=4;cell.scope='rowgroup';cell.textContent=group;heading.append(cell);clinicianBody.append(heading);for(const part of members)addClinicianRow(clinicianBody,part.name,shareFormat.format(part.neededSessions),shareFormat.format(part.sessions),part.missing?'Rate needed':money.format(part.pence/100));}
    addClinicianRow(clinicianFoot,'Total',shareFormat.format(parts.reduce((sum,part)=>sum+part.neededSessions,0)),shareFormat.format(parts.reduce((sum,part)=>sum+part.sessions,0)),totalCost.complete?money.format(totalCost.pence/100):'Incomplete');
   }
  }

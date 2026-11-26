@@ -291,3 +291,10 @@
 #sessionBuilderPage #sessionBuilderSolveStatus{display:block;margin-top:8px;font-size:12px;line-height:1.4}
 @media(max-width:1100px){#sessionBuilderPage .session-builder-toolbar{gap:10px}#sessionBuilderPage .session-builder-toolbar label{gap:6px;font-size:12px}#sessionBuilderPage .session-builder-toolbar select{min-width:108px;padding-right:24px}#sessionBuilderPage .session-builder-toolbar #sessionBuilderHistoryPeriod{min-width:138px}#sessionBuilderPage .session-builder-toolbar #sessionBuilderSolveTime{min-width:98px}}
 @media(max-width:1000px){#sessionBuilderPage .session-builder-toolbar{flex-wrap:wrap}#sessionBuilderPage .session-builder-toolbar #sessionBuilderResetPlanner{margin-left:0}}
+
+#sessionBuilderPage .session-builder-toolbar .session-builder-solve-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto;width:auto;margin:0 0 0 auto}
+#sessionBuilderPage .session-builder-toolbar #sessionBuilderResetPlanner{order:0;margin-left:0}
+#sessionBuilderPage .session-builder-requirements .session-builder-table-heading{margin:24px 0 12px}
+#sessionBuilderPage .session-builder-requirements .session-builder-capacity-heading{margin:36px 0 12px}
+#sessionBuilderPage .session-builder-clinician-summary-table .session-builder-clinician-summary-group th{padding:9px 16px;text-align:left;background:#e6f1f5;color:#22516b;font-size:12px;font-weight:700;border-bottom:1px solid #d2dfea}
+@media(max-width:1000px){#sessionBuilderPage .session-builder-toolbar .session-builder-solve-actions{margin-left:0;max-width:100%;flex-wrap:wrap}}
