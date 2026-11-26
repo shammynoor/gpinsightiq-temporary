@@ -215,9 +215,9 @@ async function renderSessionRequirements(settings={}){
   daily.forEach((value,index)=>{
    const td=document.createElement('td');td.textContent=fmt(value);
    td.className='capacity-day-end';
-   if(index===4)td.className+=' capacity-daily-last';
    tr.append(td);
   });
+  const total=document.createElement('td');total.className='capacity-daily-total capacity-daily-last';total.textContent=fmt(daily.length===5&&daily.every(Number.isFinite)?daily.reduce((sum,value)=>sum+value,0):null);tr.append(total);
   weekly.forEach(value=>{const td=document.createElement('td');td.className='capacity-weekly';td.textContent=fmt(value);tr.append(td);});
   summary.append(tr);return tr;
  };
