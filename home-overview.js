@@ -1,7 +1,7 @@
 (function(){
 'use strict';
-// Read-only practice home. Uses the same imported records, slot mappings and
-// weekday/seasonal predictor as the detailed dashboard. No patient identifiers.
+// Read-only practice home. Uses imported records and slot mappings.
+// Routine projections use recent, complete seven-day booking weeks.
 const $=id=>document.getElementById(id);
 const insightVersion='home-insights-v10';
 const isoDay=(value)=>new Date(value+'T12:00:00Z');
@@ -316,7 +316,7 @@ function renderChart(section,history,forecast,colour,axis,historyStart,adjustedH
   const hit=svgElement('rect',{x:x-spacing/2,y:top,width:spacing,height:bottom-top,fill:'transparent'});
   const interval=hasBand(row)?' (85% prediction interval '+integer(row.low)+' to '+integer(row.high)+')':'';
   const soFar=row.nowcast?' · '+integer(row.nowcast.rawObserved)+' bookings so far · Report: '+row.nowcast.asOfLabel:
-   (i===0?' · Bookings-so-far projection unavailable; ':' · ')+'Seasonal model with a 6-week half-life'+(section==='routine'?'; includes weekend bookings':'');
+   (i===0?' · Bookings-so-far projection unavailable; ':' · ')+(section==='routine'?'Recent-weighted, non-seasonal forecast; includes weekend bookings':'Urgent forecast');
   const detail=section==='acute'?' recommended slots · Urgent Forecast → Predictions':' predicted'+interval+soFar;
   hit.append(svgElement('title',{},(i===0?'This week, ':'')+fmtLong(row.weekStart)+': '+integer(row.estimate)+detail));
   svg.append(hit);
@@ -814,16 +814,17 @@ function update(){
      return {weekStart,estimate:forecastByWeek.get(weekStart)?.estimate};
     });
    }else{
-    const predictor=window.getHomeOverviewPredictor?.(groupNames[care]);
-    if(predictor?.weekendCoverageAvailable===false)forecastIssue='Weekend booking history unavailable';
+    const completedWeeks=GPCorrectness.routineCompleteWeeks(weekDates,adjustedCounts,coverage,holidayWeeks);
+    const predictor=GPCorrectness.routineRecentForecast(completedWeeks,presentMonday);
+    if(!predictor)forecastIssue='Recent complete seven-day history unavailable';
     projection=Array.from({length:5},(_,i)=>{
      const weekStart=shift(presentMonday,i*7);
-     const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(weekStart,true,.85,i+1);
+     const range=holidayWeeks.has(weekStart)?null:predictor?.range?.(Math.max(1,i));
      return {...range,weekStart};
     });
     const nowcast=currentCareWeek(care,date,presentMonday,slots,adjustCount,holidayWeeks,coverage,firstAppointment);
     if(nowcast){
-     const fullWeek=predictor?.range?.(presentMonday,true,.85,1);
+     const fullWeek=predictor?.range?.(1);
      const bounds=GPCorrectness.currentWeekForecastBounds(nowcast,fullWeek);
      projection[0]={weekStart:presentMonday,estimate:nowcast.estimate,...bounds,nowcast};
     }

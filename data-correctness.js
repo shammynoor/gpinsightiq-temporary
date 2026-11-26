@@ -217,7 +217,30 @@ function averageCapsuleLayout(labels,width,height){
  return placed;
 }
 
-const api={averageCapsuleLayout,currentPeriodNowcast,periodBounds,smoothDemandSeries,shift,monday,londonDate,dateContext,validDate,coverageFromEntries,firstAppointmentDate,weeklyAllocationDay,currentWeekForecastBounds,completeWeeks,roles,renameRole};
+// Select only fully covered seven-day weeks; a missing count in covered data is zero.
+function routineCompleteWeeks(weeks,counts,coverage,holidayWeeks){
+ const isCovered=day=>coverage.some(range=>range.start<=day&&range.end>=day&&(!validDate(range.asOf)||day<range.asOf));
+ return weeks.filter(week=>validDate(week)&&!holidayWeeks.has(week)&&Array.from({length:7},(_,i)=>shift(week,i)).every(isCovered)).flatMap(weekStart=>{
+  const count=counts.get(weekStart)??0;return Number.isFinite(count)&&count>=0?[{weekStart,count}]:[];
+ });
+}
+// Recent-weighted level forecast for complete seven-day routine booking weeks.
+// It does not impose a seasonal pattern or extrapolate an upward/downward trend.
+function routineRecentForecast(observations,currentWeek){
+ const rows=(Array.isArray(observations)?observations:[]).filter(row=>validDate(row.weekStart)&&row.weekStart<currentWeek&&Number.isFinite(row.count)&&row.count>=0).sort((a,b)=>a.weekStart.localeCompare(b.weekStart));
+ if(!validDate(currentWeek)||rows.length<8||rows.at(-1).weekStart<shift(currentWeek,-28))return null;
+ const level=values=>values.slice(-12).reduce((value,count,index)=>index===0?count:.5*count+.5*value,0);
+ const estimate=level(rows.map(row=>row.count)),errors=[];
+ for(let i=4;i<rows.length;i++)errors.push(rows[i].count-level(rows.slice(Math.max(0,i-12),i).map(row=>row.count)));
+ const recentErrors=errors.slice(-52),tail=.075;
+ return {sampleWeeks:rows.length,lastWeek:rows.at(-1).weekStart,range(horizon=1){
+  const value=Math.max(0,Math.ceil(estimate));if(recentErrors.length<8)return {estimate:value,low:null,high:null};
+  const spread=Math.sqrt(1+Math.max(0,horizon-1)/13),lo=quantile(recentErrors,tail),hi=quantile(recentErrors,1-tail);
+  return {estimate:value,low:Math.max(0,Math.floor(value+Math.min(0,lo)*spread)),high:Math.ceil(value+Math.max(0,hi)*spread)};
+ }};
+}
+
+const api={routineCompleteWeeks,routineRecentForecast,averageCapsuleLayout,currentPeriodNowcast,periodBounds,smoothDemandSeries,shift,monday,londonDate,dateContext,validDate,coverageFromEntries,firstAppointmentDate,weeklyAllocationDay,currentWeekForecastBounds,completeWeeks,roles,renameRole};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 else root.GPCorrectness=api;
 })(typeof window!=='undefined'?window:globalThis);
