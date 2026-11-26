@@ -375,8 +375,8 @@ function consolidateUrgencyGroups(){
  groupUrgencyAssignments=Object.fromEntries(groups.map(group=>[group,group]));
 }
 // Appointment categories are a second, independent grouping above appointment types.
-const DEFAULT_APPOINTMENT_CATEGORIES=['Urgent Care','Routine Care','Planned Care','Other'];
-let appointmentCategoryNames=DEFAULT_APPOINTMENT_CATEGORIES.slice(),appointmentCategoryAssignments={},appointmentCategoryColours={},appointmentCategoryRoles={};
+const DEFAULT_APPOINTMENT_CATEGORIES=['Daily Urgent','Weekly Urgent','Routine','Planned','Home Visit'];
+let appointmentCategoryNames=DEFAULT_APPOINTMENT_CATEGORIES.slice(),appointmentCategoryAssignments={},appointmentCategoryColours={},appointmentCategoryRoles={urgent:'Daily Urgent',weekly:'Weekly Urgent',routine:'Routine',planned:'Planned',home:'Home Visit'};
 try{const saved=JSON.parse(iqLocalStorage.getItem('appointment-dashboard-categories-v1')||'{}');
  if(Array.isArray(saved.appointmentCategoryNames))appointmentCategoryNames=validCategoryNames(saved.appointmentCategoryNames);
  if(saved.appointmentCategoryAssignments&&typeof saved.appointmentCategoryAssignments==='object')appointmentCategoryAssignments={...saved.appointmentCategoryAssignments};
@@ -384,12 +384,14 @@ try{const saved=JSON.parse(iqLocalStorage.getItem('appointment-dashboard-categor
  if(saved.appointmentCategoryRoles&&typeof saved.appointmentCategoryRoles==='object')appointmentCategoryRoles={...saved.appointmentCategoryRoles};
 }catch(e){}
 // Category labels are editable; these identities keep their clinical meaning stable.
-const APPOINTMENT_CATEGORY_CANONICAL={urgent:'Urgent Care',routine:'Routine Care',planned:'Planned Care',home:'Home Visiting'};
+const APPOINTMENT_CATEGORY_CANONICAL={urgent:'Urgent Care',weekly:'Urgent Care',routine:'Routine Care',planned:'Planned Care',home:'Home Visiting'};
+const FIXED_APPOINTMENT_CATEGORY_ROLES={urgent:'Daily Urgent',weekly:'Weekly Urgent',routine:'Routine',planned:'Planned',home:'Home Visit'};
 function resolvedAppointmentCategoryRoles(){
  const roles={};
  for(const [role,canonical] of Object.entries(APPOINTMENT_CATEGORY_CANONICAL)){
   if(appointmentCategoryRoles[role]&&appointmentCategoryNames.includes(appointmentCategoryRoles[role])){roles[role]=appointmentCategoryRoles[role];continue}
-  if(appointmentCategoryNames.includes(canonical)){roles[role]=canonical;continue}
+  if(appointmentCategoryNames.includes(FIXED_APPOINTMENT_CATEGORY_ROLES[role])){roles[role]=FIXED_APPOINTMENT_CATEGORY_ROLES[role];continue}
+  if(role!=='weekly'&&appointmentCategoryNames.includes(canonical)){roles[role]=canonical;continue}
   roles[role]='';
  }
  // Recover the urgent identity in older settings already renamed, only when
@@ -413,7 +415,31 @@ function defaultAppointmentCategory(type){
  if(name==='plannedcare')return 'Planned Care';
  return '';
 }
+// Migrate existing category names and retain their types, colours and saved urgent split.
+let appointmentCategoriesMigrated=false;
+function migrateAppointmentCategories(){
+ if(DEFAULT_APPOINTMENT_CATEGORIES.every(name=>appointmentCategoryNames.includes(name)))return;
+ const oldRoles=resolvedAppointmentCategoryRoles(),oldNames=[...appointmentCategoryNames];
+ const modes=window.gpChartPreferences?.read()?.forecastPlanningModes||{};
+ const oldCategory=type=>{
+  const assigned=appointmentCategoryAssignments[type];if(assigned==='')return '';
+  if(oldNames.includes(assigned))return assigned;
+  const fallback=defaultAppointmentCategory(type);
+  const role=Object.keys(APPOINTMENT_CATEGORY_CANONICAL).find(key=>APPOINTMENT_CATEGORY_CANONICAL[key]===fallback);
+  return role?oldRoles[role]||'':'';
+ };
+ const mapping={};for(const [role,label] of Object.entries(oldRoles))if(label&&FIXED_APPOINTMENT_CATEGORY_ROLES[role])mapping[label]=FIXED_APPOINTMENT_CATEGORY_ROLES[role];
+ for(const type of new Set([...groupUrgencyNames,...Object.keys(appointmentCategoryAssignments)])){
+  const old=oldCategory(type);if(!old)continue;
+  appointmentCategoryAssignments[type]=old===oldRoles.urgent&&modes[type]==='weekly'?'Weekly Urgent':mapping[old]||old;
+ }
+ for(const [old,next] of Object.entries(mapping))if(old!==next&&appointmentCategoryColours[old]){if(!appointmentCategoryColours[next])appointmentCategoryColours[next]=appointmentCategoryColours[old];delete appointmentCategoryColours[old]}
+ appointmentCategoryNames=[...DEFAULT_APPOINTMENT_CATEGORIES,...oldNames.filter(name=>!mapping[name]&&!DEFAULT_APPOINTMENT_CATEGORIES.includes(name))];
+ appointmentCategoryRoles={...FIXED_APPOINTMENT_CATEGORY_ROLES};appointmentCategoriesMigrated=true;
+}
+function appointmentUrgencyPlanningMode(type){return appointmentCategoryFor(type)==='Weekly Urgent'?'weekly':'daily'}
 function appointmentCategoryFor(type){
+ migrateAppointmentCategories();
  const assigned=appointmentCategoryAssignments[type];
  if(assigned==='')return '';
  if(appointmentCategoryNames.includes(assigned))return assigned;
@@ -423,7 +449,7 @@ function appointmentCategoryFor(type){
 }
 function renderAppointmentCategorySettings(){
  const root=$('appointmentCategorySettings');if(!root)return;
- root.replaceChildren();
+ migrateAppointmentCategories();root.replaceChildren();
  for(const name of appointmentCategoryNames){
   const row=document.createElement('div');row.className='appointment-category-setting';
   const colour=slotCategoryColourPicker(name,appointmentCategoryColours,()=>{saveCategories();renderSlotGroupBoxes()});
@@ -432,7 +458,7 @@ function renderAppointmentCategorySettings(){
   rename.onclick=()=>{const next=prompt('Rename appointment category',name)?.trim();if(!next||next===name)return;if(appointmentCategoryNames.some(n=>n.toLowerCase()===next.toLowerCase())){alert('Category already exists.');return;}const roles=resolvedAppointmentCategoryRoles();for(const type of groupUrgencyNames)if(appointmentCategoryFor(type)===name)appointmentCategoryAssignments[type]=next;for(const type of Object.keys(appointmentCategoryAssignments))if(appointmentCategoryAssignments[type]===name)appointmentCategoryAssignments[type]=next;appointmentCategoryRoles=Object.fromEntries(Object.entries(roles).map(([role,label])=>[role,label===name?next:label]));appointmentCategoryNames=appointmentCategoryNames.map(n=>n===name?next:n);if(appointmentCategoryColours[name]){appointmentCategoryColours[next]=appointmentCategoryColours[name];delete appointmentCategoryColours[name]}saveCategories();renderSlotGroupBoxes()};
   const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='Delete '+name;
   remove.onclick=()=>{if(!confirm('Delete category '+name+'? Its appointment types will become unassigned.'))return;const roles=resolvedAppointmentCategoryRoles();for(const type of groupUrgencyNames)if(appointmentCategoryFor(type)===name)appointmentCategoryAssignments[type]='';appointmentCategoryRoles=Object.fromEntries(Object.entries(roles).map(([role,label])=>[role,label===name?'':label]));appointmentCategoryNames=appointmentCategoryNames.filter(n=>n!==name);delete appointmentCategoryColours[name];saveCategories();renderSlotGroupBoxes()};
-  row.append(colour,label,rename,remove);root.append(row);
+  row.append(colour,label);if(!DEFAULT_APPOINTMENT_CATEGORIES.includes(name))row.append(rename,remove);root.append(row);
  }
  const add=$('slotAddAppointmentCategory');if(add)add.onclick=()=>{const name=prompt('New appointment category name')?.trim();if(!name)return;if(appointmentCategoryNames.some(n=>n.toLowerCase()===name.toLowerCase())){alert('Category already exists.');return;}appointmentCategoryNames.push(name);saveCategories();renderSlotGroupBoxes()};
 }
@@ -1430,7 +1456,7 @@ async function loadCloudCategories(options={}){
   else cloudNotice('No cloud settings yet. Changes will save automatically.');
   cloudReady=true;
   saveCategories(false);
-  if(categoryDirty)markCategoryDirty();
+  if(categoryDirty||appointmentCategoriesMigrated){appointmentCategoriesMigrated=false;markCategoryDirty();}
   renderEditor();
   renderGroupUrgencyEditor();
   renderClinicianEditor();

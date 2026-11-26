@@ -192,15 +192,15 @@ function renderUrgencyPlanningModes(){
   const input=document.createElement('input');input.type='checkbox';
   input.setAttribute('role','switch');
   input.dataset.forecastPreference=name;
-  input.checked=urgencyPlanningMode.get(name)==='weekly';
+  input.disabled=!isOwner;
+  input.checked=appointmentUrgencyPlanningMode(name)==='weekly';
   input.setAttribute('aria-label',name+': weekly totals when on, daily totals when off');
   const track=document.createElement('span');track.className='switch-track';
   control.append(input,track);
   const weekly=document.createElement('span');weekly.textContent='Weekly';
   switchLabel.append(daily,control,weekly);
   input.addEventListener('change',()=>{
-   const api=window.gpChartPreferences;
-   api.write('forecastPlanningModes',{...api.read().forecastPlanningModes,[name]:input.checked?'weekly':'daily'});
+   appointmentCategoryAssignments[name]=input.checked?'Weekly Urgent':'Daily Urgent';saveCategories();renderSlotGroupBoxes();
    scheduleForecastFilterRefresh('daily');
   });
   enhanceTimeGroupingToggle(switchLabel);
@@ -283,7 +283,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
  const panel=sessionPlanner?'planner':capacityGroups?'capacity':predictions||planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
  const locumPage=sessionPlanner?'sessionBuilderPage':capacityGroups?capacitySourcePage:planningOnly?'workforceNeedPage':'dailyForecastPage';
- const signature=JSON.stringify([plannerSelection,pastBlockedAsBooked,capacitySnapshotClock()?.date,locumPage,locumFilterSelections.get(locumPage),userTypeLocum,sessionCategoryLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
+ const signature=JSON.stringify([plannerSelection,pastBlockedAsBooked,capacitySnapshotClock()?.date,locumPage,locumFilterSelections.get(locumPage),userTypeLocum,sessionCategoryLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),appointmentUrgencyPlanningMode(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
  const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups,allHistory,capacitySourcePage,recencyHalfLife]):signature;
  const cached=forecastRenderCache[panel];
  if(cached?.records===records&&cached.signature===cacheKey){if(panel==='predictions')applyForecastHorizon();return cached.predictionSeries??cached.capacityPrediction;}
@@ -309,7 +309,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
  const adjacentWorkingDay=(holiday,direction)=>{let d=shift(holiday,direction);while(!workingDay(d))d=shift(d,direction);return d};
  const eventDates=direction=>[...new Set([...holidayDates].map(h=>adjacentWorkingDay(h,direction)))].sort();
  const groups=capacityGroups||(sessionPlanner?forecastUrgencyNames():forecastUrgencyNames().filter(forecastUrgencyEnabled));
- if(panel==='predictions')weeklyPlanningGroups=new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly'));
+ if(panel==='predictions')weeklyPlanningGroups=new Set(groups.filter(name=>appointmentUrgencyPlanningMode(name)==='weekly'));
  const adjust=sessionPlanner||$('dailyForecastAdjustListSize')?.checked===true;const populationMonths=adjust?practiceMonths():[];const referencePopulation=populationMonths.length?listSizeAtMonth(populationMonths[populationMonths.length-1]):null;
  const populationCache=new Map();const forecastAdjust=(day,count)=>{if(!adjust||!referencePopulation)return count;const month=day.slice(0,7);if(!populationCache.has(month))populationCache.set(month,listSizeAtMonth(month));return count*referencePopulation/Math.max(1,populationCache.get(month))};
  const normalise=capacitySourcePage==='homePage'?createListSizeAdjuster(true):forecastAdjust;
@@ -358,7 +358,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
  const needsRoot=$('dailyForecastNeedsTable');
  let predictionSeries;
  if(capacityGroups||sessionPlanner||(needsRoot&&panel==='predictions')){
-  const selectedWeekly=sessionPlanner?new Set(groups.filter(name=>urgencyPlanningMode.get(name)==='weekly')):weeklyPlanningGroups;
+  const selectedWeekly=sessionPlanner?new Set(groups.filter(name=>appointmentUrgencyPlanningMode(name)==='weekly')):weeklyPlanningGroups;
   const dailyGroups=capacityGroups?[]:groups.filter(name=>!selectedWeekly.has(name));
   const weeklyGroups=capacityGroups?[]:[...selectedWeekly];
   // Build the fitting calendar once, shared by every urgency and error calculation.
