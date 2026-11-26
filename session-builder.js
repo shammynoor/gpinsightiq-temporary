@@ -65,12 +65,16 @@ function readAverageDemand(){
  const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames,typeof practiceSettings==='undefined'?null:practiceSettings,periods]);
  if(demandCache?.history===history&&demandCache.coverage===slotReportCoverage&&demandCache.key===key)return demandCache.result;
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,historyWeeks,{allowLongHistory:true}).filter(week=>week>=start&&week<current);
- const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
+ const classify=row=>{
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
   const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info||!window.SessionBuilderPlanning.isIncludedAppointmentType(name))return null;
   const kind=window.SessionBuilderPlanning.historicalCareKind(info.category,info.role,planningModes[name]);
   return kind?{kind,name}:null;
- }});
+ };
+ const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify});
+ const holidayWeeks=new Set();for(let year=Number(start.slice(0,4))-1;year<=Number(today.slice(0,4));year++)for(const day of englandWalesBankHolidays(year))holidayWeeks.add(GPCorrectness.monday(day));
+ const routine=demand?window.SessionBuilderPlanning.recentRoutineDemand(history,weeks,{monday:GPCorrectness.monday,classify,adjust:createListSizeAdjuster(true),correctness:GPCorrectness,coverage:slotReportCoverage,holidayWeeks,currentWeek:current}):null;
+ if(demand){demand.routine=routine?.need??null;demand.byType.routine=routine?.byType||{};demand.types.routine=Object.keys(demand.byType.routine);}
  if(demand)demand.eligiblePlannedTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.category==='plannedcare').map(([name])=>name);
  if(demand)demand.eligibleDailyTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.role==='urgent'&&info.category!=='homevisiting'&&planningModes[name]!=='weekly').map(([name])=>name);
  const forecast=window.getSessionBuilderUrgentForecast?.(periods);
@@ -84,7 +88,7 @@ function readAverageDemand(){
   demand.byType.weekly=Object.fromEntries(forecast.weeklyGroups.map(name=>[name,forecast.weeks.reduce((sum,week)=>sum+(week.weekly[name]||0),0)/count]));
   demand.types.sameDay=[...forecast.dailyGroups];demand.types.homeVisit=Object.keys(demand.byType.homeVisit);demand.types.weekly=[...forecast.weeklyGroups];demand.eligibleDailyTypes=[...forecast.dailyGroups];
  }
- const result={demand,start,end,weeks:weeks.length,forecast,periods};demandCache={history,coverage:slotReportCoverage,key,result};return result;
+ const result={demand,start,end,weeks:weeks.length,forecast,periods,routineAvailable:!!routine};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
 let requirementsRun=0,requirementsSolving=false,requirementsRenderedKey=null,requirementsCurrentKey=null,requirementsHasPlan=false;
 let plannerProgressTimer=null,plannerSolveSeconds=30,plannerProgressStartedAt=0;
@@ -115,7 +119,7 @@ async function renderSessionRequirements(settings={}){
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine, planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
+ let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine need uses a recent-weighted, list-size-adjusted forecast. Planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
  let clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
  let configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
  let appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=appointmentCategoryFor(name).trim().toLowerCase(),mode=window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
@@ -139,7 +143,7 @@ async function renderSessionRequirements(settings={}){
   if(requirementsSolving)return;
   const run=++requirementsRun;plannerSolveSeconds=selectedSolveSeconds();args[5]={...args[5],solveRequest:run,solveTimeSeconds:plannerSolveSeconds};
   setPlannerBusy(true);if(solveStatus)solveStatus.textContent='Optimising planner…';
-  try{estimate=await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args,plan=>{if(run===requirementsRun&&requirementsSolving){if(solveStatus){const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0});solveStatus.textContent='Cost search: best verified candidate '+money.format(plan.annualCost)+'/year. Optimising within the '+plannerSolveSeconds+'-second limit…';}const warning=byId('sessionBuilderPlanWarning'),diagnostics=byId('sessionBuilderPlanDiagnostics');if(warning)warning.hidden=true;if(diagnostics)diagnostics.hidden=true;}}):window.SessionBuilderPlanning.estimateSessions(...args));}
+  try{estimate=!history.routineAvailable?{rows:[],error:'Routine need requires at least eight recent complete covered weeks, including weekends, outside bank-holiday weeks.'}:await (window.SessionBuilderOptimisation?.estimateAsync?window.SessionBuilderOptimisation.estimateAsync(...args,plan=>{if(run===requirementsRun&&requirementsSolving){if(solveStatus){const money=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',maximumFractionDigits:0});solveStatus.textContent='Cost search: best verified candidate '+money.format(plan.annualCost)+'/year. Optimising within the '+plannerSolveSeconds+'-second limit…';}const warning=byId('sessionBuilderPlanWarning'),diagnostics=byId('sessionBuilderPlanDiagnostics');if(warning)warning.hidden=true;if(diagnostics)diagnostics.hidden=true;}}):window.SessionBuilderPlanning.estimateSessions(...args));}
   catch(error){estimate={rows:[],error:'Could not calculate workforce costs. Refresh the page and try again.'};}
   finally{if(run===requirementsRun)setPlannerBusy(false);}
   if(run!==requirementsRun||estimate.cancelled||!canEditSessionBuilder())return;

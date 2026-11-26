@@ -233,7 +233,7 @@ function routineRecentForecast(observations,currentWeek){
  const estimate=level(rows.map(row=>row.count)),errors=[];
  for(let i=4;i<rows.length;i++)errors.push(rows[i].count-level(rows.slice(Math.max(0,i-12),i).map(row=>row.count)));
  const recentErrors=errors.slice(-52),tail=.075;
- return {sampleWeeks:rows.length,lastWeek:rows.at(-1).weekStart,range(horizon=1){
+ return {level:estimate,sampleWeeks:rows.length,lastWeek:rows.at(-1).weekStart,range(horizon=1){
   const value=Math.max(0,Math.ceil(estimate));if(recentErrors.length<8)return {estimate:value,low:null,high:null};
   const spread=Math.sqrt(1+Math.max(0,horizon-1)/13),lo=quantile(recentErrors,tail),hi=quantile(recentErrors,1-tail);
   return {estimate:value,low:Math.max(0,Math.floor(value+Math.min(0,lo)*spread)),high:Math.ceil(value+Math.max(0,hi)*spread)};

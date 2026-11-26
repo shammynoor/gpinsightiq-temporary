@@ -17,7 +17,7 @@ function estimateAsync(...args){
  const timeBudget=solveBudget(args[5]);
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-period-controls-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-recent-routine-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;

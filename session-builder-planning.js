@@ -15,6 +15,19 @@ function averageDemand(rows,weeks,{monday,classify}){
  if(!weeks.length)return null;
  return {sameDay:sameDay.map(n=>n/weeks.length),homeVisit:homeVisit.map(n=>n/weeks.length),weekly:weekly/weeks.length,routine:routine/weeks.length,planned:planned/weeks.length,weeks:weeks.length,types:Object.fromEntries(Object.entries(types).map(([k,v])=>[k,[...v]])),byType:Object.fromEntries(Object.entries(byType).map(([kind,entries])=>[kind,Object.fromEntries(Object.entries(entries).map(([name,value])=>[name,Array.isArray(value)?value.map(n=>n/weeks.length):value/weeks.length]))]))};
 }
+function recentRoutineDemand(rows,weeks,{monday,classify,adjust,correctness,coverage,holidayWeeks,currentWeek}){
+ const covered=new Set(weeks),totals=new Map(),byType=new Map();
+ for(const row of rows){
+  if(!row.bookedDay||!Number.isFinite(row.count)||row.count<=0)continue;
+  const week=monday(row.bookedDay);if(!covered.has(week))continue;const info=classify(row);if(!info||info.kind!=='routine'||!info.name)continue;
+  const count=adjust(row.bookedDay,row.count);if(!Number.isFinite(count)||count<0)continue;
+  totals.set(week,(totals.get(week)||0)+count);if(!byType.has(info.name))byType.set(info.name,new Map());const group=byType.get(info.name);group.set(week,(group.get(week)||0)+count);
+ }
+ const observations=correctness.routineCompleteWeeks(weeks,totals,coverage,holidayWeeks),forecast=correctness.routineRecentForecast(observations,currentWeek);
+ if(!forecast)return null;
+ const typed={};for(const [name,counts] of byType){const values=correctness.routineCompleteWeeks(weeks,counts,coverage,holidayWeeks),model=correctness.routineRecentForecast(values,currentWeek);if(model)typed[name]=model.level;}
+ return {need:forecast.range(1).estimate,byType:typed,sampleWeeks:forecast.sampleWeeks,lastWeek:forecast.lastWeek};
+}
 function vectorSessions(types,needSame,needHome){
  const same=Math.ceil(needSame),home=Math.ceil(needHome),zero=()=>Array(types.length).fill(0);
  if(!same&&!home)return {counts:zero()};
@@ -410,5 +423,5 @@ function estimateSessions(types,modes,groups,demand,rules=[],options={}){
  }
  return {rows:visibleRows,clinicianCounts,days,capacitySameDay,capacityHomeVisit,weeklySessions:sum(row=>row.weekly),routineSessions:sum(row=>row.routine),weeklyCapacity:sum(row=>row.weekly*row.poolCapacity.weekly),routineCapacity:sum(row=>row.routine*row.poolCapacity.routine)+mixedRoutine,plannedSessions:sum(row=>row.planned),plannedCapacity:sum(row=>row.planned*row.poolCapacity.planned)+mixedPlanned,placements,appointmentBreakdown:visibleBreakdown,unmetDemand,unassignedDailyTypes,ruleResults,ruleAdjusted:repaired,totalNeed:values.reduce((s,n)=>s+n,0),totalCapacity:sum(row=>row.days.reduce((s,n)=>s+n,0)*(row.sameDay+row.homeVisit)+row.weekly*row.poolCapacity.weekly+row.routine*row.poolCapacity.routine+row.planned*row.poolCapacity.planned),approximate};
 }
-window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,historicalCareKind,vectorSessions,sharePool,shareSubject,shareDenominators});
+window.SessionBuilderPlanning=Object.freeze({averageDemand,estimateSessions,isHomeVisit,isIncludedAppointmentType,historicalCareKind,recentRoutineDemand,vectorSessions,sharePool,shareSubject,shareDenominators});
 })();
