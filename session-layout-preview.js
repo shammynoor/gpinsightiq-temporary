@@ -16,10 +16,27 @@ const dirty=()=>{hasChanges=true;byId('sessionLayoutSaveStatus').textContent='Un
 const minutes=value=>/^\d\d:\d\d$/.test(value)?Number(value.slice(0,2))*60+Number(value.slice(3)):NaN;
 const clock=value=>String(Math.floor(value/60)).padStart(2,'0')+':'+String(value%60).padStart(2,'0');
 const message=text=>{byId('sessionLayoutStatus').textContent=text};
+// Use the same consultation-mode colours as Slot Settings, including its defaults.
+function applyConsultColour(element,kind){
+ const patterns={face:/^(?:f2f|facetoface|inperson|clinicappointment|inclinic)$/,phone:/^(?:phone|telephone|telephoneconsultation|phonecall|telephony)$/,visit:/^(?:visit|homevisit|homevisiting|domiciliary|housecall)$/};
+ if(!patterns[kind])return;
+ const normal=name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
+ const modes=typeof consultCategoryNames==='undefined'?[]:consultCategoryNames;
+ const mode=modes.find(name=>patterns[kind].test(normal(name)));
+ let colour='';
+ if(mode&&typeof consultModeColours!=='undefined'&&typeof typeColour==='function')colour=typeColour(mode,consultModeColours);
+ else if(kind==='visit'&&typeof appointmentCategoryNames!=='undefined'&&typeof appointmentCategoryColours!=='undefined'&&typeof typeColour==='function'){
+  const home=appointmentCategoryNames.find(name=>normal(name)==='homevisit');if(home)colour=typeColour(home,appointmentCategoryColours);
+ }
+ if(!/^#[0-9a-f]{6}$/i.test(colour))return;
+ const channel=index=>{const c=parseInt(colour.slice(index,index+2),16)/255;return c<=0.04045?c/12.92:((c+0.055)/1.055)**2.4;};
+ const luminance=0.2126*channel(1)+0.7152*channel(3)+0.0722*channel(5);
+ element.style.backgroundColor=colour;element.style.borderColor=colour;element.style.color=(luminance+0.05)/0.05>=1.05/(luminance+0.05)?'#000000':'#ffffff';
+}
 function renderPalette(){
  const container=byId('sessionLayoutBlocks');container.replaceChildren();
  for(const item of choices){
-  const button=document.createElement('button');button.type='button';button.className='session-layout-block-choice '+item.kind+(selected===item.id?' selected':'');button.draggable=true;button.setAttribute('aria-pressed',String(selected===item.id));
+  const button=document.createElement('button');button.type='button';button.className='session-layout-block-choice '+item.kind+(selected===item.id?' selected':'');button.draggable=true;applyConsultColour(button,item.kind);button.setAttribute('aria-pressed',String(selected===item.id));
   const name=document.createElement('strong');name.textContent=item.label;const duration=document.createElement('span');duration.textContent=item.minutes+' minutes';button.append(name,duration);
   button.addEventListener('click',()=>{selected=item.id;movingBlock=null;renderPalette();renderTimeline();message(item.label+' selected. Choose a time in the timetable.');});
   button.addEventListener('dragstart',event=>{event.dataTransfer.setData('text/plain','new:'+item.id);event.dataTransfer.effectAllowed='copy';dragKind='new';});
@@ -54,7 +71,7 @@ function renderTimeline(){
   root.append(slot);
  }
  draft.blocks.forEach((block,index)=>{
-  const item=choices.find(choice=>choice.id===block.type),duration=durationOf(block),card=document.createElement('div');card.className='session-layout-placed '+item.kind+(movingBlock===block?' moving':'');card.style.gridRow=(1+(block.start-draft.start)/5)+' / span '+(duration/5);card.draggable=true;card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Move '+item.label+' at '+clock(block.start));
+  const item=choices.find(choice=>choice.id===block.type),duration=durationOf(block),card=document.createElement('div');card.className='session-layout-placed '+item.kind+(movingBlock===block?' moving':'');card.style.gridRow=(1+(block.start-draft.start)/5)+' / span '+(duration/5);card.draggable=true;applyConsultColour(card,item.kind);card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Move '+item.label+' at '+clock(block.start));
   const label=document.createElement('span');label.textContent=clock(block.start)+'–'+clock(block.start+duration)+' · '+item.label+' · '+duration+' min';
   const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Remove '+item.label+' at '+clock(block.start));remove.addEventListener('click',()=>{if(movingBlock===block)movingBlock=null;draft.blocks.splice(index,1);dirty();renderTimeline();message('Block removed.');});
   if(block.type==='admin'){

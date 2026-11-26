@@ -360,8 +360,8 @@
 #sessionBuilderPage .session-layout-save-bar{display:flex;align-items:center;gap:12px;margin:0 0 18px;flex-wrap:wrap}
 #sessionBuilderPage .session-layout-save-bar button{width:auto;min-height:38px;padding:8px 15px;font-size:13px}
 #sessionBuilderPage #sessionLayoutSaveStatus{font-size:12px;color:#567289}
-#sessionBuilderPage .session-layout-block-choice.catchup{background:#404a52;border-color:#404a52;border-left-color:#a6b2ba;color:#f4f6f7}
-#sessionBuilderPage .session-layout-placed.catchup{background:#404a52;border-left-color:#a6b2ba;color:#f4f6f7}
+#sessionBuilderPage .session-layout-block-choice.catchup{background:#657985;border-color:#657985;border-left-color:#596a75;color:#fff}
+#sessionBuilderPage .session-layout-placed.catchup{background:#657985;border-left-color:#596a75;color:#fff}
 #sessionBuilderPage .session-layout-block-choice.admin{background:#fff1cf;border-color:#f0dfb7;border-left-color:#d49d3c;color:#75521c}
 #sessionBuilderPage .session-layout-placed.admin{position:relative;background:#fff1cf;border-left-color:#d49d3c;color:#75521c;padding-top:5px;padding-bottom:5px}
 #sessionBuilderPage .session-layout-placed .session-layout-resize{position:absolute;left:0;right:0;width:100%;height:7px;min-height:7px;border:0;border-radius:0;padding:0;background:transparent;cursor:ns-resize;touch-action:none}
