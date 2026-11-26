@@ -57,11 +57,11 @@ if(typeof window==='undefined')return;
 const $=id=>document.getElementById(id);
 const number=n=>Number.isFinite(n)?new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n):'—';
 function careOf(row,urgentGroups){
- const type=capacityUrgencyCategory(row.slot),category=appointmentCategoryFor(type).trim().toLowerCase();
+ const type=capacityUrgencyCategory(row.slot),category=canonicalAppointmentCategoryFor(type).trim().toLowerCase();
  if(category==='urgent care')return urgentGroups.has(type)?'urgent':'';
  return appointmentCalculationRole(type)==='routine'?'routine':'';
 }
-function historyCareOf(row,urgentGroups){const type=capacityUrgencyCategory(row.slot);return historicalCareType(type,appointmentCategoryFor(type),careOf(row,urgentGroups))}
+function historyCareOf(row,urgentGroups){const type=capacityUrgencyCategory(row.slot);return historicalCareType(type,canonicalAppointmentCategoryFor(type),careOf(row,urgentGroups))}
 function loadHistory(urgentGroups){
  const today=GPCorrectness.londonDate(),clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
  const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,12),weekSet=new Set(weeks);
@@ -105,10 +105,10 @@ function getForecast(horizon){
  const byWeek=new Map((urgent?.rows||[]).map(row=>[row.weekStart,row]));
  const u=weeks.map(week=>byWeek.get(week));
  const selected=urgent?.groups||[];
- const routineTypes=groupUrgencyNames.filter(name=>isDashboardToggleOption(name)&&appointmentCategoryFor(name).trim().toLowerCase()!=='urgent care'&&appointmentCalculationRole(name)==='routine');
+ const routineTypes=groupUrgencyNames.filter(name=>isDashboardToggleOption(name)&&canonicalAppointmentCategoryFor(name).trim().toLowerCase()!=='urgent care'&&appointmentCalculationRole(name)==='routine');
  const weeklyAverage=names=>{if(!names.length)return null;const predictor=window.getHomeOverviewPredictor?.(names);return averageWeeklyForecast(weeks.map((week,i)=>predictor?.range?.(week,true,.85,i+1)?.estimate))};
  const routine=weeklyAverage(routineTypes);
- const categoryOf=name=>historicalCareType(name,appointmentCategoryFor(name),appointmentCalculationRole(name));
+ const categoryOf=name=>historicalCareType(name,canonicalAppointmentCategoryFor(name),appointmentCalculationRole(name));
  const options=groupUrgencyNames.filter(isDashboardToggleOption);
  const followupTypes=options.filter(name=>categoryOf(name)==='followup'),visitTypes=options.filter(name=>categoryOf(name)==='visit');
  const routineOnly=routineTypes.filter(name=>categoryOf(name)==='routine');

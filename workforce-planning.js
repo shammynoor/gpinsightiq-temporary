@@ -175,7 +175,7 @@ function renderAppointmentsHistory(){
  head.replaceChildren();body.replaceChildren();
  const clock=dayView2LondonClock(new Date(Number.isFinite(capacityCSVLatestModified)?Math.min(Date.now(),capacityCSVLatestModified):Date.now()));
  const careFor=row=>{
-  const type=capacityUrgencyCategory(row.slot),category=appointmentCategoryFor(type),role=appointmentCalculationRole(type);
+  const type=capacityUrgencyCategory(row.slot),category=canonicalAppointmentCategoryFor(type),role=appointmentCalculationRole(type);
   const base=category.trim().toLowerCase()==='urgent care'||role==='urgent'?'urgent':role==='routine'?'routine':'';
   return GPWorkforcePlanner.historicalCareType(type,category,base);
  };

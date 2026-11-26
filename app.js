@@ -191,8 +191,8 @@ let capacityCSVLatestModified=null;
 let slotReportCoverage=[],settingsRefreshing=false;
 let analyticsRoles={};
 try{analyticsRoles=JSON.parse(iqLocalStorage.getItem("appointment-dashboard-categories-v1")||"{}").analyticsRoles||{}}catch(_){}
-function ensureAnalyticsRoles(){return analyticsRoles=GPCorrectness.roles(analyticsRoles,groupUrgencyNames,clinicianGroupNames,appointmentCategoryFor)}
-function appointmentCalculationRole(name){if(!groupUrgencyNames.includes(name)||String(appointmentCategoryFor(name)||'').trim().toLowerCase()==='planned care')return "other";if(!Object.hasOwn(analyticsRoles.appointmentTypes||{},name))ensureAnalyticsRoles();return analyticsRoles.appointmentTypes[name]?.kind||"other"}
+function ensureAnalyticsRoles(){return analyticsRoles=GPCorrectness.roles(analyticsRoles,groupUrgencyNames,clinicianGroupNames,canonicalAppointmentCategoryFor)}
+function appointmentCalculationRole(name){if(!groupUrgencyNames.includes(name)||String(canonicalAppointmentCategoryFor(name)||'').trim().toLowerCase()==='planned care')return "other";if(!Object.hasOwn(analyticsRoles.appointmentTypes||{},name))ensureAnalyticsRoles();return analyticsRoles.appointmentTypes[name]?.kind||"other"}
 function isDoctorPlanningGroup(name){if(!Object.hasOwn(analyticsRoles.clinicianGroups||{},name))ensureAnalyticsRoles();return !!analyticsRoles.clinicianGroups[name]?.doctor}
 function renameAnalyticsRole(dimension,oldName,newName){ensureAnalyticsRoles();GPCorrectness.renameRole(analyticsRoles,dimension,oldName,newName);if(dimension==='clinicianGroups'||dimension==='appointmentTypes')window.renameSessionBuilderSetting?.(dimension,oldName,newName)}
 function refreshPrimaryApptTypeBoxes(){for(const id of PRIMARY_APPT_ROOT_IDS)enhancePrimaryApptTypeBox($(id))}
@@ -376,12 +376,36 @@ function consolidateUrgencyGroups(){
 }
 // Appointment categories are a second, independent grouping above appointment types.
 const DEFAULT_APPOINTMENT_CATEGORIES=['Urgent Care','Routine Care','Planned Care','Other'];
-let appointmentCategoryNames=DEFAULT_APPOINTMENT_CATEGORIES.slice(),appointmentCategoryAssignments={},appointmentCategoryColours={};
+let appointmentCategoryNames=DEFAULT_APPOINTMENT_CATEGORIES.slice(),appointmentCategoryAssignments={},appointmentCategoryColours={},appointmentCategoryRoles={};
 try{const saved=JSON.parse(iqLocalStorage.getItem('appointment-dashboard-categories-v1')||'{}');
  if(Array.isArray(saved.appointmentCategoryNames))appointmentCategoryNames=validCategoryNames(saved.appointmentCategoryNames);
  if(saved.appointmentCategoryAssignments&&typeof saved.appointmentCategoryAssignments==='object')appointmentCategoryAssignments={...saved.appointmentCategoryAssignments};
  if(saved.appointmentCategoryColours&&typeof saved.appointmentCategoryColours==='object')appointmentCategoryColours={...saved.appointmentCategoryColours};
+ if(saved.appointmentCategoryRoles&&typeof saved.appointmentCategoryRoles==='object')appointmentCategoryRoles={...saved.appointmentCategoryRoles};
 }catch(e){}
+// Category labels are editable; these identities keep their clinical meaning stable.
+const APPOINTMENT_CATEGORY_CANONICAL={urgent:'Urgent Care',routine:'Routine Care',planned:'Planned Care',home:'Home Visiting'};
+function resolvedAppointmentCategoryRoles(){
+ const roles={};
+ for(const [role,canonical] of Object.entries(APPOINTMENT_CATEGORY_CANONICAL)){
+  if(appointmentCategoryRoles[role]&&appointmentCategoryNames.includes(appointmentCategoryRoles[role])){roles[role]=appointmentCategoryRoles[role];continue}
+  if(appointmentCategoryNames.includes(canonical)){roles[role]=canonical;continue}
+  roles[role]='';
+ }
+ // Recover the urgent identity in older settings already renamed, only when
+ // multiple standard urgent appointment types agree on the same category.
+ if(!roles.urgent){
+  const hints=['Same Day','Within 3 Days','111 Referral','Urgent Extra'].map(type=>appointmentCategoryAssignments[type]).filter(value=>value&&appointmentCategoryNames.includes(value));
+  const candidates=[...new Set(hints)].filter(value=>hints.filter(item=>item===value).length>=2&&!Object.values(roles).includes(value));
+  if(candidates.length===1)roles.urgent=candidates[0];
+ }
+ return Object.fromEntries(Object.entries(roles).filter(([,label])=>label));
+}
+function canonicalAppointmentCategoryFor(type){
+ const label=appointmentCategoryFor(type),roles=resolvedAppointmentCategoryRoles();
+ for(const [role,canonical] of Object.entries(APPOINTMENT_CATEGORY_CANONICAL))if(label&&roles[role]===label)return canonical;
+ return label;
+}
 function defaultAppointmentCategory(type){
  const name=String(type).toLowerCase().replace(/[^a-z0-9]/g,'');
  if(name==='sameday'||name==='within3days'||name==='urgentextra'||name==='111referral')return 'Urgent Care';
@@ -394,20 +418,20 @@ function appointmentCategoryFor(type){
  if(assigned==='')return '';
  if(appointmentCategoryNames.includes(assigned))return assigned;
  const fallback=defaultAppointmentCategory(type);
- return appointmentCategoryNames.includes(fallback)?fallback:'';
+ const role=Object.keys(APPOINTMENT_CATEGORY_CANONICAL).find(key=>APPOINTMENT_CATEGORY_CANONICAL[key]===fallback);
+ return role?(resolvedAppointmentCategoryRoles()[role]||''):(appointmentCategoryNames.includes(fallback)?fallback:'');
 }
 function renderAppointmentCategorySettings(){
  const root=$('appointmentCategorySettings');if(!root)return;
  root.replaceChildren();
  for(const name of appointmentCategoryNames){
   const row=document.createElement('div');row.className='appointment-category-setting';
-  const colour=document.createElement('input');colour.type='color';colour.value=/^#[0-9a-f]{6}$/i.test(appointmentCategoryColours[name]||'')?appointmentCategoryColours[name]:'#7897ad';colour.title='Category colour for '+name;
-  colour.addEventListener('change',()=>{appointmentCategoryColours[name]=colour.value;saveCategories()});
+  const colour=slotCategoryColourPicker(name,appointmentCategoryColours,()=>{saveCategories();renderSlotGroupBoxes()});
   const label=document.createElement('span');label.textContent=name;
   const rename=document.createElement('button');rename.type='button';rename.textContent='✎';rename.title='Rename '+name;
-  rename.onclick=()=>{const next=prompt('Rename appointment category',name)?.trim();if(!next||next===name)return;if(appointmentCategoryNames.some(n=>n.toLowerCase()===next.toLowerCase())){alert('Category already exists.');return;}appointmentCategoryNames=appointmentCategoryNames.map(n=>n===name?next:n);for(const type of Object.keys(appointmentCategoryAssignments))if(appointmentCategoryAssignments[type]===name)appointmentCategoryAssignments[type]=next;if(appointmentCategoryColours[name]){appointmentCategoryColours[next]=appointmentCategoryColours[name];delete appointmentCategoryColours[name]}saveCategories();renderSlotGroupBoxes()};
+  rename.onclick=()=>{const next=prompt('Rename appointment category',name)?.trim();if(!next||next===name)return;if(appointmentCategoryNames.some(n=>n.toLowerCase()===next.toLowerCase())){alert('Category already exists.');return;}const roles=resolvedAppointmentCategoryRoles();for(const type of groupUrgencyNames)if(appointmentCategoryFor(type)===name)appointmentCategoryAssignments[type]=next;for(const type of Object.keys(appointmentCategoryAssignments))if(appointmentCategoryAssignments[type]===name)appointmentCategoryAssignments[type]=next;appointmentCategoryRoles=Object.fromEntries(Object.entries(roles).map(([role,label])=>[role,label===name?next:label]));appointmentCategoryNames=appointmentCategoryNames.map(n=>n===name?next:n);if(appointmentCategoryColours[name]){appointmentCategoryColours[next]=appointmentCategoryColours[name];delete appointmentCategoryColours[name]}saveCategories();renderSlotGroupBoxes()};
   const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.title='Delete '+name;
-  remove.onclick=()=>{if(!confirm('Delete category '+name+'? Its appointment types will become unassigned.'))return;for(const type of groupUrgencyNames)if(appointmentCategoryFor(type)===name)appointmentCategoryAssignments[type]='';appointmentCategoryNames=appointmentCategoryNames.filter(n=>n!==name);delete appointmentCategoryColours[name];saveCategories();renderSlotGroupBoxes()};
+  remove.onclick=()=>{if(!confirm('Delete category '+name+'? Its appointment types will become unassigned.'))return;const roles=resolvedAppointmentCategoryRoles();for(const type of groupUrgencyNames)if(appointmentCategoryFor(type)===name)appointmentCategoryAssignments[type]='';appointmentCategoryRoles=Object.fromEntries(Object.entries(roles).map(([role,label])=>[role,label===name?'':label]));appointmentCategoryNames=appointmentCategoryNames.filter(n=>n!==name);delete appointmentCategoryColours[name];saveCategories();renderSlotGroupBoxes()};
   row.append(colour,label,rename,remove);root.append(row);
  }
  const add=$('slotAddAppointmentCategory');if(add)add.onclick=()=>{const name=prompt('New appointment category name')?.trim();if(!name)return;if(appointmentCategoryNames.some(n=>n.toLowerCase()===name.toLowerCase())){alert('Category already exists.');return;}appointmentCategoryNames.push(name);saveCategories();renderSlotGroupBoxes()};
@@ -1377,7 +1401,7 @@ async function loadCloudCategories(options={}){
    if(Array.isArray(data.capacityCategories)){capacityCategoryNames=validCategoryNames(data.capacityCategories);capacityColours=data.capacityColours&&typeof data.capacityColours==='object'?Object.fromEntries(Object.entries(data.capacityColours).filter(([k,v])=>/^#[0-9a-f]{6}$/i.test(v))):{};capacityAssignments=validAssignments(data.capacityAssignments||{},capacityCategoryNames)}
    if(Array.isArray(data.clinicianGroupCategories)){clinicianGroupNames=validCategoryNames(data.clinicianGroupCategories);clinicianGroupAssignments=data.clinicianGroupAssignments?validAssignments(data.clinicianGroupAssignments,clinicianGroupNames):{};}
    if(data.urgencyGroupColours&&typeof data.urgencyGroupColours==='object'&&!Array.isArray(data.urgencyGroupColours))urgencyGroupColours=Object.fromEntries(Object.entries(data.urgencyGroupColours).filter(([key,value])=>typeof key==='string'&&/^#[0-9a-f]{6}$/i.test(value)));
-   if(Array.isArray(data.appointmentCategoryNames)){appointmentCategoryNames=validCategoryNames(data.appointmentCategoryNames);appointmentCategoryAssignments=data.appointmentCategoryAssignments&&typeof data.appointmentCategoryAssignments==='object'?{...data.appointmentCategoryAssignments}:{};appointmentCategoryColours=data.appointmentCategoryColours&&typeof data.appointmentCategoryColours==='object'?{...data.appointmentCategoryColours}:{}}
+   if(Array.isArray(data.appointmentCategoryNames)){appointmentCategoryNames=validCategoryNames(data.appointmentCategoryNames);appointmentCategoryAssignments=data.appointmentCategoryAssignments&&typeof data.appointmentCategoryAssignments==='object'?{...data.appointmentCategoryAssignments}:{};appointmentCategoryColours=data.appointmentCategoryColours&&typeof data.appointmentCategoryColours==='object'?{...data.appointmentCategoryColours}:{};appointmentCategoryRoles=data.appointmentCategoryRoles&&typeof data.appointmentCategoryRoles==='object'?{...data.appointmentCategoryRoles}:{}}
    if(Array.isArray(data.groupUrgencyCategories)){
     groupUrgencyNames=validCategoryNames(data.groupUrgencyCategories);
     groupUrgencyAssignments=data.groupUrgencyAssignments?validAssignments(data.groupUrgencyAssignments,groupUrgencyNames):{};
@@ -1488,7 +1512,7 @@ async function saveCloudCategories(options={}){
   consultCategories:consultCategoryNames.slice(),
   consultAssignments:{...consultAssignments},
   purposeCategories:purposeCategoryNames.slice(),purposeColours:{...purposeColours},purposeAssignments:{...purposeAssignments},capacityCategories:capacityCategoryNames.slice(),capacityColours:{...capacityColours},capacityAssignments:{...capacityAssignments},consultModeColours:{...consultModeColours},excludedSlotTypes:[...excludedSlotTypes],
-  groupUrgencyCategories:groupUrgencyNames.slice(),appointmentCategoryNames:appointmentCategoryNames.slice(),appointmentCategoryAssignments:{...appointmentCategoryAssignments},appointmentCategoryColours:{...appointmentCategoryColours},
+  groupUrgencyCategories:groupUrgencyNames.slice(),appointmentCategoryNames:appointmentCategoryNames.slice(),appointmentCategoryAssignments:{...appointmentCategoryAssignments},appointmentCategoryColours:{...appointmentCategoryColours},appointmentCategoryRoles:{...resolvedAppointmentCategoryRoles()},
   groupUrgencyAssignments:{...groupUrgencyAssignments},
   urgencyGroupColours:{...urgencyGroupColours},
   folder:selectedFolder||cloudFolder||null,
@@ -3262,7 +3286,7 @@ function setupTogglePriority(){
  refreshPriorityToggles();
 }
 
-function ensureFollowUpCategory(){if(!categoryNames.some(c=>c.toLowerCase().replace(/[\s-]+/g,'')==='followup'))categoryNames.push('Follow up')}ensureFollowUpCategory();function guessCategory(t){return /RED|YELLOW|AMBER|URGENT|SAME DAY|ACUTE/i.test(t)?'Urgent':/GREEN|FOLLOW UP|ROUTINE/i.test(t)?'Routine':null}function saveCategories(sync=true){window.syncSessionBuilderSettings?.();ensureAnalyticsRoles();queueMicrotask(refreshPrimaryApptTypeBoxes);capacityPaceCache=null;lastConsultFilterNames=[];try{iqLocalStorage.setItem(STORAGE_KEY,JSON.stringify({categories:categoryNames,assignments,clinicianCategories:clinicianCategoryNames,clinicianAssignments,consultCategories:consultCategoryNames,consultAssignments,groupUrgencyCategories:groupUrgencyNames,groupUrgencyAssignments,urgencyGroupColours,appointmentCategoryNames,appointmentCategoryAssignments,appointmentCategoryColours,clinicianGroupCategories:clinicianGroupNames,clinicianGroupAssignments,userTypeLocum,clinicianGroupColours,clinicianTypeColours,urgencyTypeColours,purposeCategories:purposeCategoryNames,purposeColours,purposeAssignments,capacityCategories:capacityCategoryNames,capacityColours,capacityAssignments,consultModeColours,togglePriority:{...togglePriority},excludedSlotTypes:[...excludedSlotTypes]}));}catch(e){alert('Could not save settings in this browser. Please try again.')}if(sync)markCategoryDirty()}function allCategories(){return [...categoryNames,'Uncategorised']}function rebuildCategoryFilter(){const old=new Set([...slots.selectedOptions].map(o=>o.value));slots.replaceChildren();for(const c of allCategories()){const o=document.createElement('option');o.value=c;o.textContent=c;o.selected=old.has(c);slots.append(o)}}function renderEditor(){renderDropEditor('urgency');updateAvailabilityUrgencyFilter()}
+function ensureFollowUpCategory(){if(!categoryNames.some(c=>c.toLowerCase().replace(/[\s-]+/g,'')==='followup'))categoryNames.push('Follow up')}ensureFollowUpCategory();function guessCategory(t){return /RED|YELLOW|AMBER|URGENT|SAME DAY|ACUTE/i.test(t)?'Urgent':/GREEN|FOLLOW UP|ROUTINE/i.test(t)?'Routine':null}function saveCategories(sync=true){window.syncSessionBuilderSettings?.();ensureAnalyticsRoles();queueMicrotask(refreshPrimaryApptTypeBoxes);capacityPaceCache=null;lastConsultFilterNames=[];try{iqLocalStorage.setItem(STORAGE_KEY,JSON.stringify({categories:categoryNames,assignments,clinicianCategories:clinicianCategoryNames,clinicianAssignments,consultCategories:consultCategoryNames,consultAssignments,groupUrgencyCategories:groupUrgencyNames,groupUrgencyAssignments,urgencyGroupColours,appointmentCategoryNames,appointmentCategoryAssignments,appointmentCategoryColours,appointmentCategoryRoles:resolvedAppointmentCategoryRoles(),clinicianGroupCategories:clinicianGroupNames,clinicianGroupAssignments,userTypeLocum,clinicianGroupColours,clinicianTypeColours,urgencyTypeColours,purposeCategories:purposeCategoryNames,purposeColours,purposeAssignments,capacityCategories:capacityCategoryNames,capacityColours,capacityAssignments,consultModeColours,togglePriority:{...togglePriority},excludedSlotTypes:[...excludedSlotTypes]}));}catch(e){alert('Could not save settings in this browser. Please try again.')}if(sync)markCategoryDirty()}function allCategories(){return [...categoryNames,'Uncategorised']}function rebuildCategoryFilter(){const old=new Set([...slots.selectedOptions].map(o=>o.value));slots.replaceChildren();for(const c of allCategories()){const o=document.createElement('option');o.value=c;o.textContent=c;o.selected=old.has(c);slots.append(o)}}function renderEditor(){renderDropEditor('urgency');updateAvailabilityUrgencyFilter()}
 function renderGroupUrgencyEditor(){renderDropEditor('groupUrgency');updateAvailabilityUrgencyFilter()}document.getElementById('addCategory').onclick=()=>{const el=document.getElementById('newCategory');const c=el.value.trim();if(!c)return;if(c.toLowerCase()==='uncategorised'||categoryNames.some(x=>x.toLowerCase()===c.toLowerCase())){alert('This category name already exists or is reserved.');return}categoryNames.push(c);el.value='';saveCategories();rebuildCategoryFilter();renderEditor();renderGroupUrgencyEditor()};document.getElementById('newCategory').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('addCategory').click()});document.getElementById('slotSearch').addEventListener('input',renderEditor);
 
 /* Personal profile is private to this signed-in account and browser. */
@@ -4897,7 +4921,7 @@ function setupUrgentRangeControls(){
 }
 function capacityAppointmentTypes(categories){
  return groupUrgencyNames.filter(name=>
-  isDashboardToggleOption(name)&&categories.includes(appointmentCategoryFor(name).trim().toLowerCase()));
+  isDashboardToggleOption(name)&&categories.includes(canonicalAppointmentCategoryFor(name).trim().toLowerCase()));
 }
 function urgentCategoryNames(){
  return capacityAppointmentTypes(['urgent care','home visiting']);
@@ -5693,7 +5717,7 @@ function validateCloudCategories(data){
  for(const key of ['categories','clinicianCategories','consultCategories','purposeCategories','capacityCategories','clinicianGroupCategories','groupUrgencyCategories','appointmentCategoryNames','excludedSlotTypes']){
   if(data[key]!==undefined&&(!Array.isArray(data[key])||data[key].some(v=>typeof v!=='string')))invalid(key);
  }
- for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','sessionCategoryLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours']){
+ for(const key of ['assignments','clinicianAssignments','consultAssignments','purposeAssignments','capacityAssignments','clinicianGroupAssignments','groupUrgencyAssignments','appointmentCategoryAssignments','userTypeLocum','sessionCategoryLocum','clinicianTypeColours','urgencyTypeColours','clinicianGroupColours','urgencyGroupColours','consultModeColours','purposeColours','capacityColours','appointmentCategoryColours','appointmentCategoryRoles']){
   if(data[key]!==undefined&&(!object(data[key])||Object.entries(data[key]).some(([k,v])=>['__proto__','constructor','prototype'].includes(k)||typeof v!=='string')))invalid(key);
  }
  if(data.sessionBuilderRules!==undefined){try{window.validateSessionBuilderRules(data.sessionBuilderRules)}catch(_){invalid('sessionBuilderRules')}}
@@ -5818,7 +5842,7 @@ function analyticsSettingsSnapshot(){
   consultCategories:consultCategoryNames.slice(),
   consultAssignments:{...consultAssignments},
   purposeCategories:purposeCategoryNames.slice(),purposeColours:{...purposeColours},purposeAssignments:{...purposeAssignments},capacityCategories:capacityCategoryNames.slice(),capacityColours:{...capacityColours},capacityAssignments:{...capacityAssignments},consultModeColours:{...consultModeColours},excludedSlotTypes:[...excludedSlotTypes],
-  groupUrgencyCategories:groupUrgencyNames.slice(),appointmentCategoryNames:appointmentCategoryNames.slice(),appointmentCategoryAssignments:{...appointmentCategoryAssignments},appointmentCategoryColours:{...appointmentCategoryColours},
+  groupUrgencyCategories:groupUrgencyNames.slice(),appointmentCategoryNames:appointmentCategoryNames.slice(),appointmentCategoryAssignments:{...appointmentCategoryAssignments},appointmentCategoryColours:{...appointmentCategoryColours},appointmentCategoryRoles:{...resolvedAppointmentCategoryRoles()},
   groupUrgencyAssignments:{...groupUrgencyAssignments},
   urgencyGroupColours:{...urgencyGroupColours},
   

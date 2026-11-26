@@ -14,7 +14,7 @@ const percent=value=>(value>=0?'+':'')+Math.round(value)+'%';
 const weight=row=>Number.isFinite(Number(row.count))?Math.max(0,Number(row.count)):0;
 const appointmentCare=type=>{
  if(!type||!isDashboardToggleOption(type))return '';
- if(appointmentCategoryFor(type).trim().toLowerCase()==='urgent care')return 'acute';
+ if(canonicalAppointmentCategoryFor(type).trim().toLowerCase()==='urgent care')return 'acute';
  return appointmentCalculationRole(type)==='routine'?'routine':'';
 };
 const careFor=slot=>appointmentCare(capacityUrgencyCategory(slot));
