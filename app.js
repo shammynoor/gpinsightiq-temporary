@@ -4023,9 +4023,9 @@ let pastBlockedAsBooked=iqLocalStorage.getItem('capacity:pastBlockedAsBooked')!=
 // Blocked slots have no known booking date. Use their appointment date only as
 // an explicit proxy for historical booking charts and forecasts.
 let historicalBookingCache=null;
-function historicalBookingRecords(){
+function historicalBookingRecords(includePastBlocked=pastBlockedAsBooked){
  const clock=capacitySnapshotClock();
- if(!pastBlockedAsBooked||!clock)return records;
+ if(!includePastBlocked||!clock)return records;
  if(historicalBookingCache?.records===records&&historicalBookingCache.availability===availabilityRecords&&historicalBookingCache.date===clock.date)return historicalBookingCache.value;
  const assumed=availabilityRecords.filter(r=>String(r.availability||'').trim().toLowerCase()==='blocked'&&r.date&&r.date<clock.date).map(r=>({...r,bookedDay:r.date,bookedWeek:mondayOf(r.date),week:mondayOf(r.date),status:'Booked',assumedBlocked:true}));
  const value=records.concat(assumed);historicalBookingCache={records,availability:availabilityRecords,date:clock.date,value};return value;

@@ -3,14 +3,15 @@
 function historicalCareKind(category,role,planningMode){if(String(category||'').toLowerCase().replace(/[^a-z]/g,'')==='homevisiting')return 'homeVisit';if(String(category||'').toLowerCase().replace(/[^a-z]/g,'')==='plannedcare')return 'planned';if(role==='routine')return 'routine';if(role==='urgent')return planningMode==='weekly'?'weekly':'sameDay';return null;}
 function isIncludedAppointmentType(name){return String(name||'').toLowerCase().replace(/[^a-z0-9]/g,'')!=='111referral';}
 function isHomeVisit(mode){const name=String(mode).toLowerCase().replace(/[^a-z0-9]/g,'');return /homevis|domiciliary/.test(name)||['visit','visits','hv'].includes(name);}
-function averageDemand(rows,weeks,{monday,classify}){
+function averageDemand(rows,weeks,{monday,classify,adjust=(_date,count)=>count}){
  const covered=new Set(weeks),sameDay=[0,0,0,0,0],homeVisit=[0,0,0,0,0],types={sameDay:new Set(),homeVisit:new Set(),weekly:new Set(),routine:new Set(),planned:new Set()},byType={sameDay:{},homeVisit:{},weekly:{},routine:{},planned:{}};let weekly=0,routine=0,planned=0;
  for(const row of rows){
   if(!row.bookedDay||!Number.isFinite(row.count)||row.count<=0||!covered.has(monday(row.bookedDay)))continue;
   const classification=classify(row),kind=typeof classification==='string'?classification:classification?.kind;if(!kind)continue;
-  if(classification?.name&&types[kind]){const name=classification.name,dow=(new Date(row.bookedDay+'T12:00:00Z').getUTCDay()+6)%7;if(['weekly','routine','planned'].includes(kind)){types[kind].add(name);byType[kind][name]=(byType[kind][name]||0)+row.count;}else if(dow<5){types[kind].add(name);const days=byType[kind][name]||(byType[kind][name]=[0,0,0,0,0]);days[dow]+=row.count;}}
-  if(['sameDay','daily','homeVisit'].includes(kind)){const dow=(new Date(row.bookedDay+'T12:00:00Z').getUTCDay()+6)%7;if(dow<5)(kind==='homeVisit'?homeVisit:sameDay)[dow]+=row.count;}
-  else if(kind==='weekly')weekly+=row.count;else if(kind==='routine')routine+=row.count;else if(kind==='planned')planned+=row.count;
+  const count=adjust(row.bookedDay,row.count);if(!Number.isFinite(count)||count<0)continue;
+  if(classification?.name&&types[kind]){const name=classification.name,dow=(new Date(row.bookedDay+'T12:00:00Z').getUTCDay()+6)%7;if(['weekly','routine','planned'].includes(kind)){types[kind].add(name);byType[kind][name]=(byType[kind][name]||0)+count;}else if(dow<5){types[kind].add(name);const days=byType[kind][name]||(byType[kind][name]=[0,0,0,0,0]);days[dow]+=count;}}
+  if(['sameDay','daily','homeVisit'].includes(kind)){const dow=(new Date(row.bookedDay+'T12:00:00Z').getUTCDay()+6)%7;if(dow<5)(kind==='homeVisit'?homeVisit:sameDay)[dow]+=count;}
+  else if(kind==='weekly')weekly+=count;else if(kind==='routine')routine+=count;else if(kind==='planned')planned+=count;
  }
  if(!weeks.length)return null;
  return {sameDay:sameDay.map(n=>n/weeks.length),homeVisit:homeVisit.map(n=>n/weeks.length),weekly:weekly/weeks.length,routine:routine/weeks.length,planned:planned/weeks.length,weeks:weeks.length,types:Object.fromEntries(Object.entries(types).map(([k,v])=>[k,[...v]])),byType:Object.fromEntries(Object.entries(byType).map(([kind,entries])=>[kind,Object.fromEntries(Object.entries(entries).map(([name,value])=>[name,Array.isArray(value)?value.map(n=>n/weeks.length):value/weeks.length]))]))};

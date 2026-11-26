@@ -315,7 +315,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
  const normalise=capacitySourcePage==='homePage'?createListSizeAdjuster(true):forecastAdjust;
  const totals=new Map(),parts=new Map(),allWeekdayTotals=new Map();
  const selectedGroups=new Set(groups),weekdayByDate=new Map();
- for(const r of historicalBookingRecords()){
+ for(const r of historicalBookingRecords(sessionPlanner?true:pastBlockedAsBooked)){
   if(!r.bookedDay||r.bookedDay<firstAppointment||r.bookedDay>end||excludedSlotTypes.has(r.slot))continue;
   const urgency=capacityUrgencyCategory(r.slot);
   if(!selectedGroups.has(urgency)||!locumMatches(r,locumPage))continue;
@@ -385,7 +385,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
   const specialForecasts=new Map(),specialErrors=new Map();
   const quantileNeeds=(numbers,p)=>{if(!numbers.length)return 0;const sorted=[...numbers].sort((a,b)=>a-b),pos=(sorted.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos);return sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo)};
   for(const type of ['before','after']){
-   const sampleDays=[...adjacentTypes].filter(([d,t])=>t===type&&d>=(sessionPlanner?start:firstAppointment)&&d<=end).map(([d])=>d);
+   const sampleDays=[...adjacentTypes].filter(([d,t])=>t===type&&d>=(sessionPlanner?start:firstAppointment)&&d<=end&&(!sessionPlanner||!holidayWeeks.has(monday(d)))).map(([d])=>d);
    const byGroup=new Map();
    for(const name of groups){
     const vals=sampleDays.map(d=>normalise(d,(parts.get(d)||new Map()).get(name)||0));

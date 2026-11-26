@@ -75,7 +75,7 @@ window.saveSessionBuilderLayout=async(id,layout)=>{
 let demandCache=null;
 function readAverageDemand(){
  const today=dayView2LondonClock().date,current=GPCorrectness.monday(today),periods=selectedPlannerPeriods();
- const history=historicalBookingRecords();
+ const history=historicalBookingRecords(true);
  const first=GPCorrectness.firstAppointmentDate?.(slotReportCoverage)||history.reduce((earliest,row)=>row.bookedDay&&(!earliest||row.bookedDay<earliest)?row.bookedDay:earliest,null);
  const start=window.SessionBuilderPeriods.historyWindow(today,periods,first).start,end=GPCorrectness.shift(current,-1);
  const historyWeeks=Math.max(1,Math.ceil((Date.parse(current)-Date.parse(start))/604800000)+1);
@@ -83,20 +83,23 @@ function readAverageDemand(){
  const roles=new Map(groupUrgencyNames.filter(isDashboardToggleOption).map(name=>[name,{role:appointmentCalculationRole(name),category:canonicalAppointmentCategoryFor(name).toLowerCase().replace(/[^a-z]/g,'')}]));
  const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames,typeof practiceSettings==='undefined'?null:practiceSettings,periods]);
  if(demandCache?.history===history&&demandCache.coverage===slotReportCoverage&&demandCache.key===key)return demandCache.result;
- const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,historyWeeks,{allowLongHistory:true}).filter(week=>week>=start&&week<current);
+ const holidayWeeks=new Set();for(let year=Number(start.slice(0,4))-1;year<=Number(today.slice(0,4));year++)for(const day of englandWalesBankHolidays(year))holidayWeeks.add(GPCorrectness.monday(day));
+ const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,historyWeeks,{allowLongHistory:true}).filter(week=>week>=start&&week<current&&!holidayWeeks.has(week));
+ const months=typeof practiceMonths==='function'?practiceMonths():null;
+ const listSizeAvailable=months===null?true:months.length>0&&months.some(month=>Number(practiceSettings.anchors?.[month])>0)&&practiceListValues(months).every(value=>Number.isFinite(value)&&value>0);
  const classify=row=>{
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
   const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info||!window.SessionBuilderPlanning.isIncludedAppointmentType(name))return null;
   const kind=window.SessionBuilderPlanning.historicalCareKind(info.category,info.role,planningModes[name]);
   return kind?{kind,name}:null;
  };
- const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify});
- const holidayWeeks=new Set();for(let year=Number(start.slice(0,4))-1;year<=Number(today.slice(0,4));year++)for(const day of englandWalesBankHolidays(year))holidayWeeks.add(GPCorrectness.monday(day));
+ const adjust=createListSizeAdjuster(true);
+ const demand=listSizeAvailable?window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify,adjust}):null;
  const routine=demand?window.SessionBuilderPlanning.recentRoutineDemand(history,weeks,{monday:GPCorrectness.monday,classify,adjust:createListSizeAdjuster(true),correctness:GPCorrectness,coverage:slotReportCoverage,holidayWeeks,currentWeek:current}):null;
  if(demand){demand.routine=routine?.need??null;demand.byType.routine=routine?.byType||{};demand.types.routine=Object.keys(demand.byType.routine);}
  if(demand)demand.eligiblePlannedTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.category==='plannedcare').map(([name])=>name);
  if(demand)demand.eligibleDailyTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.role==='urgent'&&info.category!=='homevisiting'&&planningModes[name]!=='weekly').map(([name])=>name);
- const forecast=window.getSessionBuilderUrgentForecast?.(periods);
+ const forecast=listSizeAvailable?window.getSessionBuilderUrgentForecast?.(periods):null;
  if(demand&&forecast?.weeks?.length){
   const count=forecast.weeks.length;
   const projected=Object.fromEntries(forecast.dailyGroups.map(name=>[name,Array.from({length:5},(_,day)=>forecast.weeks.reduce((sum,week)=>sum+(week.daily[day][name]||0),0)/count)]));
@@ -107,7 +110,7 @@ function readAverageDemand(){
   demand.byType.weekly=Object.fromEntries(forecast.weeklyGroups.map(name=>[name,forecast.weeks.reduce((sum,week)=>sum+(week.weekly[name]||0),0)/count]));
   demand.types.sameDay=[...forecast.dailyGroups];demand.types.homeVisit=Object.keys(demand.byType.homeVisit);demand.types.weekly=[...forecast.weeklyGroups];demand.eligibleDailyTypes=[...forecast.dailyGroups];
  }
- const result={demand,start,end,weeks:weeks.length,forecast,periods,routineAvailable:!!routine};demandCache={history,coverage:slotReportCoverage,key,result};return result;
+ const result={demand,start,end,weeks:weeks.length,forecast,periods,listSizeAvailable,routineAvailable:!!routine};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
 let requirementsRun=0,requirementsSolving=false,requirementsRenderedKey=null,requirementsCurrentKey=null,requirementsHasPlan=false;
 let plannerProgressTimer=null,plannerSolveSeconds=30,plannerProgressStartedAt=0;
@@ -138,7 +141,7 @@ async function renderSessionRequirements(settings={}){
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine need uses a recent-weighted, list-size-adjusted forecast. Planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
+ let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine need uses a recent-weighted forecast. All demand is adjusted to the latest recorded list size; past blocked slots are counted as booked and bank holiday weeks are excluded. Planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
  let clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
  let configuredTypes=sessionBuilderTypes.map(({layout,...row})=>({...row,eligibleClinicians:selectedClinicians(row)}));
  let appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=canonicalAppointmentCategoryFor(name).trim().toLowerCase(),mode=typeof appointmentUrgencyPlanningMode==='function'?appointmentUrgencyPlanningMode(name):window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
@@ -166,7 +169,7 @@ async function renderSessionRequirements(settings={}){
   catch(error){estimate={rows:[],error:'Could not calculate workforce costs. Refresh the page and try again.'};}
   finally{if(run===requirementsRun)setPlannerBusy(false);}
   if(run!==requirementsRun||estimate.cancelled||!canEditSessionBuilder())return;
-  if(!history.forecast)estimate.error='Urgent forecast unavailable. Check report history and practice list-size settings.';
+  if(!history.forecast)estimate.error=history.listSizeAvailable===false?'Add valid list-size history in Practice Settings to use the list-size-adjusted planner.':'Urgent forecast unavailable. Check report history and practice list-size settings.';
   window.SessionBuilderDiagnostics?.render(estimate.diagnostics,estimate);
   if(estimate.error&&requirementsHasPlan){
    const warning=byId('sessionBuilderPlanWarning');if(warning){warning.hidden=false;warning.textContent='Reset unsuccessful: '+estimate.error+' The previous plan is retained and may not match the current settings.';}
