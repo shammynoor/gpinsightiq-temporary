@@ -305,8 +305,8 @@ function renderSessionBuilder(){
    input.addEventListener('change',()=>{try{const value=Number(input.value);if(!/^\d+$/.test(input.value)||!Number.isSafeInteger(value))throw Error('Enter a whole number of zero or more.');if(sessionBuilderTypes.find(item=>item.id===row.id)?.appointmentsByMode[mode]!==value)commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentsByMode:{...item.appointmentsByMode,[mode]:value}}:item));input.setCustomValidity('');}catch(error){input.setCustomValidity(error.message);input.reportValidity();}});
    td.append(input);tr.append(td);
   }
-  const actions=document.createElement('td'),remove=document.createElement('button');remove.type='button';remove.className='session-builder-remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+row.name);
-  remove.addEventListener('click',()=>{if(!canEditSessionBuilder())return;commit(sessionBuilderTypes.filter(item=>item.id!==row.id));renderSessionBuilder();});actions.append(remove);tr.append(actions);body.append(tr);
+  const actions=document.createElement('td'),edit=document.createElement('button'),remove=document.createElement('button');edit.type='button';edit.className='session-builder-edit';edit.textContent='Edit';edit.setAttribute('aria-label','Edit layout for '+row.name);edit.addEventListener('click',()=>window.openSessionLayoutPreview?.(row));remove.type='button';remove.className='session-builder-remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+row.name);
+  remove.addEventListener('click',()=>{if(!canEditSessionBuilder())return;commit(sessionBuilderTypes.filter(item=>item.id!==row.id));renderSessionBuilder();});actions.append(edit,remove);tr.append(actions);body.append(tr);
  }
  byId('sessionBuilderEmpty').hidden=sessionBuilderTypes.length>0;
  renderSessionRequirements();
