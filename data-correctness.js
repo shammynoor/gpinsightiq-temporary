@@ -46,7 +46,7 @@ function currentWeekForecastBounds(nowcast,seasonal){
  const high=nowcast.estimate+(seasonal.high-seasonal.estimate)*remainingScale;
  return {low:Math.max(nowcast.observed,Math.floor(low)),high:Math.ceil(high)};
 }
-function completeWeeks(ranges,today,windowWeeks){
+function completeWeeks(ranges,today,windowWeeks,{allowLongHistory=false}={}){
  const lastSunday=shift(monday(today),-1);
  const intervals=ranges.filter(r=>validDate(r.start)&&validDate(r.end)).map(r=>({
   start:r.start,end:[r.end,lastSunday,...(validDate(r.asOf)?[shift(r.asOf,-1)]:[])].sort()[0]
@@ -61,7 +61,8 @@ function completeWeeks(ranges,today,windowWeeks){
   for(;shift(day,4)<=range.end;day=shift(day,7))weeks.push(day);
  }
  if(!weeks.length)return [];
- const count=Math.max(1,Math.min(104,Number(windowWeeks)||52));
+ const requested=Number(windowWeeks)||52;
+ const count=Math.max(1,allowLongHistory?requested:Math.min(104,requested));
  const lower=shift(weeks.at(-1),-7*(count-1));
  return [...new Set(weeks.filter(w=>w>=lower))];
 }

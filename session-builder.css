@@ -272,3 +272,8 @@
 #sessionBuilderPage .session-builder-plan-table tr>:nth-last-child(2){border-left:2px solid #b7cddd}
 #sessionBuilderPage .session-builder-plan-table tfoot tr>:nth-last-child(-n+2){background:#dce9f4}
 #sessionBuilderPage .session-builder-plan-table .session-builder-appointment-split{margin-top:4px;font-size:11px;line-height:1.25}
+
+#sessionBuilderPage .session-builder-period-controls{display:flex;flex-wrap:wrap;gap:14px 24px;margin:4px 0 18px}
+#sessionBuilderPage .session-builder-period-controls label{display:flex;align-items:center;gap:10px;margin:0;font-size:13px;font-weight:600}
+#sessionBuilderPage .session-builder-period-controls select{width:auto;min-width:150px;margin:0;padding:9px 28px 9px 12px}
+@media(max-width:600px){#sessionBuilderPage .session-builder-period-controls{flex-direction:column;gap:12px}#sessionBuilderPage .session-builder-period-controls label{justify-content:space-between}#sessionBuilderPage .session-builder-solve-actions{flex-wrap:wrap}#sessionBuilderPage .session-builder-time-limit{min-width:110px}}

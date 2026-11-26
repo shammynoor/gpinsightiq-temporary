@@ -272,17 +272,18 @@ function forecastHistoryPolicy(panel,selectedWeekday){
  const special=weekday===6||weekday===7;
  return {weekday,special,excludeHolidayWeeks:!special};
 }
-function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityGroups=null,allHistory=false,capacitySourcePage='availabilityPage',recencyHalfLife=13,sessionPlanner=false}={}){
+function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityGroups=null,allHistory=false,capacitySourcePage='availabilityPage',recencyHalfLife=13,sessionPlanner=false,plannerPeriods=null}={}){
  if(!capacityGroups){
-  updateForecastHorizonLabels();
+  if(!sessionPlanner)updateForecastHorizonLabels();
   syncForecastPreferences();
  }
  const root=$('dailyForecastHistoryChart'),summary=$('dailyForecastHistorySummary'),select=$('dailyForecastWeekday');
  if(!root||!summary||!select)return;
+ const plannerSelection=sessionPlanner?window.SessionBuilderPeriods.normalise(plannerPeriods):null;
  const panel=sessionPlanner?'planner':capacityGroups?'capacity':predictions||planningOnly||$('forecastAnalyticsPanel')?.classList.contains('hidden')?'predictions':'analytics';
  const {weekday,special,excludeHolidayWeeks}=forecastHistoryPolicy(panel,select.value);
  const locumPage=sessionPlanner?'sessionBuilderPage':capacityGroups?capacitySourcePage:planningOnly?'workforceNeedPage':'dailyForecastPage';
- const signature=JSON.stringify([pastBlockedAsBooked,capacitySnapshotClock()?.date,locumPage,locumFilterSelections.get(locumPage),userTypeLocum,sessionCategoryLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
+ const signature=JSON.stringify([plannerSelection,pastBlockedAsBooked,capacitySnapshotClock()?.date,locumPage,locumFilterSelections.get(locumPage),userTypeLocum,sessionCategoryLocum,ensureAnalyticsRoles(),forecastLocalDate(),window.gpChartPreferences?.account?.(),$('dailyForecastHistory')?.value,panel==='analytics'?weekday:null,$('dailyForecastAdjustListSize')?.checked,forecastUrgencyNames().map(name=>[name,forecastUrgencyEnabled(name),urgencyPlanningMode.get(name)]),[...excludedSlotTypes].sort(),typeof assignments==='undefined'?null:assignments,typeof groupUrgencyAssignments==='undefined'?null:groupUrgencyAssignments,typeof practiceSettings==='undefined'?null:practiceSettings,panel==='analytics'?(root.parentElement.classList.contains('forecast-chart-frame')?root.parentElement.clientWidth:root.clientWidth):null]);
  const cacheKey=capacityGroups?JSON.stringify([signature,capacityGroups,allHistory,capacitySourcePage,recencyHalfLife]):signature;
  const cached=forecastRenderCache[panel];
  if(cached?.records===records&&cached.signature===cacheKey){if(panel==='predictions')applyForecastHorizon();return cached.predictionSeries??cached.capacityPrediction;}
@@ -301,7 +302,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
   if(!capacityGroups)summary.textContent='No completed history is available from the first appointment date.';
   return;
  }
- const historyStart=shift(end,1-7*Number($('dailyForecastHistory')?.value||52));
+ const historyStart=sessionPlanner?window.SessionBuilderPeriods.historyWindow(today,plannerSelection,firstAppointment).start:shift(end,1-7*Number($('dailyForecastHistory')?.value||52));
  const start=allHistory||special||firstAppointment>historyStart?firstAppointment:historyStart;
  const holidayDates=new Set();for(let year=Number(firstAppointment.slice(0,4))-1;year<=Number(end.slice(0,4))+6;year++)for(const holiday of englandWalesBankHolidays(year))holidayDates.add(holiday);
  const workingDay=d=>{const dow=new Date(d+'T12:00:00Z').getUTCDay();return dow>=1&&dow<=5&&!holidayDates.has(d)};
@@ -372,7 +373,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
    for(let dow=1;dow<=5;dow++){
     const sampleDays=fittingDays.get(dow);
     const sampleValues=sampleDays.map(d=>normalise(d,(parts.get(d)||new Map()).get(name)||0));
-    byWeekday.set(dow,sampleDays.length>=12?fitModel(sampleDays,sampleValues):null);
+    byWeekday.set(dow,sampleDays.length>=(sessionPlanner?4:12)?fitModel(sampleDays,sampleValues):null);
    }
    forecasts.set(name,byWeekday);
   }
@@ -384,7 +385,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
   const specialForecasts=new Map(),specialErrors=new Map();
   const quantileNeeds=(numbers,p)=>{if(!numbers.length)return 0;const sorted=[...numbers].sort((a,b)=>a-b),pos=(sorted.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos);return sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo)};
   for(const type of ['before','after']){
-   const sampleDays=[...adjacentTypes].filter(([d,t])=>t===type&&d>=firstAppointment&&d<=end).map(([d])=>d);
+   const sampleDays=[...adjacentTypes].filter(([d,t])=>t===type&&d>=(sessionPlanner?start:firstAppointment)&&d<=end).map(([d])=>d);
    const byGroup=new Map();
    for(const name of groups){
     const vals=sampleDays.map(d=>normalise(d,(parts.get(d)||new Map()).get(name)||0));
@@ -405,7 +406,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
    }
    specialErrors.set(type,[quantileNeeds(errors,.15),quantileNeeds(errors,.85)]);
   }
-  const predict=(name,dow,day)=>{const type=adjacentTypes.get(day);return type?(specialForecasts.get(type)?.get(name)?.(day)??undefined):forecasts.get(name)?.get(dow)?.(day)};
+  const predict=(name,dow,day)=>{const type=adjacentTypes.get(day);return type?(specialForecasts.get(type)?.get(name)?.(day)??(sessionPlanner?forecasts.get(name)?.get(dow)?.(day):undefined)):forecasts.get(name)?.get(dow)?.(day)};
   const predictWeekly=(name,dow,day)=>{
    const normal=forecasts.get(name)?.get(dow)?.(day);
    const type=adjacentTypes.get(day);
@@ -490,9 +491,9 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
   }
   if(sessionPlanner){
    if(!referencePopulation)return null;
-   const first=shift(monday(today),7),weeks=[];
-   for(let i=0;i<26;i++){
-    const weekStart=shift(first,i*7),weekDays=Array.from({length:7},(_,j)=>shift(weekStart,j));
+   const horizon=window.SessionBuilderPeriods.forecastWindow(today,plannerSelection),weeks=[];
+   for(const weekStart of horizon.weeks){
+    const weekDays=Array.from({length:7},(_,j)=>shift(weekStart,j));
     if(weekDays.some(day=>holidayDates.has(day)))continue;
     const daily=Array.from({length:5},(_,j)=>{const day=weekDays[j];return Object.fromEntries(dailyGroups.map(name=>[name,predict(name,j+1,day)]));});
     const weekly=Object.fromEntries(weeklyGroups.map(name=>[name,weekDays.slice(0,5).reduce((sum,day,j)=>{const value=predictWeekly(name,j+1,day);return value===undefined?NaN:sum+value;},0)]));
@@ -500,7 +501,7 @@ function renderHistoricalWeekday({planningOnly=false,predictions=false,capacityG
     weeks.push({weekStart,daily,weekly});
    }
    if(!weeks.length)return null;
-   const result={weeks,dailyGroups,weeklyGroups,listAdjusted:!!referencePopulation,historyStart:start,historyEnd:end};
+   const result={weeks,dailyGroups,weeklyGroups,listAdjusted:!!referencePopulation,historyStart:start,historyEnd:end,horizonStart:horizon.start,horizonEnd:horizon.end,...plannerSelection};
    forecastRenderCache.planner={records,signature:cacheKey,predictionSeries:result};return result;
   }
   needsRoot.replaceChildren();
@@ -824,7 +825,7 @@ function selectForecastTab(tab){
  // Chart dimensions require a visible container before SVG measurements.
  requestAnimationFrame(renderHistoricalWeekday);
 }
-window.getSessionBuilderUrgentForecast=()=>renderHistoricalWeekday({sessionPlanner:true});
+window.getSessionBuilderUrgentForecast=plannerPeriods=>renderHistoricalWeekday({sessionPlanner:true,plannerPeriods});
 window.getUrgentCapacityPredictor=groups=>renderHistoricalWeekday({capacityGroups:groups});
 // Homepage forecast shares the existing fitted model and uses all uploaded history.
 window.getHomeOverviewPredictor=groups=>Array.isArray(groups)&&groups.length?renderHistoricalWeekday({capacityGroups:groups,allHistory:true,capacitySourcePage:'homePage',recencyHalfLife:6}):null;

@@ -44,13 +44,16 @@ function commit(rows){
 }
 let demandCache=null;
 function readAverageDemand(){
- const today=dayView2LondonClock().date,current=GPCorrectness.monday(today),start=GPCorrectness.shift(current,-364),end=GPCorrectness.shift(current,-1);
+ const today=dayView2LondonClock().date,current=GPCorrectness.monday(today),periods=selectedPlannerPeriods();
  const history=historicalBookingRecords();
+ const first=GPCorrectness.firstAppointmentDate?.(slotReportCoverage)||history.reduce((earliest,row)=>row.bookedDay&&(!earliest||row.bookedDay<earliest)?row.bookedDay:earliest,null);
+ const start=window.SessionBuilderPeriods.historyWindow(today,periods,first).start,end=GPCorrectness.shift(current,-1);
+ const historyWeeks=Math.max(1,Math.ceil((Date.parse(current)-Date.parse(start))/604800000)+1);
  const planningModes=window.gpChartPreferences?.read()?.forecastPlanningModes||{};
  const roles=new Map(groupUrgencyNames.filter(isDashboardToggleOption).map(name=>[name,{role:appointmentCalculationRole(name),category:appointmentCategoryFor(name).toLowerCase().replace(/[^a-z]/g,'')}]));
- const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames,typeof practiceSettings==='undefined'?null:practiceSettings,byId('dailyForecastHistory')?.value]);
+ const key=JSON.stringify([start,end,window.gpChartPreferences?.account?.(),[...roles],planningModes,[...excludedSlotTypes].sort(),assignments,groupUrgencyAssignments,consultAssignments,consultCategoryNames,typeof practiceSettings==='undefined'?null:practiceSettings,periods]);
  if(demandCache?.history===history&&demandCache.coverage===slotReportCoverage&&demandCache.key===key)return demandCache.result;
- const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,52).filter(week=>week>=start&&week<current);
+ const weeks=GPCorrectness.completeWeeks(slotReportCoverage,today,historyWeeks,{allowLongHistory:true}).filter(week=>week>=start&&week<current);
  const demand=window.SessionBuilderPlanning.averageDemand(history,weeks,{monday:GPCorrectness.monday,classify:row=>{
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||String(row.status||'').toLowerCase()!=='booked')return null;
   const name=capacityUrgencyCategory(row.slot),info=roles.get(name);if(!info||!window.SessionBuilderPlanning.isIncludedAppointmentType(name))return null;
@@ -59,7 +62,7 @@ function readAverageDemand(){
  }});
  if(demand)demand.eligiblePlannedTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.category==='plannedcare').map(([name])=>name);
  if(demand)demand.eligibleDailyTypes=[...roles].filter(([name,info])=>window.SessionBuilderPlanning.isIncludedAppointmentType(name)&&info.role==='urgent'&&info.category!=='homevisiting'&&planningModes[name]!=='weekly').map(([name])=>name);
- const forecast=window.getSessionBuilderUrgentForecast?.();
+ const forecast=window.getSessionBuilderUrgentForecast?.(periods);
  if(demand&&forecast?.weeks?.length){
   const count=forecast.weeks.length;
   const projected=Object.fromEntries(forecast.dailyGroups.map(name=>[name,Array.from({length:5},(_,day)=>forecast.weeks.reduce((sum,week)=>sum+(week.daily[day][name]||0),0)/count)]));
@@ -70,20 +73,22 @@ function readAverageDemand(){
   demand.byType.weekly=Object.fromEntries(forecast.weeklyGroups.map(name=>[name,forecast.weeks.reduce((sum,week)=>sum+(week.weekly[name]||0),0)/count]));
   demand.types.sameDay=[...forecast.dailyGroups];demand.types.homeVisit=Object.keys(demand.byType.homeVisit);demand.types.weekly=[...forecast.weeklyGroups];demand.eligibleDailyTypes=[...forecast.dailyGroups];
  }
- const result={demand,start,end,weeks:weeks.length,forecast};demandCache={history,coverage:slotReportCoverage,key,result};return result;
+ const result={demand,start,end,weeks:weeks.length,forecast,periods};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
 let requirementsRun=0,requirementsSolving=false,requirementsRenderedKey=null,requirementsCurrentKey=null,requirementsHasPlan=false;
 let plannerProgressTimer=null,plannerSolveSeconds=30,plannerProgressStartedAt=0;
 window.addEventListener?.('session-builder-solve-ready',()=>{if(requirementsSolving)plannerProgressStartedAt=Date.now();});
 let restoredTimeScope=null;
 byId('sessionBuilderSolveTime')?.addEventListener('change',()=>window.SessionBuilderPlanStorage?.saveTime(selectedSolveSeconds()));
-function selectedSolveSeconds(){const value=Number(byId('sessionBuilderSolveTime')?.value||30);return [10,30,60].includes(value)?value:30;}
+function selectedPlannerPeriods(){return window.SessionBuilderPeriods.normalise({horizonMonths:byId('sessionBuilderHorizon')?.value,historyMonths:byId('sessionBuilderHistoryPeriod')?.value});}
+for(const id of ['sessionBuilderHorizon','sessionBuilderHistoryPeriod'])byId(id)?.addEventListener('change',()=>{window.SessionBuilderPlanStorage?.savePeriods(selectedPlannerPeriods());return renderSessionRequirements();});
+function selectedSolveSeconds(){const value=Number(byId('sessionBuilderSolveTime')?.value||30);return [5,10,30,60].includes(value)?value:30;}
 function setPlannerBusy(busy){
  requirementsSolving=busy;
  const button=byId('sessionBuilderResetPlanner'),spinner=byId('sessionBuilderSolveSpinner'),label=byId('sessionBuilderResetLabel'),root=byId('sessionBuilderRequirements');
  if(button)button.disabled=busy;if(spinner)spinner.hidden=!busy;if(label)label.textContent=busy?'Optimising…':'Re-optimise planner';root?.setAttribute('aria-busy',String(busy));
  if(plannerProgressTimer!==null){clearInterval(plannerProgressTimer);plannerProgressTimer=null;}
- const timeSelect=byId('sessionBuilderSolveTime');if(timeSelect)timeSelect.disabled=busy;
+ for(const id of ['sessionBuilderSolveTime','sessionBuilderHorizon','sessionBuilderHistoryPeriod']){const control=byId(id);if(control)control.disabled=busy;}
  plannerProgressStartedAt=0;const tick=()=>{if(!plannerProgressStartedAt){if(label)label.textContent='Loading optimiser…';return;}const tickStart=plannerProgressStartedAt,elapsed=Math.min(plannerSolveSeconds,Math.floor((Date.now()-tickStart)/1000));button?.style.setProperty('--solve-progress',Math.min(100,(Date.now()-tickStart)/(plannerSolveSeconds*10))+'%');if(label)label.textContent='Optimising… '+elapsed+' / '+plannerSolveSeconds+' s';};
  button?.style.setProperty('--solve-progress','0%');
  if(busy&&typeof setInterval==='function'){tick();plannerProgressTimer=setInterval(tick,100);}
@@ -93,20 +98,21 @@ async function renderSessionRequirements(settings={}){
  const reset=settings.reset===true;
  const root=byId('sessionBuilderRequirements');if(!root)return;
  if(!canEditSessionBuilder()){root.hidden=true;return;}root.hidden=false;
+ const storage=window.SessionBuilderPlanStorage,scope=storage?.scope(),saved=storage?.read();
+ if(scope&&scope!==restoredTimeScope){const control=byId('sessionBuilderSolveTime');if(control&&[5,10,30,60].includes(saved?.seconds))control.value=String(saved.seconds);if(saved?.periods){const periods=window.SessionBuilderPeriods.normalise(saved.periods);if(byId('sessionBuilderHorizon'))byId('sessionBuilderHorizon').value=String(periods.horizonMonths);if(byId('sessionBuilderHistoryPeriod'))byId('sessionBuilderHistoryPeriod').value=String(periods.historyMonths);}restoredTimeScope=scope;}
  let history=readAverageDemand(),demand=history.demand;
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
- let historyText=history.forecast?'Urgent need: average forecast for the next 26 weeks, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine, planned-care and home-visiting need use averages from the last 52 completed weeks ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
+ let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine, planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
  let clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
  let configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
  let appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=appointmentCategoryFor(name).trim().toLowerCase(),mode=window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
  const wholeDayLimits=Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limit])=>[name,{...limit,...(Array.isArray(limit.workingPattern)?{workingPattern:['Mon','Tue','Wed','Thu','Fri'].flatMap(day=>limit.workingPattern.some(period=>period.startsWith(day+' '))?[day+' AM',day+' PM']:[])}:{})}]));
  const dailyRules=typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules.map(rule=>({...rule,scope:rule.scope==='week'?'week':'day'}));
- const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,dailyRules,{respectTypes:true,optimizeCost:true,clinicians:clinicianMap,clinicianLimits:wholeDayLimits,appointmentPools}];
+ const args=[configuredTypes,configuredModes(),[...configuredGroups(),'Uncategorised'],history.forecast?demand:null,dailyRules,{respectTypes:true,optimizeCost:true,planningPeriods:selectedPlannerPeriods(),clinicians:clinicianMap,clinicianLimits:wholeDayLimits,appointmentPools}];
  const key=JSON.stringify(args);requirementsCurrentKey=key;
- const storage=window.SessionBuilderPlanStorage,scope=storage?.scope(),saved=storage?.read();
- if(scope&&scope!==restoredTimeScope){const control=byId('sessionBuilderSolveTime');if(control&&[10,30,60].includes(saved?.seconds))control.value=String(saved.seconds);restoredTimeScope=scope;}
+
  const restored=!reset&&requirementsRenderedKey===null?saved?.snapshot:null;
  if(restored){requirementsRenderedKey=restored.key;requirementsHasPlan=true;configuredTypes=restored.args[0];clinicianMap=restored.args[5].clinicians;appointmentPools=restored.args[5].appointmentPools;demand=restored.args[3];history={...history,forecast:restored.forecastAvailable};historyText=restored.historyText;}
 
