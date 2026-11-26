@@ -305,3 +305,5 @@
 /* Shared thin dividers for clinician groups in both planner tables. */
 #sessionBuilderPage .session-builder-plan-table tbody .session-builder-plan-group-row th,
 #sessionBuilderPage .session-builder-clinician-summary-table tbody .session-builder-clinician-summary-group th{width:auto;text-align:left;background:#fff;color:#46708b;font-size:12px;line-height:1.3;font-weight:700;padding:5px 12px;border-top:2px solid #b8d0dd;border-right:0;border-bottom:1px solid #dce8f0}
+#sessionBuilderPage .session-builder-plan-table tbody tr:not(.session-builder-plan-group-row) > th:first-child,
+#sessionBuilderPage .session-builder-plan-table tfoot tr > th:first-child{border-right:2px solid #b7cddd}
