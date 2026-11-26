@@ -77,7 +77,7 @@ function renderTimeline(){
  }
  draft.blocks.forEach((block,index)=>{
   const item=choices.find(choice=>choice.id===block.type),duration=durationOf(block),card=document.createElement('div');card.className='session-layout-placed '+item.kind+(movingBlock===block?' moving':'');card.style.gridRow=(1+(block.start-draft.start)/5)+' / span '+(duration/5);card.draggable=true;applyConsultColour(card,item.kind);card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Move '+item.label+' at '+clock(block.start));
-  const label=document.createElement('span');label.textContent=clock(block.start)+'–'+clock(block.start+duration)+' · '+item.label+' · '+duration+' min';
+  const label=document.createElement('span');label.textContent=item.label+' · '+duration+' min';
   const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Remove '+item.label+' at '+clock(block.start));remove.addEventListener('click',()=>{if(movingBlock===block)movingBlock=null;draft.blocks.splice(index,1);dirty();renderTimeline();message('Block removed.');});
   if(block.type==='admin'){
    for(const edge of ['top','bottom']){
