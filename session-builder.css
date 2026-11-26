@@ -298,3 +298,4 @@
 #sessionBuilderPage .session-builder-requirements .session-builder-capacity-heading{margin:36px 0 12px}
 #sessionBuilderPage .session-builder-clinician-summary-table .session-builder-clinician-summary-group th{padding:9px 16px;text-align:left;background:#e6f1f5;color:#22516b;font-size:12px;font-weight:700;border-bottom:1px solid #d2dfea}
 @media(max-width:1000px){#sessionBuilderPage .session-builder-toolbar .session-builder-solve-actions{margin-left:0;max-width:100%;flex-wrap:wrap}}
+#sessionBuilderPage .session-builder-plan-table tbody .session-builder-plan-group-row th{width:auto;text-align:left;background:#dfeef5;color:#1b4e6b;font-weight:700;border-top:1px solid #c6dce7;border-right:0;padding:9px 12px}

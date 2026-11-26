@@ -7,6 +7,17 @@ const configuredGroups=()=>clinicianGroupNames.filter(name=>name!=='Uncategorise
 const configuredClinicians=()=>clinicianCategoryNames.filter(name=>name&&name!=='Uncategorised'&&isDashboardToggleOption(name));
 const clinicianGroup=name=>configuredGroups().includes(clinicianGroupAssignments[name])?clinicianGroupAssignments[name]:'Uncategorised';
 const selectedClinicians=row=>Array.isArray(row.eligibleClinicians)?row.eligibleClinicians:configuredClinicians().filter(name=>(row.clinicianTypes||[]).includes(clinicianGroup(name)));
+function groupPlanRows(rows,types,clinicianMap,groupOrder){
+ const definitions=new Map(types.map(type=>[type.id,type])),groups=new Map();
+ for(const row of rows){
+  const definition=definitions.get(row.id),names=definition?.eligibleClinicians||[],eligibleGroups=[...new Set(names.map(name=>clinicianMap[name]||'Uncategorised'))];
+  const label=eligibleGroups.length>1?'Mixed':eligibleGroups[0]||'Uncategorised';
+  if(!groups.has(label))groups.set(label,[]);groups.get(label).push({row,eligibleGroups});
+ }
+ const ranking=label=>label==='Mixed'?groupOrder.length+2:label==='Uncategorised'?groupOrder.length+1:groupOrder.indexOf(label)<0?groupOrder.length:groupOrder.indexOf(label);
+ return [...groups].sort((a,b)=>ranking(a[0])-ranking(b[0])||a[0].localeCompare(b[0])).map(([name,items])=>({name,items}));
+}
+window.sessionBuilderPlanGroups=groupPlanRows;
 function validateRows(rows){
  if(!Array.isArray(rows))throw Error('Session types must be a list.');
  const ids=new Set(),names=new Set();
@@ -172,12 +183,14 @@ async function renderSessionRequirements(settings={}){
  const shareFormat=new Intl.NumberFormat('en-GB',{maximumFractionDigits:2}),rowCosts=[];
  const currentClinicians=new Set(configuredClinicians());
  const grandSplit={},dailySplits=Array.from({length:5},()=>({}));
- for(const row of estimate.rows){
+ for(const group of groupPlanRows(estimate.rows,configuredTypes,clinicianMap,configuredGroups())){
+  const heading=document.createElement('tr'),groupHeading=document.createElement('th');heading.className='session-builder-plan-group-row';groupHeading.scope='rowgroup';groupHeading.colSpan=8;groupHeading.textContent=group.name;heading.append(groupHeading);body.append(heading);
+  for(const {row,eligibleGroups} of group.items){
   const cells=[];for(let day=0;day<5;day++)cells.push(unavailable?null:row.periods.morning[day]+row.periods.afternoon[day]);
   const rowSplit={};if(!unavailable)for(let day=0;day<5;day++)for(const period of ['morning','afternoon'])mergeSplit(rowSplit,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
   mergeSplit(grandSplit,rowSplit);
   const appointmentTotal=Object.values(rowSplit).reduce((sum,value)=>sum+value,0);
-  const tr=addCells(body,row.name,[...cells,unavailable?null:cells.reduce((a,b)=>a+b,0),unavailable?null:appointmentTotal],row.group||'Choose eligible clinicians');
+  const tr=addCells(body,row.name,[...cells,unavailable?null:cells.reduce((a,b)=>a+b,0),unavailable?null:appointmentTotal],eligibleGroups.length>1?eligibleGroups.join(' · '):eligibleGroups.length?'':'Choose eligible clinicians');
   if(!unavailable){
    for(let day=0;day<5;day++){
     const split={};for(const period of ['morning','afternoon'])mergeSplit(split,estimate.appointmentBreakdown?.[row.id]?.[day]?.[period]);
@@ -187,6 +200,7 @@ async function renderSessionRequirements(settings={}){
    const eligible=(definition?.eligibleClinicians||[]).filter(name=>currentClinicians.has(name));
    const cost=estimate.costOptimised?window.SessionBuilderCosting.allocated(estimate.placements,row.id,costLimits):window.SessionBuilderCosting.equalSplit(cells.reduce((a,b)=>a+b,0),eligible,costLimits);
    rowCosts.push(cost);
+  }
   }
  }
  if(!estimate.rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=8;cell.textContent='Add session types above to calculate the requirement.';row.append(cell);body.append(row);}
