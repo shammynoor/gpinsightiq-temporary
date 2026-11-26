@@ -210,6 +210,17 @@ async function renderSessionRequirements(settings={}){
  capacityRow('Appointments provided',providedDays,[unavailable?null:estimate.weeklyCapacity,unavailable?null:estimate.routineCapacity,unavailable?null:estimate.plannedCapacity],{provided:true});
  capacityRow('Home visits needed',demand?.homeVisit||Array(5).fill(null),[null,null,null],{home:true});
  capacityRow('Home visits provided',unavailable?Array(5).fill(null):estimate.capacityHomeVisit||Array(5).fill(null),[null,null,null],{home:true,provided:true});
+ const clinicianBody=byId('sessionBuilderClinicianSummaryBody'),clinicianFoot=byId('sessionBuilderClinicianSummaryFoot');
+ if(clinicianBody&&clinicianFoot){
+  clinicianBody.replaceChildren();clinicianFoot.replaceChildren();
+  const addClinicianRow=(parent,name,sessions,cost)=>{const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=name;row.append(label);for(const text of [sessions,cost]){const cell=document.createElement('td');cell.textContent=text;row.append(cell);}parent.append(row);};
+  if(unavailable){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=3;cell.textContent='Re-optimise the planner to see clinician sessions and costs.';row.append(cell);clinicianBody.append(row);}
+  else{
+   const totalCost=window.SessionBuilderCosting.total(rowCosts),parts=totalCost.parts.filter(part=>part.sessions>0).sort((a,b)=>a.name.localeCompare(b.name,'en-GB'));
+   for(const part of parts)addClinicianRow(clinicianBody,part.name,shareFormat.format(part.sessions),part.missing?'Rate needed':money.format(part.pence/100));
+   addClinicianRow(clinicianFoot,'Total',shareFormat.format(parts.reduce((sum,part)=>sum+part.sessions,0)),totalCost.complete?money.format(totalCost.pence/100):'Incomplete');
+  }
+ }
  const normal=name=>String(name).toLowerCase().replace(/[^a-z0-9]/g,'');
  for(const [key,pool,preferred,fallback] of [['daily','sameDay','sameday','#e94e70'],['weekly','weekly','within3days','#d9b425'],['routine','routine','routine','#76b79e'],['planned','planned','followup','#aab8cb'],['home','homeVisit','visit','#efc0a6']]){
   const names=Object.keys(appointmentPools).filter(name=>appointmentPools[name]===pool),name=names.find(name=>normal(name)===preferred)||names[0];

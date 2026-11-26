@@ -256,3 +256,9 @@
 #sessionBuilderPage #sessionBuilderResetPlanner>span:not(.session-builder-button-progress){position:relative;z-index:1}
 #sessionBuilderPage .session-builder-time-limit{display:flex;flex-direction:column;gap:5px;margin:0;font-size:12px;min-width:130px}
 #sessionBuilderPage .session-builder-time-limit select{width:100%;margin:0}
+
+#sessionBuilderPage .session-builder-clinician-summary-table{min-width:0;width:100%;table-layout:fixed;font-variant-numeric:tabular-nums}
+#sessionBuilderPage .session-builder-clinician-summary-table th:nth-child(n){width:auto;min-width:0;overflow-wrap:anywhere}
+#sessionBuilderPage .session-builder-clinician-summary-table th:nth-child(n+2),#sessionBuilderPage .session-builder-clinician-summary-table td{text-align:right}
+#sessionBuilderPage .session-builder-clinician-summary-table th,#sessionBuilderPage .session-builder-clinician-summary-table td{padding:12px 16px;border-bottom:1px solid #d2dfea}
+#sessionBuilderPage .session-builder-clinician-summary-table tfoot th,#sessionBuilderPage .session-builder-clinician-summary-table tfoot td{background:#edf3f8;border-top:2px solid #adc2d3;border-bottom:0;font-weight:700}
