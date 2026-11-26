@@ -7,9 +7,12 @@ const choices=[
  {id:'phone10',label:'Phone call',minutes:10,kind:'phone'},
  {id:'phone5',label:'Phone call',minutes:5,kind:'phone'},
  {id:'visit30',label:'Visit',minutes:30,kind:'visit'},
- {id:'catchup10',label:'Catch-up',minutes:10,kind:'catchup'}
+ {id:'catchup10',label:'Catch-up',minutes:10,kind:'catchup'},
+ {id:'admin',label:'Admin',minutes:15,kind:'admin'}
 ];
-const drafts=new Map();let draft=null,selected=null,movingBlock=null,dragKind='';
+let draft=null,sessionId=null,selected=null,movingBlock=null,dragKind='',hasChanges=false;
+const durationOf=block=>block.type==='admin'?block.duration:choices.find(choice=>choice.id===block.type).minutes;
+const dirty=()=>{hasChanges=true;byId('sessionLayoutSaveStatus').textContent='Unsaved changes';};
 const minutes=value=>/^\d\d:\d\d$/.test(value)?Number(value.slice(0,2))*60+Number(value.slice(3)):NaN;
 const clock=value=>String(Math.floor(value/60)).padStart(2,'0')+':'+String(value%60).padStart(2,'0');
 const message=text=>{byId('sessionLayoutStatus').textContent=text};
@@ -26,9 +29,10 @@ function renderPalette(){
 function addAt(type,time,existing){
  const item=existing?choices.find(choice=>choice.id===existing.type):choices.find(choice=>choice.id===type);
  if(!item)return;
- if(time<draft.start||time+item.minutes>draft.end){message('That block does not fit within the session times.');return;}
- if(draft.blocks.some(block=>block!==existing&&time<block.start+choices.find(choice=>choice.id===block.type).minutes&&time+item.minutes>block.start)){message('That time overlaps another block. Choose an empty time.');return;}
- if(existing)existing.start=time;else draft.blocks.push({type:item.id,start:time});
+ const duration=existing?durationOf(existing):item.minutes;
+ if(time<draft.start||time+duration>draft.end){message('That block does not fit within the session times.');return;}
+ if(draft.blocks.some(block=>block!==existing&&time<block.start+durationOf(block)&&time+duration>block.start)){message('That time overlaps another block. Choose an empty time.');return;}
+ if(existing)existing.start=time;else draft.blocks.push(item.id==='admin'?{type:item.id,start:time,duration:item.minutes}:{type:item.id,start:time});dirty();
  movingBlock=null;message(item.label+(existing?' moved to ':' added at ')+clock(time)+'.');renderTimeline();
 }
 function timeAt(clientY){
@@ -50,9 +54,25 @@ function renderTimeline(){
   root.append(slot);
  }
  draft.blocks.forEach((block,index)=>{
-  const item=choices.find(choice=>choice.id===block.type),card=document.createElement('div');card.className='session-layout-placed '+item.kind+(movingBlock===block?' moving':'');card.style.gridRow=(1+(block.start-draft.start)/5)+' / span '+(item.minutes/5);card.draggable=true;card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Move '+item.label+' at '+clock(block.start));
-  const label=document.createElement('span');label.textContent=clock(block.start)+'–'+clock(block.start+item.minutes)+' · '+item.label+' · '+item.minutes+' min';
-  const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Remove '+item.label+' at '+clock(block.start));remove.addEventListener('click',()=>{if(movingBlock===block)movingBlock=null;draft.blocks.splice(index,1);renderTimeline();message('Block removed.');});
+  const item=choices.find(choice=>choice.id===block.type),duration=durationOf(block),card=document.createElement('div');card.className='session-layout-placed '+item.kind+(movingBlock===block?' moving':'');card.style.gridRow=(1+(block.start-draft.start)/5)+' / span '+(duration/5);card.draggable=true;card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Move '+item.label+' at '+clock(block.start));
+  const label=document.createElement('span');label.textContent=clock(block.start)+'–'+clock(block.start+duration)+' · '+item.label+' · '+duration+' min';
+  const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Remove '+item.label+' at '+clock(block.start));remove.addEventListener('click',()=>{if(movingBlock===block)movingBlock=null;draft.blocks.splice(index,1);dirty();renderTimeline();message('Block removed.');});
+  if(block.type==='admin'){
+   for(const edge of ['top','bottom']){
+    const handle=document.createElement('button');handle.type='button';handle.className='session-layout-resize '+edge;handle.setAttribute('aria-label','Resize Admin '+edge+' edge');handle.title='Drag to resize in 5 minute steps';
+    const resize=delta=>{
+     const start=edge==='top'?block.start+delta:block.start,end=edge==='bottom'?block.start+block.duration+delta:block.start+block.duration;
+     if(start<draft.start||end>draft.end||end-start<5||draft.blocks.some(other=>other!==block&&start<other.start+durationOf(other)&&end>other.start)){message('Admin must fit within the session without overlapping another block.');return;}
+     block.start=start;block.duration=end-start;dirty();renderTimeline();message('Admin block is '+block.duration+' minutes.');
+    };
+    let origin=null;
+    handle.addEventListener('pointerdown',event=>{event.preventDefault();event.stopPropagation();origin=event.clientY;handle.setPointerCapture(event.pointerId);});
+    handle.addEventListener('pointerup',event=>{event.preventDefault();event.stopPropagation();if(origin===null)return;const rect=root.getBoundingClientRect(),rowHeight=(rect.height-2)/((draft.end-draft.start)/5),delta=Math.round((event.clientY-origin)/rowHeight)*5;origin=null;if(delta)resize(delta);});
+    handle.addEventListener('pointercancel',()=>{origin=null;});
+    handle.addEventListener('keydown',event=>{if(!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();event.stopPropagation();resize(event.key==='ArrowUp'?-5:5);});
+    card.append(handle);
+   }
+  }
   const selectMove=()=>{movingBlock=block;selected=null;renderPalette();renderTimeline();message('Choose a new time for '+item.label+'.');};
   let touchStart=null,suppressClick=false;
   card.addEventListener('pointerdown',event=>{if(event.pointerType!=='touch'||event.target.closest('button'))return;touchStart={x:event.clientX,y:event.clientY,moved:false};card.setPointerCapture(event.pointerId);});
@@ -66,18 +86,24 @@ function renderTimeline(){
 function changeTimes(){
  const start=minutes(byId('sessionLayoutStart').value),end=minutes(byId('sessionLayoutEnd').value);
  if(!Number.isFinite(start)||!Number.isFinite(end)||start%5||end%5||end<=start||end-start>720){byId('sessionLayoutStart').value=clock(draft.start);byId('sessionLayoutEnd').value=clock(draft.end);message('Choose a start and end in five-minute steps, with an end after the start and no more than 12 hours apart.');return;}
- if(draft.blocks.some(block=>block.start<start||block.start+choices.find(choice=>choice.id===block.type).minutes>end)){byId('sessionLayoutStart').value=clock(draft.start);byId('sessionLayoutEnd').value=clock(draft.end);message('Remove or move blocks outside the new time range first.');return;}
- draft.start=start;draft.end=end;message('');renderTimeline();
+ if(draft.blocks.some(block=>block.start<start||block.start+durationOf(block)>end)){byId('sessionLayoutStart').value=clock(draft.start);byId('sessionLayoutEnd').value=clock(draft.end);message('Remove or move blocks outside the new time range first.');return;}
+ draft.start=start;draft.end=end;dirty();message('');renderTimeline();
 }
 window.openSessionLayoutPreview=row=>{
  if(!row||!byId('sessionLayoutEditor'))return;
- if(!drafts.has(row.id))drafts.set(row.id,{start:510,end:750,blocks:[]});draft=drafts.get(row.id);selected=null;movingBlock=null;
+ sessionId=row.id;const saved=window.getSessionBuilderLayout?.(row.id);draft=saved?JSON.parse(JSON.stringify(saved)):{start:510,end:750,blocks:[]};selected=null;movingBlock=null;hasChanges=false;byId('sessionLayoutSaveStatus').textContent='';
  byId('sessionLayoutTitle').textContent=row.name+' session';byId('sessionLayoutStart').value=clock(draft.start);byId('sessionLayoutEnd').value=clock(draft.end);
  byId('sessionBuilderTypesContent').hidden=true;byId('sessionLayoutEditor').hidden=false;byId('sessionBuilderPage').querySelector('.session-builder-tabs').hidden=true;
  message('');renderPalette();renderTimeline();byId('sessionLayoutBack').focus();
 };
+byId('sessionLayoutSave')?.addEventListener('click',async()=>{
+ const button=byId('sessionLayoutSave'),snapshot=JSON.stringify(draft),savedId=sessionId;button.disabled=true;byId('sessionLayoutSaveStatus').textContent='Saving…';
+ try{await window.saveSessionBuilderLayout(savedId,JSON.parse(snapshot));if(sessionId===savedId){hasChanges=JSON.stringify(draft)!==snapshot;byId('sessionLayoutSaveStatus').textContent=hasChanges?'Unsaved changes':'Session layout saved.';}}
+ catch(error){byId('sessionLayoutSaveStatus').textContent=error.message||'Could not save the session layout.';}
+ finally{button.disabled=false;}
+});
 byId('sessionLayoutTimeline')?.addEventListener('dragover',event=>{event.preventDefault();event.dataTransfer.dropEffect=dragKind==='move'?'move':'copy';});
 byId('sessionLayoutTimeline')?.addEventListener('drop',event=>{event.preventDefault();const time=timeAt(event.clientY);if(time===null)return;const [kind,value]=event.dataTransfer.getData('text/plain').split(':');if(kind==='new')addAt(value,time);if(kind==='move'){const block=draft.blocks[Number(value)];if(block)addAt(block.type,time,block);}dragKind='';});
-byId('sessionLayoutBack')?.addEventListener('click',()=>{byId('sessionLayoutEditor').hidden=true;byId('sessionBuilderTypesContent').hidden=false;byId('sessionBuilderPage').querySelector('.session-builder-tabs').hidden=false;});
+byId('sessionLayoutBack')?.addEventListener('click',()=>{if(byId('sessionLayoutSave').disabled){message('Please wait for the layout to finish saving.');return;}if(hasChanges&&!confirm('Leave without saving this session layout?'))return;byId('sessionLayoutEditor').hidden=true;byId('sessionBuilderTypesContent').hidden=false;byId('sessionBuilderPage').querySelector('.session-builder-tabs').hidden=false;});
 byId('sessionLayoutStart')?.addEventListener('change',changeTimes);byId('sessionLayoutEnd')?.addEventListener('change',changeTimes);
 })();

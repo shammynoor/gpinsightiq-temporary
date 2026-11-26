@@ -356,3 +356,14 @@
 #sessionBuilderPage .session-layout-block-choice.visit{background:#fdf0e7;border-color:#f2dcca;border-left-color:#d99468;color:#805236}
 #sessionBuilderPage .session-layout-placed.visit{background:#f8e9dd;border-left-color:#d99468;color:#805236}
 @media(max-width:650px){#sessionBuilderPage .session-layout-workspace{grid-template-columns:1fr}#sessionBuilderPage .session-layout-timetable-content{grid-template-columns:minmax(0,1fr) 105px;gap:8px}#sessionBuilderPage .session-layout-tally{padding:9px 7px}#sessionBuilderPage .session-layout-tally dl>div{font-size:11px;gap:3px}#sessionBuilderPage .session-layout-tally h4{font-size:11px}#sessionBuilderPage .session-layout-timeline{grid-template-columns:40px minmax(0,1fr)}#sessionBuilderPage .session-layout-slot{padding-left:3px}#sessionBuilderPage .session-layout-placed{padding-left:3px;font-size:9px}}
+
+#sessionBuilderPage .session-layout-save-bar{display:flex;align-items:center;gap:12px;margin:0 0 18px;flex-wrap:wrap}
+#sessionBuilderPage .session-layout-save-bar button{width:auto;min-height:38px;padding:8px 15px;font-size:13px}
+#sessionBuilderPage #sessionLayoutSaveStatus{font-size:12px;color:#567289}
+#sessionBuilderPage .session-layout-block-choice.catchup{background:#404a52;border-color:#404a52;border-left-color:#a6b2ba;color:#f4f6f7}
+#sessionBuilderPage .session-layout-placed.catchup{background:#404a52;border-left-color:#a6b2ba;color:#f4f6f7}
+#sessionBuilderPage .session-layout-block-choice.admin{background:#fff1cf;border-color:#f0dfb7;border-left-color:#d49d3c;color:#75521c}
+#sessionBuilderPage .session-layout-placed.admin{position:relative;background:#fff1cf;border-left-color:#d49d3c;color:#75521c;padding-top:5px;padding-bottom:5px}
+#sessionBuilderPage .session-layout-placed .session-layout-resize{position:absolute;left:0;right:0;width:100%;height:7px;min-height:7px;border:0;border-radius:0;padding:0;background:transparent;cursor:ns-resize;touch-action:none}
+#sessionBuilderPage .session-layout-placed .session-layout-resize.top{top:0}#sessionBuilderPage .session-layout-placed .session-layout-resize.bottom{bottom:0}
+#sessionBuilderPage .session-layout-resize::after{content:'';display:block;width:22px;height:2px;margin:auto;background:#9b7d4a;border-radius:2px}

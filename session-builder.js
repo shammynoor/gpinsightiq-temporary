@@ -30,6 +30,16 @@ function validateRows(rows){
   if(row.clinicianTypes!==undefined&&(!Array.isArray(row.clinicianTypes)||row.clinicianTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.clinicianTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.clinicianTypes.length))throw Error('Choose each eligible clinician group only once.');
   if(row.eligibleClinicians!==undefined&&(!Array.isArray(row.eligibleClinicians)||row.eligibleClinicians.some(type=>typeof type!=='string'||!type.trim())||new Set(row.eligibleClinicians.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.eligibleClinicians.length))throw Error('Choose each eligible clinician type only once.');
   if(row.appointmentTypes!==undefined&&(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.appointmentTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.appointmentTypes.length))throw Error('Choose each appointment type only once.');
+  if(row.layout!==undefined){
+   const layout=row.layout,types={face15:15,face10:10,phone10:10,phone5:5,visit30:30,catchup10:10,admin:15};
+   if(!layout||typeof layout!=='object'||!Number.isInteger(layout.start)||!Number.isInteger(layout.end)||layout.start<0||layout.end>1440||layout.start%5||layout.end%5||layout.end<=layout.start||layout.end-layout.start>720||!Array.isArray(layout.blocks)||layout.blocks.length>144)throw Error('Invalid session layout.');
+   let previous=layout.start;
+   for(const block of [...layout.blocks].sort((a,b)=>a.start-b.start)){
+    const duration=block?.type==='admin'?block.duration:types[block?.type];
+    if(!block||!Object.hasOwn(types,block.type)||!Number.isInteger(block.start)||block.start%5||!Number.isInteger(duration)||duration<5||duration%5||block.start<previous||block.start+duration>layout.end)throw Error('Session layout blocks must fit without overlapping.');
+    previous=block.start+duration;
+   }
+  }
   ids.add(row.id);names.add(name);
  }
  return true;
@@ -53,6 +63,15 @@ function commit(rows){
  if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
  validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty(250);try{renderSessionRequirements();}catch(error){console.error('Session requirements could not be updated',error);const status=byId('sessionBuilderPlanStatus');if(status)status.textContent='Could not update session requirements: '+error.message;}
 }
+window.getSessionBuilderLayout=id=>sessionBuilderTypes.find(row=>row.id===id)?.layout;
+window.saveSessionBuilderLayout=async(id,layout)=>{
+ if(!canEditSessionBuilder())throw Error('Practice administrator access is required.');
+ if(!sessionBuilderTypes.some(row=>row.id===id))throw Error('This session type no longer exists.');
+ const rows=sessionBuilderTypes.map(row=>row.id===id?{...row,layout:JSON.parse(JSON.stringify(layout))}:row);
+ validateRows(rows);sessionBuilderTypes=reconcileRows(rows);markCategoryDirty(250);
+ const saved=await saveCloudCategories();
+ if(!saved||categoryDirty)throw Error('The layout is waiting to save. Please try again or check the practice settings save status.');
+};
 let demandCache=null;
 function readAverageDemand(){
  const today=dayView2LondonClock().date,current=GPCorrectness.monday(today),periods=selectedPlannerPeriods();
@@ -121,7 +140,7 @@ async function renderSessionRequirements(settings={}){
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
  let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine need uses a recent-weighted, list-size-adjusted forecast. Planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
  let clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
- let configuredTypes=sessionBuilderTypes.map(row=>({...row,eligibleClinicians:selectedClinicians(row)}));
+ let configuredTypes=sessionBuilderTypes.map(({layout,...row})=>({...row,eligibleClinicians:selectedClinicians(row)}));
  let appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=canonicalAppointmentCategoryFor(name).trim().toLowerCase(),mode=typeof appointmentUrgencyPlanningMode==='function'?appointmentUrgencyPlanningMode(name):window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
  const wholeDayLimits=Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limit])=>[name,{...limit,...(Array.isArray(limit.workingPattern)?{workingPattern:['Mon','Tue','Wed','Thu','Fri'].flatMap(day=>limit.workingPattern.some(period=>period.startsWith(day+' '))?[day+' AM',day+' PM']:[])}:{})}]));
  const dailyRules=typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules.map(rule=>({...rule,scope:rule.scope==='week'?'week':'day'}));
