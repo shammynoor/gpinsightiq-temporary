@@ -409,3 +409,5 @@
 #sessionBuilderPage #sessionBuilderTable thead th{background:#dce8ef}
 #sessionBuilderPage #sessionBuilderTable thead th.session-setup-direct{background:#d0e3f1}
 #sessionBuilderPage #sessionBuilderTable thead th.session-setup-other{background:#d9e3e8}
+
+#sessionBuilderPage .session-setup-table-wrap{border:1px solid #b9cedc;box-shadow:0 4px 14px rgba(30,62,84,.12)}
