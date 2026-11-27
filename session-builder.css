@@ -402,3 +402,6 @@
 #sessionBuilderPage #sessionBuilderTable td.session-setup-actions-cell{white-space:nowrap}
 #sessionBuilderPage #sessionBuilderTable .session-setup-actions-cell .session-builder-edit{display:inline-block;vertical-align:middle;margin:0 4px 0 0;padding:6px 9px}
 #sessionBuilderPage #sessionBuilderTable .session-setup-actions-cell .session-builder-remove{display:inline-flex;vertical-align:middle;align-items:center;justify-content:center;width:30px;height:32px;min-height:32px;padding:0;font-size:20px;line-height:1}
+
+/* Blend alternate rows over the existing column colours without fading controls. */
+#sessionBuilderPage #sessionBuilderTable tbody tr:nth-child(even) td{background-image:linear-gradient(rgba(212,224,233,.5),rgba(212,224,233,.5))}
