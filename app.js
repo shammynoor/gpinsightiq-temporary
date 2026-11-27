@@ -1176,6 +1176,16 @@ function drawCalendarYearBand(chart){
   segments.push(segment);
  }
  band.replaceChildren(...segments);
+ if(chart.id==='combinedDemandChart'){
+  let boundaries=container.querySelector('.historic-year-boundaries');
+  if(!boundaries){boundaries=document.createElement('div');boundaries.className='historic-year-boundaries';container.append(boundaries)}
+  const lines=[];
+  for(let year=new Date(start).getUTCFullYear()+1;Date.UTC(year,0,1)<end;year++){
+   const line=document.createElement('span');line.style.left=(axis._offset+axis.l2p(Date.UTC(year,0,1)))+'px';
+   line.style.top=layout.yaxis._offset+'px';line.style.height=(layout.yaxis._length+29+band.offsetHeight)+'px';lines.push(line);
+  }
+  boundaries.replaceChildren(...lines);
+ }
 }
 
 function renderPreferencePlot(target,traces,layout,config,useCalendarBand=true){
@@ -1186,6 +1196,7 @@ function renderPreferencePlot(target,traces,layout,config,useCalendarBand=true){
   calendarYearBandListeners.delete(chart);
  }
  chart.querySelector('.calendar-year-band')?.remove();
+ chart.querySelector('.historic-year-boundaries')?.remove();
  const calendarAxis=useCalendarBand&&layout.xaxis?.type==='date'&&traces.some(trace=>trace.x?.length);
  if(calendarAxis){
   const xaxis=layout.xaxis;
