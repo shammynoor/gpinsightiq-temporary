@@ -251,7 +251,7 @@ function applyTab(name){
  if(name==='clinician')window.renderSessionBuilderClinicians?.();
  if(name==='rules')renderSessionBuilderRules();
  if(name==='planner')window.renderSessionBuilderRequirements?.();
- if(name==='release'){const frame=byId('sessionBuilderReleaseFrame');if(frame&&!frame.src)frame.src='sandbox/slot-release-preview.html?v=slot-release-shortfall-v1';}
+ if(name==='release'){const frame=byId('sessionBuilderReleaseFrame');if(frame&&!frame.src)frame.src='sandbox/slot-release-preview.html?v=slot-release-filter-rail-v1';}
 }
 window.restoreSessionBuilderTab=()=>{const saved=window.gpChartPreferences?.read()?.sessionBuilderTab;applyTab(tabs.some(([key])=>key===saved)?saved:'types');};
 function chooseTab(name){if(!canEditSessionBuilder())return;window.gpChartPreferences?.write('sessionBuilderTab',name);applyTab(name);}

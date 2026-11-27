@@ -12,7 +12,15 @@ function holidayNames(year){
  for(const [day,name] of [[25,'Christmas Day'],[26,'Boxing Day']]){const original=date(12,day),weekend=original.getUTCDay()===0||original.getUTCDay()===6;add(move(original,weekend?2:0),name+(weekend?' (substitute)':''));}
  return names;
 }
-function buildSnapshot(){
+function filterOptions(){
+ if(!canEditSessionBuilder()||!iqBridge?.practice?.id)throw Error('Sign in to an authorised practice administrator workspace first.');
+ const groups=typeof clinicianGroupNames==='undefined'?[]:clinicianGroupNames.filter(isDashboardToggleOption).map(name=>({name,colour:clinicianGroupColour(name)}));
+ const modes=typeof consultCategoryNames==='undefined'?[]:consultCategoryNames.filter(isDashboardToggleOption).map(name=>({name,colour:consultModeColours[name]||'#638fac'}));
+ if(availabilityRecords.some(row=>!groups.some(item=>item.name===clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)])))groups.push({name:'Uncategorised',colour:'#9caab4'});
+ if(availabilityRecords.some(row=>!modes.some(item=>item.name===(consultAssignments[row.slot]||suggestConsultMode(row.slot)))))modes.push({name:'Uncategorised',colour:'#9caab4'});
+ return {groups,modes,locum:[{name:'Locum',colour:'#638fac'},{name:'Not Locum',colour:'#638fac'}]};
+}
+function buildSnapshot(filters={}){
  if(!canEditSessionBuilder()||!iqBridge?.practice?.id)throw Error('Sign in to an authorised practice administrator workspace first.');
  if(!Array.isArray(availabilityRecords)||!availabilityRecords.length)throw Error('No Slot Report is loaded for this practice.');
  const today=dayView2LondonClock().date,start=GPCorrectness.monday(today),end=shift(start,55),demand=window.getSlotReleaseSandboxDemand?.();
@@ -21,7 +29,13 @@ function buildSnapshot(){
  const dailyGroups=new Set(forecasts?.groups||[]),weeklyGroups=new Set(forecasts?.weeklyGroups||[]);
  for(const row of availabilityRecords){
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||!row.date||row.date<start||row.date>end)continue;
-  knownDates.add(row.date);const appointmentType=capacityUrgencyCategory(row.slot),type=appointmentCategoryFor(appointmentType);if(!type){unmapped=true;continue;}
+  knownDates.add(row.date);
+  if(filters.groups||filters.modes||filters.locum){
+   const mappedGroup=clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)],group=clinicianGroupNames.includes(mappedGroup)?mappedGroup:'Uncategorised';
+   const mappedMode=consultAssignments[row.slot]||suggestConsultMode(row.slot),mode=consultCategoryNames.includes(mappedMode)?mappedMode:'Uncategorised';
+   if((filters.groups&&!filters.groups.includes(group))||(filters.modes&&!filters.modes.includes(mode))||(filters.locum&&!filters.locum.includes(locumCategory(row))))continue;
+  }
+  const appointmentType=capacityUrgencyCategory(row.slot),type=appointmentCategoryFor(appointmentType);if(!type){unmapped=true;continue;}
   if((type==='Daily Urgent'&&!dailyGroups.has(appointmentType))||(type==='Weekly Urgent'&&!weeklyGroups.has(appointmentType)))forecastFiltered=true;
   if(!['Daily Urgent','Weekly Urgent','Routine','Planned'].includes(type))continue;
   const status=String(row.availability||'').trim().toLowerCase(),count=Number(row.count)||0;
@@ -43,6 +57,7 @@ function buildSnapshot(){
  });
  return {today,practiceName:iqBridge.practice.name||'Practice',asOf:Number.isFinite(capacityCSVLatestModified)?new Date(capacityCSVLatestModified).toISOString():null,unmapped,forecastFiltered,weeks};
 }
+window.getSlotReleaseSandboxFilterOptions=filterOptions;
 window.getSlotReleaseSandboxData=buildSnapshot;
 window.isSlotReleaseSandboxAuthorised=()=>!!(canEditSessionBuilder()&&iqBridge?.practice?.id);
 })();
