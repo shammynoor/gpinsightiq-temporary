@@ -1181,8 +1181,10 @@ function drawCalendarYearBand(chart){
   if(!boundaries){boundaries=document.createElement('div');boundaries.className='historic-year-boundaries';container.append(boundaries)}
   const lines=[];
   for(let year=new Date(start).getUTCFullYear()+1;Date.UTC(year,0,1)<end;year++){
-   const line=document.createElement('span');line.style.left=(axis._offset+axis.l2p(Date.UTC(year,0,1)))+'px';
-   line.style.top=layout.yaxis._offset+'px';line.style.height=(layout.yaxis._length+29+band.offsetHeight)+'px';lines.push(line);
+   const left=(axis._offset+axis.l2p(Date.UTC(year,0,1)))+'px';
+   for(const [top,height] of [[layout.yaxis._offset,layout.yaxis._length],[layout.yaxis._offset+layout.yaxis._length+29,band.offsetHeight]]){
+    const line=document.createElement('span');line.style.left=left;line.style.top=top+'px';line.style.height=height+'px';lines.push(line);
+   }
   }
   boundaries.replaceChildren(...lines);
  }
