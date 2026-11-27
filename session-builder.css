@@ -404,4 +404,8 @@
 #sessionBuilderPage #sessionBuilderTable .session-setup-actions-cell .session-builder-remove{display:inline-flex;vertical-align:middle;align-items:center;justify-content:center;width:30px;height:32px;min-height:32px;padding:0;font-size:20px;line-height:1}
 
 /* Blend alternate rows over the existing column colours without fading controls. */
-#sessionBuilderPage #sessionBuilderTable tbody tr:nth-child(even) td{background-image:linear-gradient(rgba(212,224,233,.5),rgba(212,224,233,.5))}
+#sessionBuilderPage #sessionBuilderTable tbody tr:nth-child(even) td{background-image:linear-gradient(rgba(212,224,233,.25),rgba(212,224,233,.25))}
+
+#sessionBuilderPage #sessionBuilderTable thead th{background:#dce8ef}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-direct{background:#d0e3f1}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-other{background:#d9e3e8}
