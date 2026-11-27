@@ -120,7 +120,7 @@ let restoredTimeScope=null;
 byId('sessionBuilderSolveTime')?.addEventListener('change',()=>window.SessionBuilderPlanStorage?.saveTime(selectedSolveSeconds()));
 function selectedPlannerPeriods(){return window.SessionBuilderPeriods.normalise({horizonMonths:byId('sessionBuilderHorizon')?.value,historyMonths:byId('sessionBuilderHistoryPeriod')?.value});}
 for(const id of ['sessionBuilderHorizon','sessionBuilderHistoryPeriod'])byId(id)?.addEventListener('change',()=>{window.SessionBuilderPlanStorage?.savePeriods(selectedPlannerPeriods());return renderSessionRequirements();});
-function selectedSolveSeconds(){const value=Number(byId('sessionBuilderSolveTime')?.value||30);return [5,10,30,60].includes(value)?value:30;}
+function selectedSolveSeconds(){const value=Number(byId('sessionBuilderSolveTime')?.value||30);return [10,30,60].includes(value)?value:30;}
 function setPlannerBusy(busy){
  requirementsSolving=busy;
  const button=byId('sessionBuilderResetPlanner'),spinner=byId('sessionBuilderSolveSpinner'),label=byId('sessionBuilderResetLabel'),root=byId('sessionBuilderRequirements');
@@ -137,7 +137,7 @@ async function renderSessionRequirements(settings={}){
  const root=byId('sessionBuilderRequirements');if(!root)return;
  if(!canEditSessionBuilder()){root.hidden=true;return;}root.hidden=false;
  const storage=window.SessionBuilderPlanStorage,scope=storage?.scope(),saved=storage?.read();
- if(scope&&scope!==restoredTimeScope){const control=byId('sessionBuilderSolveTime');if(control&&[5,10,30,60].includes(saved?.seconds))control.value=String(saved.seconds);if(saved?.periods){const periods=window.SessionBuilderPeriods.normalise(saved.periods);if(byId('sessionBuilderHorizon'))byId('sessionBuilderHorizon').value=String(periods.horizonMonths);if(byId('sessionBuilderHistoryPeriod'))byId('sessionBuilderHistoryPeriod').value=String(periods.historyMonths);}restoredTimeScope=scope;}
+ if(scope&&scope!==restoredTimeScope){const control=byId('sessionBuilderSolveTime');if(control&&[5,10,30,60].includes(saved?.seconds))control.value=String(saved.seconds===5?10:saved.seconds);if(saved?.periods){const periods=window.SessionBuilderPeriods.normalise(saved.periods);if(byId('sessionBuilderHorizon'))byId('sessionBuilderHorizon').value=String(periods.horizonMonths);if(byId('sessionBuilderHistoryPeriod'))byId('sessionBuilderHistoryPeriod').value=String(periods.historyMonths);}restoredTimeScope=scope;}
  let history=readAverageDemand(),demand=history.demand;
  const format=new Intl.NumberFormat('en-GB',{maximumFractionDigits:1});
  const fmt=value=>Number.isFinite(value)?format.format(value):'—';
