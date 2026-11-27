@@ -6150,7 +6150,9 @@ async function replaceExistingCSV(file){
   const headers=Papa.parse(text,{header:true,preview:1}).meta.fields||[];
   if(headers.includes('request_date')&&headers.includes('request_type')){await iqBridge.importRapid(file);const refreshed=await loadFolder(true);iqUploadStatus.textContent=refreshed?'Rapid Health import finished.':'Rapid Health data saved, but the dashboard could not refresh. Refresh the page.';csvDropStatus(iqUploadStatus.textContent,!refreshed,false);return;}
   const kind=detectAnalyticsReportKind(text,file.name);
-  const holderTokens=kind==='slot'?await GPSessionsHistory.holderTokens(parseSlotReportCSV(text),iqBridge.practice.id):null;
+  const parsedSlot=kind==='slot'?parseSlotReportCSV(text):null;
+  const namedClinicians=parsedSlot&&typeof window.collectNamedClinicians==='function'?window.collectNamedClinicians(parsedSlot):[];
+  const holderTokens=parsedSlot?await GPSessionsHistory.holderTokens(parsedSlot,iqBridge.practice.id):null;
   const contribution=parseCSVContribution(text,kind==='slot'?'Slot Report.csv':'Signposting Auto Report.csv',holderTokens);
   const count=kind==='slot'?[...contribution.maps[1].values()].reduce((a,b)=>a+b,0):contribution.events.length;
   if(!count)throw Error('No valid records were found in this file. No saved reports were changed.');
@@ -6195,7 +6197,10 @@ async function replaceExistingCSV(file){
    const dates=[...contribution.maps[1].keys()].map(key=>JSON.parse(key)[0]).sort();
    if(dates[0]<from)throw Error('This file contains appointments before '+from+'. A weekly snapshot must contain only appointments from seven days before its report date onwards. Check the file date or choose the correct report.');
    const latest=iqSources.filter(row=>row.kind==='slot').map(row=>Date.parse(row.clinical_at)).filter(Number.isFinite).reduce((a,b)=>Math.max(a,b),0);
-   if(clinical.getTime()<=latest)throw Error('This report is not newer than the latest saved Slot Report. Existing reports are unchanged.');
+   if(clinical.getTime()<=latest){
+    if(namedClinicians.length){await iqBridge.importNamedClinicians(namedClinicians);iqUploadStatus.textContent='Clinician names added to Users. This report was already saved or is older, so report data was not changed.';csvDropStatus(iqUploadStatus.textContent,false,false);return;}
+    throw Error('This report is not newer than the latest saved Slot Report. Existing reports are unchanged.');
+   }
    contribution.snapshotType='rolling-weekly';contribution.snapshotFrom=from;
    sourceName='Weekly Slot Report '+clinical.toISOString();existing=null;
    const entries=[];
@@ -6216,9 +6221,12 @@ async function replaceExistingCSV(file){
   iqUploadStatus.textContent='Processing and saving '+file.name+'…';
   csvDropStatus(iqUploadStatus.textContent);
   await iqBridge.save({existing,kind,name:sourceName,clinical_at:reportClinicalAt,count,contribution});
+  let namedImportError='';
+  if(namedClinicians.length)try{await iqBridge.importNamedClinicians(namedClinicians)}catch(error){namedImportError=error.message||'unknown error'}
   const refreshed=await loadFolder(true);
   iqUploadStatus.textContent=refreshed?'Saved '+count.toLocaleString('en-GB')+' records for '+iqBridge.practice.name+'.':'Report saved, but the dashboard could not refresh. Refresh the page; do not upload the report again.';
-  csvDropStatus(iqUploadStatus.textContent,!refreshed,false);
+  if(namedImportError)iqUploadStatus.textContent+=' Clinician names could not be saved: '+namedImportError+'. Re-upload the report to retry.';
+  csvDropStatus(iqUploadStatus.textContent,!refreshed||!!namedImportError,false);
  }catch(error){if(iqUploadStatus)iqUploadStatus.textContent='Upload failed: '+error.message;csvDropStatus('Upload failed: '+error.message,true);}
  finally{iqUploading=false;csvDropBusy=false;}
 }
