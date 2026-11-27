@@ -16,6 +16,6 @@ test('tab keyboard navigation wraps and preserves old types preference',()=>{
  h.byId('sessionBuilderClinicianTab').events.keydown({key:'End',preventDefault(){}});assert.equal(h.prefs.sessionBuilderTab,'planner');assert.equal(h.byId('sessionBuilderPlannerTab').tabIndex,0);
 });
 
-test('slot release tab loads the sandbox and remains within administrator-only controls',()=>{const h=setup('release');h.window.restoreSessionBuilderTab();assert.equal(h.byId('sessionBuilderReleasePanel').hidden,false);assert.equal(h.byId('sessionBuilderReleaseTab').attrs['aria-selected'],'true');assert.equal(h.byId('sessionBuilderReleaseFrame').src,'sandbox/slot-release-preview.html?v=slot-release-dotted-bars-v1');});
+test('slot release tab loads the sandbox and remains within administrator-only controls',()=>{const h=setup('release');h.window.restoreSessionBuilderTab();assert.equal(h.byId('sessionBuilderReleasePanel').hidden,false);assert.equal(h.byId('sessionBuilderReleaseTab').attrs['aria-selected'],'true');assert.equal(h.byId('sessionBuilderReleaseFrame').src,'sandbox/slot-release-preview.html?v=slot-release-status-bars-v1');});
 
 test('slot release tab is not opened without practice administrator access',()=>{const h=setup('release',false);h.window.restoreSessionBuilderTab();assert.equal(h.byId('sessionBuilderReleaseFrame').src,undefined);});
