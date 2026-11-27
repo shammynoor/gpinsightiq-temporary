@@ -2755,12 +2755,20 @@ function reportRangeEndLabel(monthIndex){
  return 'End of '+label;
 }
 
-const historicBreakdowns=['appointment','clinician','locum','total'];
+const historicBreakdowns=['appointment','clinician','consult','locum','total'];
 let historicChart2=true;
 function historicChartBreakdown(){
  const saved=readChartPreferences()['historicChart2:breakdown'];
  return historicChart2&&historicBreakdowns.includes(saved)?saved:'appointment';
 }
+function historicEvents(){const events=readChartPreferences()['historicChart2:events'];return Array.isArray(events)?events.filter(e=>e&&typeof e.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(e.date)&&typeof e.label==='string'&&e.label.trim()).slice(0,50):[];}
+function historicVisibleEvents(periods,range){if(!historicChart2||!periods.length)return [];const first=range?.[0]||periods[0],last=range?.[1]||GPCorrectness.shift(periods.at(-1),monthlyMode?31:6);return historicEvents().filter(event=>event.date>=first&&event.date<=last);}
+function historicEventPosition(date){if(continuousMode)return date;const d=new Date(date+'T12:00:00Z'),days=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();return d.getUTCMonth()+(d.getUTCDate()-1)/days;}
+function historicEventShapes(periods,range){return historicVisibleEvents(periods,range).map(event=>({type:'line',xref:'x',yref:'paper',x0:historicEventPosition(event.date),x1:historicEventPosition(event.date),y0:0,y1:1,line:{color:'#405b6d',width:1.5,dash:'dot'},layer:'above'}));}
+function historicEventAnnotations(periods,range){return historicVisibleEvents(periods,range).map(event=>({xref:'x',yref:'paper',x:historicEventPosition(event.date),y:1,text:event.label.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])),showarrow:false,textangle:-90,xanchor:'right',yanchor:'top',xshift:4,yshift:-5,font:{size:10,color:'#314c5e'},bgcolor:'rgba(255,255,255,0.8)'}));}
+function renderHistoricEventList(){const root=$('historicEventsList');root.replaceChildren();const events=historicEvents();if(!events.length){root.textContent='No events added.';return}events.forEach((event,index)=>{const row=document.createElement('div'),name=document.createElement('span'),remove=document.createElement('button');row.className='historic-event-row';name.textContent=event.date+' · '+event.label;remove.type='button';remove.textContent='Remove';remove.setAttribute('aria-label','Remove event '+event.label);remove.addEventListener('click',()=>{const next=historicEvents();next.splice(index,1);writeChartPreference('historicChart2:events',next);renderHistoricEventList();refresh()});row.append(name,remove);root.append(row)});}
+function installHistoricEventControls(){const dialog=$('historicEventDialog');$('historicAddEvent').addEventListener('click',()=>{renderHistoricEventList();dialog.showModal()});$('historicEventCancel').addEventListener('click',()=>dialog.close());$('historicEventForm').addEventListener('submit',event=>{event.preventDefault();const date=$('historicEventDate').value,label=$('historicEventText').value.trim();if(!date||!label)return;const events=historicEvents();if(events.length>=50){$('historicEventStatus').textContent='You can add up to 50 events.';return}events.push({date,label:label.slice(0,80)});events.sort((a,b)=>a.date.localeCompare(b.date));writeChartPreference('historicChart2:events',events);$('historicEventText').value='';$('historicEventStatus').textContent='Event added.';renderHistoricEventList();refresh()});}
+installHistoricEventControls();
 function paintHistoricSeriesLegend(series,colours){
  const legend=$('historicSeriesLegend');
  legend.hidden=!historicChart2||!series.length;
@@ -2786,7 +2794,7 @@ const additiveControl=$('demandCombineLines');
 const breakdown=historicChartBreakdown();
 $('historicBreakdown').querySelectorAll('[data-historic-breakdown]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.historicBreakdown===breakdown)));
 const additiveLines=!historicChart2&&selectedTypes.length>1&&additiveControl?.checked===true;
-const regroup=breakdown==='clinician'||breakdown==='locum';
+const regroup=breakdown==='clinician'||breakdown==='consult'||breakdown==='locum';
 const activeWeekSet=new Set();
 for(const r of historicalBookingRecords()){if(includedRecord(r)){const key=periodKey(r);if(key)activeWeekSet.add(key)}}
 const reportClock=Number.isFinite(capacityCSVLatestModified)?dayView2LondonClock(new Date(Math.min(Date.now(),capacityCSVLatestModified))):null;
@@ -2799,12 +2807,13 @@ const selectedWeeks=activeWeeks.filter(w=>(!firstPeriod||w>=firstPeriod)&&(!last
 const sums=new Map(selectedWeeks.map(w=>[w,0]));
 const demandCategoryTotals=Object.fromEntries(groupUrgencyNames.map(name=>[name,new Map(selectedWeeks.map(w=>[w,0]))]));
 const selectedTypeSet=new Set(selectedTypes);
-const configuredGroups=breakdown==='clinician'?clinicianGroupNames.filter(name=>!disabledClinicianTypes.has(name)):['Locum','Not Locum'];
+const configuredGroups=breakdown==='clinician'?clinicianGroupNames.filter(name=>!disabledClinicianTypes.has(name)):breakdown==='consult'?[...consultCategoryNames.filter(name=>isDashboardToggleOption(name)&&!disabledConsultModes.has(name)),'Uncategorised']:['Locum','Not Locum'];
 const groupedTotals=new Map(regroup?configuredGroups.map(name=>[name,new Map(selectedWeeks.map(period=>[period,0]))]):[]);
 function seriesForBooking(row){
  const appointmentType=capacityUrgencyCategory(row.slot);
  if(!selectedTypeSet.has(appointmentType))return null;
  if(breakdown==='clinician')return clinicianGroupAssignments[effectiveClinicianType(row.clinician,row.person)];
+ if(breakdown==='consult'){const saved=consultCategoryNames.includes(consultAssignments[row.slot])?consultAssignments[row.slot]:'';return saved||suggestConsultMode(row.slot)||'Uncategorised';}
  if(breakdown==='locum')return locumCategory(row);
  if(breakdown==='total')return 'Selected bookings';
  return additiveLines?'Combined':appointmentType;
@@ -3074,6 +3083,7 @@ function drawCombinedDemandChart(){
  const seriesColour=name=>{
   if(combined)return '#2678ad';
   if(breakdown==='clinician')return clinicianGroupColour(name);
+  if(breakdown==='consult')return consultModeColours[name]||'#638fac';
   if(breakdown==='locum')return name==='Locum'?'#9350bd':'#2479aa';
   return urgencyGroupColour(name);
  };
@@ -3230,11 +3240,11 @@ function drawCombinedDemandChart(){
  const historicalAxisStyle={showline:true,linecolor:'#597080',linewidth:2,automargin:false};
  renderPreferencePlot('combinedDemandChart',traces,{dragmode:false,autosize:true,height:535,
   margin:{l:62,r:24,t:continuousMode?28:50,b:65},paper_bgcolor:'white',plot_bgcolor:'#fafafa',
-  shapes:[...yearBackgroundShapes(visibleWeeks),...averageShapes],
+  shapes:[...yearBackgroundShapes(visibleWeeks),...averageShapes,...historicEventShapes(visibleWeeks,range)],
   showlegend:!continuousMode&&!stacked,legend:{orientation:'h',y:1.14,x:0,xanchor:'left',yanchor:'bottom',entrywidth:85,entrywidthmode:'pixels',traceorder:'normal'},
   xaxis:continuousMode?{...historicalAxisStyle,type:'date',domain:[0,1],title:monthlyMode?'Booking month':'Booking date',dtick:visibleWeeks.length<(monthlyMode?9:39)?'M1':'M3',showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,...(range?{range}: {})}:{...axis,...historicalAxisStyle,domain:[0,1],showgrid:true,gridcolor:'#e4e4e4',gridwidth:1,dtick:3},
   yaxis:{...historicalAxisStyle,title:{text:monthlyMode?'Appointments per month':'Appointments per week',standoff:8,font:{size:11}},range:[0,yAxisTop],tick0:0,dtick:majorGridStep,showgrid:true,gridcolor:'#b0b0b0',gridwidth:1,zeroline:false,minor:{tick0:0,dtick:majorGridStep/2,showgrid:true,gridcolor:'#e3e3e3',gridwidth:0.6,ticks:''}},hovermode:'closest',
-  annotations:!selected.length||(historicChart2&&!series.length)?[{text:selected.length?'No bookings match these filters':'Select an appointment type to display appointments',xref:'paper',yref:'paper',x:.5,y:.5,showarrow:false}]:stackProjectionUnavailable?[{text:'Current period shown so far; not enough data to estimate every group',xref:'paper',yref:'paper',x:.5,y:1.04,showarrow:false,font:{size:11,color:'#52677b'}}]:[]
+  annotations:[...historicEventAnnotations(visibleWeeks,range),...(!selected.length||(historicChart2&&!series.length)?[{text:selected.length?'No bookings match these filters':'Select an appointment type to display appointments',xref:'paper',yref:'paper',x:.5,y:.5,showarrow:false}]:stackProjectionUnavailable?[{text:'Current period shown so far; not enough data to estimate every group',xref:'paper',yref:'paper',x:.5,y:1.04,showarrow:false,font:{size:11,color:'#52677b'}}]:[])]
  },{responsive:true,displaylogo:false,displayModeBar:false,scrollZoom:false,doubleClick:false}).then(()=>{applyHistoricChartShadows($('combinedDemandChart'));installDemandCardTooltip($('combinedDemandChart'));installDemandAverageCapsules($('combinedDemandChart'),averageCapsules);});
 }
 drawCombinedDemandChart();
