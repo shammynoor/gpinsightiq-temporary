@@ -288,9 +288,13 @@ function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;
  if(!canEditSessionBuilder()){page.classList.add('hidden');body.replaceChildren();return;}
  window.syncSessionBuilderSettings();
- const modes=configuredModes(),extraTasks=additionalSessionTasks,head=byId('sessionBuilderHead');head.replaceChildren();
+ const modes=configuredModes(),extraTasks=additionalSessionTasks,head=byId('sessionBuilderHead'),subhead=byId('sessionBuilderSubHead');head.replaceChildren();subhead.replaceChildren();
  const modeLabels=modes.map(mode=>extraTasks.some(task=>task.toLocaleLowerCase('en-GB')===mode.toLocaleLowerCase('en-GB'))?mode+' (consult mode)':mode);
- for(const label of ['Session type','Eligible clinicians','Appointment types',...modeLabels,...extraTasks,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
+ const fixed=(label,kind)=>{const th=document.createElement('th');th.scope='col';th.rowSpan=2;th.className='session-setup-'+kind;th.textContent=label;head.append(th)};
+ fixed('Session type','name');fixed('Eligible clinicians','clinicians');fixed('Appointment types','appointments');
+ const group=(label,count,kind)=>{if(!count)return;const th=document.createElement('th');th.scope='colgroup';th.colSpan=count;th.className='session-setup-group session-setup-'+kind;th.textContent=label;head.append(th)};
+ group('Direct care',modeLabels.length,'direct');group('Other',extraTasks.length,'other');fixed('Actions','actions');
+ for(const [label,kind] of [...modeLabels.map(label=>[label,'direct']),...extraTasks.map(label=>[label,'other'])]){const th=document.createElement('th');th.scope='col';th.className='session-setup-'+kind;th.textContent=label;subhead.append(th);}
  byId('sessionBuilderTable').style.minWidth=Math.max(1000,650+(modes.length+extraTasks.length)*80)+'px';
  byId('sessionBuilderModeNotice').hidden=modes.length>0;
  body.replaceChildren();
@@ -336,7 +340,7 @@ function renderSessionBuilder(){
    td.append(input);tr.append(td);
   }
   for(const task of extraTasks){
-   const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.required=true;input.inputMode='numeric';input.value=String(row.additionalWork?.[task]??0);input.className='session-builder-count';input.setAttribute('aria-label',task+' for '+row.name);
+   const td=document.createElement('td'),input=document.createElement('input');td.className='session-setup-other';input.type='number';input.min='0';input.step='1';input.required=true;input.inputMode='numeric';input.value=String(row.additionalWork?.[task]??0);input.className='session-builder-count';input.setAttribute('aria-label',task+' for '+row.name);
    const update=()=>{try{const value=Number(input.value);if(!/^\d+$/.test(input.value)||!Number.isSafeInteger(value))throw Error('Enter a whole number of zero or more.');if((sessionBuilderTypes.find(item=>item.id===row.id)?.additionalWork?.[task]??0)!==value)commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,additionalWork:{...item.additionalWork,[task]:value}}:item));input.setCustomValidity('');}catch(error){input.setCustomValidity(error.message);input.reportValidity();}};
    input.addEventListener('input',()=>{input.setCustomValidity('');if(/^\d+$/.test(input.value)&&Number.isSafeInteger(Number(input.value)))update()});input.addEventListener('change',update);td.append(input);tr.append(td);
   }

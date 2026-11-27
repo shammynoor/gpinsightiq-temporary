@@ -384,3 +384,13 @@
 #sessionBuilderPage #sessionBuilderTable .session-builder-count{width:100%;min-width:0;max-width:none;padding:8px 3px}
 #sessionBuilderPage #sessionBuilderTable .session-builder-appointment-dropdown{min-width:0}
 #sessionBuilderPage #sessionBuilderTable .session-builder-appointment-dropdown summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+#sessionBuilderPage #sessionBuilderTable thead th:nth-child(n){width:auto;min-width:0}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-name{width:17%}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-clinicians{width:19%}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-appointments{width:17%}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-actions{width:100px}
+#sessionBuilderPage #sessionBuilderTable thead .session-setup-group{text-align:center;border-bottom:1px solid #d8e5ed;padding:8px 6px;font-weight:700}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-other{background:#e6edf1}
+#sessionBuilderPage #sessionBuilderTable tbody td.session-setup-other{background:#f3f6f7}
+#sessionBuilderPage #sessionBuilderTable .session-setup-group.session-setup-other{border-left:1px solid #cbd9df}
