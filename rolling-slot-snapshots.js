@@ -44,7 +44,8 @@ function reconcile(entries){
  });
  return entries.map(entry=>{
   const c=entry.contribution;if(c?.kind!=='slot'||!snapshots.length)return entry;
-  const at=Date.parse(entry.clinicalAt);
+  const at=Date.parse(c.reconciliationAt||entry.clinicalAt);
+  if(c.reconciliationAt&&(!Number.isFinite(Date.parse(entry.clinicalAt))||at>Date.parse(entry.clinicalAt)))throw Error('A Slot Report has an invalid historical ordering date; existing reports have not been changed.');
   if(!Number.isFinite(at))throw Error('A Slot Report is missing its report date; overlap cannot be resolved safely.');
   const later=snapshots.filter(s=>s.key!==entry.key&&s.at>at).sort((a,b)=>a.from.localeCompare(b.from));
   if(!later.length)return entry;

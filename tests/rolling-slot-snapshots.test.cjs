@@ -48,3 +48,8 @@ assert.equal(reconcile([baseline])[0],baseline);
 const invalid=entry('invalid','2026-11-20',contribution([], '2026-11-14'));assert.throws(()=>reconcile([baseline,invalid]),/inconsistent coverage dates/);
 assert.deepEqual(combined([baseline,w1]),combined([baseline,w1]));
 console.log('Rolling snapshots: history, status changes, removed appointments, repeated overlapping windows, future bookings, unordered sources, safe rejection and original reports passed.');
+// A refreshed historical export has a new report timestamp but retains its
+// original precedence, so intervening weekly snapshots still win on overlap.
+const refreshedHistorical={...baseline,clinicalAt:'2026-11-25T12:00:00Z',contribution:{...historicalReplacement,reconciliationAt:baseline.clinicalAt}};
+assert.deepEqual(combined([refreshedHistorical,w1,w2]),{'2026-11-01 Booked':7,'2026-11-10 Booked':2,'2026-11-17 Booked':5,'2026-11-23 Available':1});
+assert.throws(()=>reconcile([{...refreshedHistorical,contribution:{...refreshedHistorical.contribution,reconciliationAt:'2030-01-01T00:00:00Z'}},w1]),/invalid historical ordering/);

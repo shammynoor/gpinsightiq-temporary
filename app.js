@@ -6203,12 +6203,13 @@ async function replaceExistingCSV(file){
   }
   if(historicalReplacement){
    const bounds=GPRollingSlots.validateHistoricalReplacement(historicalReplacement,contribution);
-   // Keep the original report's position in snapshot ordering, so later weekly
-   // snapshots continue to override its overlapping appointment dates.
-   reportClinicalAt=existing.clinical_at;
+   // Preserve the original position for overlap reconciliation, while recording
+   // the replacement file's real timestamp for report freshness and nowcasts.
+   contribution.reconciliationAt=historicalReplacement.reconciliationAt||existing.clinical_at;
+   if(!Number.isFinite(Date.parse(contribution.reconciliationAt))||!Number.isFinite(Date.parse(existing.clinical_at))||clinical.getTime()<Date.parse(existing.clinical_at))throw Error('This replacement is older than the saved report. Choose a newer export.');
    const entries=[];
    for(const source of iqSources){
-    if(source.source_key===existing.source_key){entries.push({key:source.source_key,clinicalAt:source.clinical_at,contribution});continue;}
+    if(source.source_key===existing.source_key){entries.push({key:source.source_key,clinicalAt:reportClinicalAt,contribution});continue;}
     let entry=iqContributions.get(source.source_key);
     if(!entry||entry.revision!==source.revision)entry={revision:source.revision,value:await iqBridge.read(source.source_key)};
     entries.push({key:source.source_key,clinicalAt:source.clinical_at,contribution:entry.value});
