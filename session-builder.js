@@ -112,6 +112,7 @@ function readAverageDemand(){
  }
  const result={demand,start,end,weeks:weeks.length,forecast,periods,listSizeAvailable,routineAvailable:!!routine};demandCache={history,coverage:slotReportCoverage,key,result};return result;
 }
+window.getSlotReleaseSandboxDemand=()=>readAverageDemand();
 let requirementsRun=0,requirementsSolving=false,requirementsRenderedKey=null,requirementsCurrentKey=null,requirementsHasPlan=false;
 let plannerProgressTimer=null,plannerSolveSeconds=30,plannerProgressStartedAt=0;
 window.addEventListener?.('session-builder-solve-ready',()=>{if(requirementsSolving)plannerProgressStartedAt=Date.now();});

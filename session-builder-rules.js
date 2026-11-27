@@ -244,13 +244,14 @@ byId('sessionBuilderAddRule')?.addEventListener('click',()=>{
  commit([...sessionBuilderRules,{id,enabled:true,kind,...(kind==='sessionClinicianMix'?{shareSubject:initialSessionMix(sessionBuilderTypes[0])}:{}),scope:['distribution','sessionDistribution','sessionClinicianMix'].includes(kind)?'week':'day',days:[1,2,3,4,5],...(kind==='distribution'?{distributionMode:'even',distributionTolerance:5,distributionTargets:{}}:kind==='sessionDistribution'?{sessionTolerance:1}:{}),maximum:null,minimum:kind==='minimum'?1:['distribution','sessionDistribution'].includes(kind)?0:50,comparison:kind==='sessionClinicianMix'?'exact':'atLeast',appointmentTypes:kind==='mix'&&groupUrgencyNames.includes('Routine')?['Routine']:[],sessionTypeId:kind==='sessionDistribution'?'':sessionBuilderTypes[0]?.id||'',clinicianGroup:configuredGroups()[0]||'',denominator:'all',comparisonGroup:'',strength:['distribution','sessionDistribution'].includes(kind)?'prefer':'must'}]);renderSessionBuilderRules();
 });
 byId('sessionBuilderValidateRules')?.addEventListener('click',showValidation);
-const tabs=[['clinician','Clinician'],['types','Types'],['rules','Rules'],['planner','Planner']];
+const tabs=[['clinician','Clinician'],['types','Types'],['rules','Rules'],['release','Release'],['planner','Planner']];
 function applyTab(name){
  if(!canEditSessionBuilder())return;
  for(const [key,id] of tabs){const active=name===key,button=byId('sessionBuilder'+id+'Tab');button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;byId('sessionBuilder'+id+'Panel').hidden=!active;}
  if(name==='clinician')window.renderSessionBuilderClinicians?.();
  if(name==='rules')renderSessionBuilderRules();
  if(name==='planner')window.renderSessionBuilderRequirements?.();
+ if(name==='release'){const frame=byId('sessionBuilderReleaseFrame');if(frame&&!frame.src)frame.src='sandbox/slot-release-preview.html?v=slot-release-tab-v1';}
 }
 window.restoreSessionBuilderTab=()=>{const saved=window.gpChartPreferences?.read()?.sessionBuilderTab;applyTab(tabs.some(([key])=>key===saved)?saved:'types');};
 function chooseTab(name){if(!canEditSessionBuilder())return;window.gpChartPreferences?.write('sessionBuilderTab',name);applyTab(name);}
