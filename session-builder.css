@@ -394,3 +394,7 @@
 #sessionBuilderPage #sessionBuilderTable thead th.session-setup-other{background:#e6edf1}
 #sessionBuilderPage #sessionBuilderTable tbody td.session-setup-other{background:#f3f6f7}
 #sessionBuilderPage #sessionBuilderTable .session-setup-group.session-setup-other{border-left:1px solid #cbd9df}
+
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-direct{background:#dfeefa;text-align:center}
+#sessionBuilderPage #sessionBuilderTable thead th.session-setup-other{text-align:center}
+#sessionBuilderPage #sessionBuilderTable tbody td.session-setup-direct{background:#eff6fc}
