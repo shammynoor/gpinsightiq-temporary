@@ -17,7 +17,7 @@ function estimateAsync(...args){
  const timeBudget=solveBudget(args[5]);
  const key=JSON.stringify(args);if(completed?.key===key)return Promise.resolve(completed.result);if(pending?.key===key)return pending.promise;
  if(pending){pending.done=true;pending.worker.terminate();clearTimeout(pending.timer);pending.resolve({cancelled:true,rows:[]});pending=null;}
- let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=planner-recent-routine-v1');
+ let resolve;const promise=new Promise(r=>resolve=r),worker=new Worker('session-builder-cost-worker.js?v=minimum-numbers-v1');
  const job={key,worker,promise,resolve,best:null,done:false,diagnostics:window.SessionBuilderDiagnostics?.analyse(...args)};pending=job;
  const finish=result=>{
   if(job.done||pending!==job)return;
@@ -83,7 +83,9 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
   const leave=limit.annualLeaveWeeks??5,sickness=limit.sicknessPercent??0;
   if(!Number.isFinite(leave)||leave<0||leave>52||!Number.isFinite(sickness)||sickness<0||sickness>100)return fail('Invalid leave or sickness settings for '+name+'.');
   const availability=(52-leave)/52*(1-sickness/100);
-  candidates.push({sourceId:type.id,name:type.name,clinician:name,group:clinicians[name],rate:limit.annualRate,nonHome:nonHome*availability,home:home*availability,allowed});
+  if(['Triage','Debrief','Sick notes'].some(key=>!Number.isSafeInteger(type.additionalWork?.[key]??0)||(type.additionalWork?.[key]??0)<0))return fail('Additional session counts must be non-negative whole numbers.');
+  const capacityModes=Object.fromEntries([...modes.map(mode=>['mode:'+mode,(type.appointmentsByMode?.[mode]||0)*availability]),...['Triage','Debrief','Sick notes'].map(key=>['other:'+key,(type.additionalWork?.[key]||0)*availability])]);if(Object.values(capacityModes).some(value=>!Number.isFinite(value)||value<0))return fail('Invalid session setup counts.');
+  candidates.push({sourceId:type.id,name:type.name,clinician:name,group:clinicians[name],rate:limit.annualRate,nonHome:nonHome*availability,home:home*availability,capacityModes,allowed});
  }
  if(missing.size)return fail('Enter an annualised sessional rate in Clinician Setup for: '+[...missing].join(', ')+'. Missing rates cannot be treated as free.');
  for(const [name,limit] of Object.entries(limits))if(Object.hasOwn(clinicians,name)){
@@ -96,7 +98,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  const coefficient=(id,c,value)=>{if(value)variables[id][c]=(variables[id][c]||0)+value;};
  const minCapacity=Math.min(...candidates.flatMap(c=>[c.nonHome,c.home]).filter(n=>n>0),1);
  const limitSum=Object.values(limits).reduce((n,l)=>n+(l.min||0),0),ruleSum=hard.filter(r=>r.kind==='minimum').reduce((n,r)=>n+(r.minimum??0)*(r.scope==='both'?2:1)*(r.scope==='week'?1:r.days.length),0);
- const bound=Math.max(1,Math.ceil(values.reduce((a,b)=>a+b,0)/minCapacity)+limitSum+ruleSum+10);
+ const workRuleBound=hard.filter(r=>r.kind==='minimumNumbers').reduce((total,rule)=>{const possible=candidates.map(c=>c.capacityModes[rule.capacityMode]||0).filter(n=>n>0);return total+(possible.length?Math.ceil(rule.minimum/Math.min(...possible))*rule.days.length:0)},0);
+ const bound=Math.max(1,Math.ceil(values.reduce((a,b)=>a+b,0)/minCapacity)+limitSum+ruleSum+workRuleBound+10);
  if(bound>10000)return fail('Demand is too large for interactive cost optimisation. Check session capacities.');
  const workforce=new Map(),dailyWorkforce=new Map();
  for(const [name] of Object.entries(clinicians)){const l=limits[name]||{};workforce.set(name,constraint({min:l.min||0,max:l.max??bound}));}
@@ -157,7 +160,13 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  for(const rule of active){
   const previousConstraints=new Set(Object.keys(constraints));
   const recordRule=()=>{if(rule.strength==='must')ruleSources.push({id:rule.id,label:window.SessionBuilderDiagnostics?.ruleLabel(rule,types)||rule.id,constraints:Object.keys(constraints).filter(id=>!previousConstraints.has(id))});};
-  if(!['minimum','share','mix','distribution','sessionDistribution','sessionClinicianMix'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(!['minimum','minimumNumbers','share','mix','distribution','sessionDistribution','sessionClinicianMix'].includes(rule.kind)||!['morning','afternoon','both','day','week'].includes(rule.scope)||!Array.isArray(rule.days)||!rule.days.length||rule.days.some(d=>!Number.isInteger(d)||d<1||d>5)||rule.kind!=='minimum'&&(!Number.isFinite(rule.minimum)||rule.minimum<0))return fail('Invalid Planning Rule. Review the enabled rules.');
+  if(rule.kind==='minimumNumbers'){
+   const validMode=typeof rule.capacityMode==='string'&&(modes.some(mode=>rule.capacityMode==='mode:'+mode)||['Triage','Debrief','Sick notes'].some(name=>rule.capacityMode==='other:'+name));
+   if(rule.scope!=='day'||rule.strength!=='must'||!validMode||!Number.isSafeInteger(rule.minimum)||rule.minimum<0)return fail('The minimum-numbers rule is invalid. Review its session setup column and minimum.');
+   for(const day of rule.days){const scope={days:[day-1],periods},terms=slots.filter(slot=>inScope(slot,scope)).map(slot=>[slot.id,slot.capacityModes[rule.capacityMode]||0]).filter(([,value])=>value>0),expression={rule,scope,terms,numerator:[],denominator:[]};ruleExpressions.push(expression);const id=constraint({min:rule.minimum});for(const [variable,value] of terms)coefficient(variable,id,value);}
+   recordRule();continue;
+  }
   if(rule.kind==='sessionClinicianMix'){
    const ref=subject(rule),definition=types.find(t=>t.id===rule.sessionTypeId),comparison=rule.comparison||'exact';
    if(rule.scope!=='week'||rule.days.length!==5||new Set(rule.days).size!==5||!definition||ref?.kind!=='type'||!Object.hasOwn(clinicians,ref.name)||!(definition.eligibleClinicians||[]).includes(ref.name)||rule.minimum>100||!['atLeast','atMost','exact'].includes(comparison))return fail('Session clinician mix requires an existing session type, an eligible clinician type, a weekly percentage from 0 to 100 and a valid comparison.');
@@ -306,8 +315,8 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
  }
  function buildPlan(chosen,flags={}){
  const rows=types.map(t=>({id:t.id,name:t.name,group:[...new Set((t.eligibleClinicians||[]).map(n=>clinicians[n]).filter(Boolean))].join(' · '),days:[0,0,0,0,0],weekly:0,routine:0,planned:0,periods:{morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]}})),rowById=new Map(rows.map(r=>[r.id,r]));
- const clinicianCounts={},placements=[],appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacitySameDayByPeriod={morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]},capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
- for(const slot of slots){const count=Math.round(chosen[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
+ const clinicianCounts={},placements=[],otherCapacity=Array.from({length:5},()=>({'Triage':0,'Debrief':0,'Sick notes':0})),appointmentBreakdown={},capacitySameDay=[0,0,0,0,0],capacitySameDayByPeriod={morning:[0,0,0,0,0],afternoon:[0,0,0,0,0]},capacityHomeVisit=[0,0,0,0,0];let weeklyCapacity=0,routineCapacity=0,plannedCapacity=0,totalCapacity=0;
+ for(const slot of slots){const count=Math.round(chosen[slot.id]||0);if(!count)continue;const row=rowById.get(slot.sourceId);row.periods[slot.period][slot.day]+=count;row.days[slot.day]+=count;clinicianCounts[slot.clinician]=(clinicianCounts[slot.clinician]||0)+count;for(const name of ['Triage','Debrief','Sick notes'])otherCapacity[slot.day][name]+=count*(slot.capacityModes['other:'+name]||0);placements.push({id:slot.sourceId,sourceId:slot.sourceId,clinician:slot.clinician,day:slot.day,period:slot.period,pool:'mixed',count});totalCapacity+=Math.floor(count*slot.nonHome+1e-7)+Math.floor(count*slot.home+1e-7);}
  for(const a of allocations){const n=Math.round(chosen[a.id]||0);if(!n)continue;const target=appointmentBreakdown[a.slot.sourceId]||(appointmentBreakdown[a.slot.sourceId]=Array.from({length:5},()=>({morning:{},afternoon:{}}))),cell=target[a.slot.day][a.slot.period];cell[a.name]=(cell[a.name]||0)+n;
   if(a.pool==='sameDay'){capacitySameDay[a.slot.day]+=n;capacitySameDayByPeriod[a.slot.period][a.slot.day]+=n;}else if(a.pool==='homeVisit')capacityHomeVisit[a.slot.day]+=n;else if(a.pool==='weekly')weeklyCapacity+=n;else if(a.pool==='routine')routineCapacity+=n;else if(a.pool==='planned')plannedCapacity+=n;
  }
@@ -340,14 +349,15 @@ function solve(types,modes,groups,demand,rules,options,onCheckpoint,onDiagnostic
     measurements.push({day:expression.day,numerator,denominator,target:expression.target,tolerance:expression.tolerance});continue;
    }
    const value=expression.terms.reduce((n,[id,c])=>n+(chosen[id]||0)*c,0),numerator=expression.numerator.reduce((n,id)=>n+(chosen[id]||0),0),denominator=expression.denominator.reduce((n,id)=>n+(chosen[id]||0),0),comparison=rule.comparison||(rule.kind==='sessionClinicianMix'?'exact':'atLeast');
-   const ok=rule.kind==='minimum'?(rule.minimum==null||value>=rule.minimum-1e-5)&&(rule.maximum==null||value<=rule.maximum+1e-5):(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||rule.kind==='sessionClinicianMix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
+   const ok=rule.kind==='minimumNumbers'?Math.floor(value+1e-7)>=rule.minimum:rule.kind==='minimum'?(rule.minimum==null||value>=rule.minimum-1e-5)&&(rule.maximum==null||value<=rule.maximum+1e-5):(comparison==='atMost'?value<=1e-5:comparison==='exact'?Math.abs(value)<=1e-5:value>=-1e-5)&&(rule.kind==='mix'||rule.kind==='sessionClinicianMix'||denominator>1e-6||rule.minimum===0&&comparison==='atLeast');
    if(!ok)failures.push('Target not met for '+expression.scope.days.map(d=>daysShort[d]).join(', ')+' '+expression.scope.periods.join('/'));
    measurements.push({numerator,denominator});
   }
   return {id:rule.id,kind:rule.kind,strength:rule.strength,ok:!failures.length,adjustedForClinicianSetup:setupSpreadAdjusted&&rule.kind==='distribution'&&failures.length>0&&ruleExpressions.some(e=>e.rule===rule&&e.setupPriority),failures,measurements,minimum:rule.minimum,maximum:rule.maximum,comparison:rule.comparison||(rule.kind==='sessionClinicianMix'?'exact':'atLeast'),appointmentPool:api.sharePool(rule),clinicianGroup:api.shareSubject(rule)?.name,...(rule.kind==='sessionClinicianMix'?{sessionTypeId:rule.sessionTypeId}:{})};
  });
  const cost=slots.reduce((n,s)=>n+Math.round(chosen[s.id]||0)*variables[s.id].cost,0),lower=mipLowerBound??inspection?.costLowerBound,costLowerBound=Number.isFinite(lower)&&lower<=cost+1e-5?Math.max(0,Math.min(cost,lower)):undefined,costGap=Number.isFinite(costLowerBound)&&cost>0?Math.max(0,(cost-costLowerBound)/cost):undefined;
- return {rows,placements,clinicianCounts,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:ruleResults.some(r=>r.adjustedForClinicianSetup),solverName:window.SessionBuilderMip?'HiGHS':'legacy',costOptimal:!!flags.costOptimal,costBoundKind:mipLowerBound!=null?'integer':'fractional'};
+ for(const day of otherCapacity)for(const name of Object.keys(day))day[name]=Math.floor(day[name]+1e-7);
+ return {rows,placements,clinicianCounts,otherCapacity,appointmentBreakdown,capacitySameDay,capacitySameDayByPeriod,capacityHomeVisit,weeklyCapacity,routineCapacity,plannedCapacity,totalCapacity,totalNeed:values.reduce((a,b)=>a+b,0),days:Array.from({length:5},(_,d)=>rows.reduce((n,r)=>n+r.days[d],0)),unmetDemand:[],ruleResults,unassignedDailyTypes:[],costOptimised:true,annualCost:cost,costLowerBound,costGap,approximate:flags.approximate??true,verifiedPlan:true,optimisationTimedOut:!!flags.optimisationTimedOut,optimisationInterrupted:!!flags.optimisationInterrupted,ruleAdjusted:ruleResults.some(r=>r.adjustedForClinicianSetup),solverName:window.SessionBuilderMip?'HiGHS':'legacy',costOptimal:!!flags.costOptimal,costBoundKind:mipLowerBound!=null?'integer':'fractional'};
  }
  // Production uses a global MIP solve. All staffing and allocation decisions
  // are solved together, so percentage/distribution rules cannot trap a local

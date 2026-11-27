@@ -1,10 +1,11 @@
 (function(){
 'use strict';
 const days=['Monday','Tuesday','Wednesday','Thursday','Friday'];
-const kinds={sessionClinicianMix:'Session clinician mix',minimum:'Session limits',share:'Clinician appointment share',mix:'Appointment mix',distribution:'Weekly appointment distribution',sessionDistribution:'Session spread'};
+const kinds={minimumNumbers:'Minimum numbers',sessionClinicianMix:'Session clinician mix',minimum:'Session limits',share:'Clinician appointment share',mix:'Appointment mix',distribution:'Weekly appointment distribution',sessionDistribution:'Session spread'};
 const fmt=n=>new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n);
 function ruleLabel(rule,types){
  const name=types.find(t=>t.id===rule.sessionTypeId)?.name||'session type';
+ if(rule.kind==='minimumNumbers')return 'At least '+rule.minimum+' '+String(rule.capacityMode||'').split(':').slice(1).join(':')+' per day';
  if(rule.kind==='minimum')return name+' · '+(rule.minimum==null?'no minimum':'minimum '+rule.minimum)+' / '+(rule.maximum==null?'no maximum':'maximum '+rule.maximum)+' · '+(rule.scope==='week'?'weekly':'per '+(rule.scope==='day'?'day':rule.scope));
  if(rule.kind==='sessionClinicianMix')return name+' · '+({'atLeast':'at least','atMost':'at most','exact':'exactly'}[rule.comparison||'exact'])+' '+rule.minimum+'% of weekly sessions by '+(rule.shareSubject?.name||'chosen clinician type');
  const subject=rule.shareSubject?.name||rule.clinicianGroup||'';

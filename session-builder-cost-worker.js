@@ -1,6 +1,6 @@
 'use strict';
 self.window=self;
-importScripts('vendor/javascript-lp-solver-1.0.3.js?v=planner-recent-routine-v1','vendor/highs.js?v=1.16.0','session-builder-mip.js?v=planner-recent-routine-v1','session-builder-distribution.js?v=planner-recent-routine-v1','session-builder-planning.js?v=planner-recent-routine-v1','session-builder-diagnostics.js?v=planner-recent-routine-v1','session-builder-optimisation.js?v=planner-recent-routine-v1');
+importScripts('vendor/javascript-lp-solver-1.0.3.js?v=planner-recent-routine-v1','vendor/highs.js?v=1.16.0','session-builder-mip.js?v=planner-recent-routine-v1','session-builder-distribution.js?v=planner-recent-routine-v1','session-builder-planning.js?v=planner-recent-routine-v1','session-builder-diagnostics.js?v=minimum-numbers-v1','session-builder-optimisation.js?v=minimum-numbers-v1');
 self.onmessage=async event=>{
  try{
   const highs=await Module({locateFile:file=>new URL('vendor/'+file,self.location.href).href});
