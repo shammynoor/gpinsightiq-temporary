@@ -8,6 +8,7 @@ export class SupabaseBackend{
  async reset(email,redirect){const {error}=await this.client.auth.resetPasswordForEmail(email,{redirectTo:redirect});if(error)throw error;}
  async password(password){const {error}=await this.client.auth.updateUser({password});if(error)throw error;}
  context(){return this.rpc('my_context');}
+ async individualLocumTokens(practice){const data=await this.rpc('individual_locum_tokens',{p_practice:practice});return data.map(row=>row.person_token);}
  async namedClinicians(practice){const {data,error}=await this.client.from('iq_named_clinicians').select('name,user_type,locum').eq('practice_id',practice).order('name');if(error)throw error;return data;}
  async importNamedClinicians(practice,rows){const records=rows.map(row=>({practice_id:practice,name:row.name,user_type:row.user_type}));const {error}=await this.client.from('iq_named_clinicians').upsert(records,{onConflict:'practice_id,name,user_type',ignoreDuplicates:true});if(error)throw error;}
  async updateNamedClinician(practice,name,userType,locum){const {data,error}=await this.client.from('iq_named_clinicians').update({locum}).eq('practice_id',practice).eq('name',name).eq('user_type',userType).select('name');if(error)throw error;if(data.length!==1)throw Error('The user was not found or access changed.');}

@@ -207,11 +207,12 @@ const waitingTrendDisabledUrgency=new Set();
 const waitingTrendDisabled={consult:new Set(),capacity:new Set(),clinician:new Set()};
 const waitingDisabledUrgency=new Set();
 let userTypeLocum={};
+let individualLocumTokens=new Set();
 let sessionCategoryLocum={},sessionCategoryNames=[];
 const locumFilterPages=['chartPage','availabilityPage','routineAvailabilityPage','routineCapacityPage','waitingTimesPage','waitingOverTimePage','dayView2Page','bookingTimesPage','dailyForecastPage','weeklyForecastPage','workforceNeedPage'];
 const locumFilterSelections=new Map();
 function locumCategory(row){
- return userTypeLocum[row.clinician]==='yes'||sessionCategoryLocum[row.sessionCategory]==='yes'?'Locum':'Not Locum';
+ return individualLocumTokens.has(row.person)||userTypeLocum[row.clinician]==='yes'||sessionCategoryLocum[row.sessionCategory]==='yes'?'Locum':'Not Locum';
 }
 function locumMatches(row,page){
  return locumFilterSelections.get(page)?.[locumCategory(row)]!==false;
@@ -1016,6 +1017,7 @@ function renderPeople(){
   locum.value=Object.hasOwn(userTypeLocum,userType)?userTypeLocum[userType]:'unknown';
   locum.addEventListener('change',()=>{
    userTypeLocum={...userTypeLocum,[userType]:locum.value};
+   demandFilterCache=new WeakMap();capacityPaceCache=null;
    saveCategories();
    const status=$('peopleSaveStatus');if(status)status.textContent='Changes are saving automatically to practice workspace.';
   });
@@ -1843,7 +1845,7 @@ function aggregateCSV(csv,aggregated,availabilityAggregate,bookingTimeAggregate,
   const clinician=r[slotUserTypeColumn]||'Unknown clinician';
   // Retain a practice-specific pseudonym only; never save the clinician name.
   const holder=holderColumnPosition<0?'':String(original[holderColumnPosition]||'').trim();
-  const person=status==='booked'&&holderTokens?.get(holder)||'';
+  const person=holderTokens?.get(holder)||'';
   if(dna){
    const outcome=r.DNA.toLowerCase();
    if(outcome==='did not attend')dna.didNotAttend+=quantity;
@@ -5839,6 +5841,7 @@ async function refreshDashboardData(force=true){
   if(cloudBusy)throw Error('Settings are still saving. Please retry shortly.');
   if(categoryDirty&&(!(await saveCloudCategories())||categoryDirty))throw Error('Settings could not finish saving; local edits were preserved.');
   await loadCloudCategories({strict:true,protectEdits:true});
+  await refreshIndividualLocumTokens(false);
   if(cloudFolder)selectedFolder=cloudFolder;
   await loadFolder(force);
  }catch(e){showRefreshFeedback('Refresh failed: '+e.message)}
@@ -5906,7 +5909,7 @@ async function iqStart(){
   isOwner=iqBridge.manage;folderAccessVerified=true;folderAccessDenied=false;authenticatedOnce=true;
   selectedFolder={id:iqBridge.practice.id,name:iqBridge.practice.name};
   applyAccessMode();setButtons();iqCreateUploadPanel();
-  await loadCloudCategories({strict:true});try{if(iqLocalStorage.getItem(SETTINGS_CONFLICT_DRAFT))showSettingsConflictNotice(false,true)}catch(_){}await loadFolder(true);
+  await loadCloudCategories({strict:true});await refreshIndividualLocumTokens(false);try{if(iqLocalStorage.getItem(SETTINGS_CONFLICT_DRAFT))showSettingsConflictNotice(false,true)}catch(_){}await loadFolder(true);
   restoreChartCheckboxes();
   // Seed the current browser entry without adding a stop before the overview.
   window.restoreDashboardPage=page=>showPage(page,{historyMode:'restore'});
@@ -5936,6 +5939,12 @@ async function iqStart(){
   }
  }catch(error){document.body.replaceChildren();const message=document.createElement('p');message.textContent='The practice dashboard could not load: '+error.message;document.body.append(message);}
 }
+async function refreshIndividualLocumTokens(redraw=true){
+ individualLocumTokens=new Set(await iqBridge.individualLocumTokens());
+ demandFilterCache=new WeakMap();capacityPaceCache=null;
+ if(redraw){window.refreshForecastCharts?.();await renderActiveAnalyticsPage();}
+}
+window.refreshIndividualLocumTokens=refreshIndividualLocumTokens;
 async function cloudFile(){
  const data=await iqBridge.readSettings();iqSettingsRevision=data.revision;
  if(data.settings)return data.settings;

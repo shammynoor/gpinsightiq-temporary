@@ -25,8 +25,8 @@ test('same user type is kept separate for different session categories',()=>{
 });
 test('locum if user or session is classified as locum',()=>{
  const start=src.indexOf('function locumCategory(row)'),end=src.indexOf('function locumMatches',start);
- const c=vm.createContext({userTypeLocum:{'GP':'no','Agency':'yes'},sessionCategoryLocum:{'Locum':'yes','Core':'no'}});vm.runInContext(src.slice(start,end),c);
- for(const [row,want] of [[{clinician:'GP',sessionCategory:'Locum'},'Locum'],[{clinician:'Agency',sessionCategory:'Core'},'Locum'],[{clinician:'GP',sessionCategory:'Core'},'Not Locum'],[{clinician:'GP'},'Not Locum']])assert.equal(c.locumCategory(row),want);
+ const c=vm.createContext({individualLocumTokens:new Set(['h1:person']),userTypeLocum:{'GP':'no','Agency':'yes'},sessionCategoryLocum:{'Locum':'yes','Core':'no'}});vm.runInContext(src.slice(start,end),c);
+ for(const [row,want] of [[{person:'h1:person',clinician:'GP',sessionCategory:'Core'},'Locum'],[{person:'h1:person',clinician:'Agency',sessionCategory:'Locum'},'Locum'],[{clinician:'GP',sessionCategory:'Locum'},'Locum'],[{clinician:'Agency',sessionCategory:'Core'},'Locum'],[{clinician:'GP',sessionCategory:'Core'},'Not Locum'],[{clinician:'GP'},'Not Locum']])assert.equal(c.locumCategory(row),want);
 });
 test('weekly reconciliation preserves session categories in retained booking and waiting data',()=>{
  const {reconcile}=require('../rolling-slot-snapshots.js');
@@ -37,3 +37,5 @@ test('weekly reconciliation preserves session categories in retained booking and
  const result=reconcile([{key:'old',clinicalAt:'2025-06-20T12:00:00Z',contribution:old},{key:'new',clinicalAt:'2025-06-23T12:00:00Z',contribution:newer}]);
  for(const index of [0,1,2,5,6,7])assert.ok([...result[0].contribution.maps[index].keys()].some(k=>JSON.parse(k).includes('Locum')),'map '+index);
 });
+
+test('unbooked slots retain only the session holder pseudonym',()=>{const header=['Appointment Date','Appointment Time','Booked Time to Slot Time','User Type of the Session Holder of the Session','Slot Type','Availability','Full Name of the Session Holder of the Session'];const csv=Papa.unparse([header,['16-Jun-25','09:00','','GP','Routine','Available','Test Holder']]);const maps=Array.from({length:8},()=>new Map());context.aggregateCSV(csv,...maps,new Map([['Test Holder','h1:person']]));const key=[...maps[1].keys()][0];assert.equal(JSON.parse(key)[4],'h1:person');assert.doesNotMatch(key,/Test Holder/);});
