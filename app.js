@@ -2863,11 +2863,12 @@ function setupDemandMonthSlider(){
  if(!months.length)return;
  const reportDate=reportRangeDate();
  const reportMonth=reportDate?Number(reportDate.slice(0,4))*12+Number(reportDate.slice(5,7))-1:null;
- const first=months[0],last=months[months.length-1];
+ const firstAppointment=GPCorrectness.firstAppointmentDate(slotReportCoverage);
+ const first=firstAppointment?firstAppointment.slice(0,7):months[0],last=months[months.length-1];
  const toIndex=m=>Number(m.slice(0,4))*12+Number(m.slice(5,7))-1;
  const toMonth=i=>String(Math.floor(i/12)).padStart(4,'0')+'-'+String(i%12+1).padStart(2,'0');
  const limit=reportMonth??toIndex(last);
- const low=Math.min(toIndex(first),limit),high=Math.max(low,Math.min(toIndex(last),limit));
+ const low=toIndex(first),high=Math.max(low,Math.min(toIndex(last),limit));
  const bounds=first+'|'+toMonth(high);
  const [a,b]=monthRangeSelection('demandRange',low,high);
  demandMonthBounds=bounds;demandMonthStart=toMonth(a);demandMonthEnd=toMonth(b);
