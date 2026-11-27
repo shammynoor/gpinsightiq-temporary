@@ -13,7 +13,7 @@ function buildSnapshot(){
   if(row.source==='signposting'||excludedSlotTypes.has(row.slot)||!row.date||row.date<start||row.date>end)continue;
   knownDates.add(row.date);const appointmentType=capacityUrgencyCategory(row.slot),type=appointmentCategoryFor(appointmentType);if(!type){unmapped=true;continue;}
   if((type==='Daily Urgent'&&!dailyGroups.has(appointmentType))||(type==='Weekly Urgent'&&!weeklyGroups.has(appointmentType)))forecastFiltered=true;
-  if(!['Daily Urgent','Weekly Urgent','Routine'].includes(type))continue;
+  if(!['Daily Urgent','Weekly Urgent','Routine','Planned'].includes(type))continue;
   const status=String(row.availability||'').trim().toLowerCase(),count=Number(row.count)||0;
   if(!['booked','embargoed','available','blocked'].includes(status))continue;
   const week=GPCorrectness.monday(row.date),target=type==='Daily Urgent'?byDate:byWeek,groupKey=type==='Daily Urgent'?row.date:week+'|'+type;
@@ -28,8 +28,8 @@ function buildSnapshot(){
  const weeks=Array.from({length:8},(_,index)=>{
   const weekStart=shift(start,index*7),dates=Array.from({length:5},(_,d)=>shift(weekStart,d));
   const days=dates.map(date=>{const known=knownDates.has(date),prediction=forecasts?.daily?.get(date);return {date,need:Number.isFinite(prediction?.suggested)?prediction.suggested:null,bankHoliday:holidays.has(date),counts:known?(byDate.get(date)||empty()):null};});
-  const known=dates.filter(date=>!holidays.has(date)).every(date=>knownDates.has(date)),holiday=days.some(day=>day.bankHoliday),routineNeed=demand?.listSizeAvailable!==false&&!holiday&&Number.isFinite(demand?.demand?.routine)?demand.demand.routine:null,weeklyNeed=forecasts?.weekly?.get(weekStart);
-  return {weekStart,days,known,weekly:{need:Number.isFinite(weeklyNeed)?weeklyNeed:null,counts:known?(byWeek.get(weekStart+'|Weekly Urgent')||empty()):null},routine:{need:routineNeed,counts:known?(byWeek.get(weekStart+'|Routine')||empty()):null}};
+  const known=dates.filter(date=>!holidays.has(date)).every(date=>knownDates.has(date)),holiday=days.some(day=>day.bankHoliday),routineNeed=demand?.listSizeAvailable!==false&&!holiday&&Number.isFinite(demand?.demand?.routine)?demand.demand.routine:null,plannedNeed=demand?.listSizeAvailable!==false&&!holiday&&Number.isFinite(demand?.demand?.planned)?demand.demand.planned:null,weeklyNeed=forecasts?.weekly?.get(weekStart);
+  return {weekStart,days,known,weekly:{need:Number.isFinite(weeklyNeed)?weeklyNeed:null,counts:known?(byWeek.get(weekStart+'|Weekly Urgent')||empty()):null},routine:{need:routineNeed,counts:known?(byWeek.get(weekStart+'|Routine')||empty()):null},planned:{need:plannedNeed,counts:known?(byWeek.get(weekStart+'|Planned')||empty()):null}};
  });
  return {today,practiceName:iqBridge.practice.name||'Practice',asOf:Number.isFinite(capacityCSVLatestModified)?new Date(capacityCSVLatestModified).toISOString():null,unmapped,forecastFiltered,weeks};
 }
