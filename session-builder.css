@@ -373,3 +373,14 @@
 #sessionBuilderPage .session-layout-block-choice.catchup,#sessionBuilderPage .session-layout-placed.catchup{color:#77848c;background:#f8f9fa;border:0}
 #sessionBuilderPage .session-layout-block-choice strong,#sessionBuilderPage .session-layout-block-choice span,#sessionBuilderPage .session-layout-placed span{color:inherit}
 #sessionBuilderPage .slot-release-frame{display:block;width:100%;min-height:850px;border:0}
+
+/* Compact session-setup columns; the wrapper scrolls on narrow screens. */
+#sessionBuilderPage #sessionBuilderTable{table-layout:fixed}
+#sessionBuilderPage #sessionBuilderTable th,#sessionBuilderPage #sessionBuilderTable td{padding:10px 6px;min-width:0;overflow-wrap:anywhere}
+#sessionBuilderPage #sessionBuilderTable th:first-child{width:17%;min-width:0}
+#sessionBuilderPage #sessionBuilderTable th:nth-child(2){width:19%;min-width:0}
+#sessionBuilderPage #sessionBuilderTable th:nth-child(3){width:17%;min-width:0}
+#sessionBuilderPage #sessionBuilderTable th:last-child{width:100px;min-width:0}
+#sessionBuilderPage #sessionBuilderTable .session-builder-count{width:100%;min-width:0;max-width:none;padding:8px 3px}
+#sessionBuilderPage #sessionBuilderTable .session-builder-appointment-dropdown{min-width:0}
+#sessionBuilderPage #sessionBuilderTable .session-builder-appointment-dropdown summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

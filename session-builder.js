@@ -2,6 +2,7 @@
 'use strict';
 const byId=id=>document.getElementById(id);
 const configuredModes=()=>consultCategoryNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
+const additionalSessionTasks=['Triage','Debrief','Sick notes'];
 const configuredAppointmentTypes=()=>groupUrgencyNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
 const configuredGroups=()=>clinicianGroupNames.filter(name=>name!=='Uncategorised'&&isDashboardToggleOption(name));
 const configuredClinicians=()=>clinicianCategoryNames.filter(name=>name&&name!=='Uncategorised'&&isDashboardToggleOption(name));
@@ -27,6 +28,7 @@ function validateRows(rows){
   const name=row.name.trim().toLocaleLowerCase('en-GB');
   if(names.has(name))throw Error('That session type already exists.');
   if(!row.appointmentsByMode||typeof row.appointmentsByMode!=='object'||Array.isArray(row.appointmentsByMode)||Object.entries(row.appointmentsByMode).some(([mode,count])=>!mode.trim()||!Number.isSafeInteger(count)||count<0))throw Error('Appointment counts must be whole numbers of zero or more, mapped to consultation modes.');
+  if(row.additionalWork!==undefined&&(!row.additionalWork||typeof row.additionalWork!=='object'||Array.isArray(row.additionalWork)||Object.entries(row.additionalWork).some(([name,count])=>!additionalSessionTasks.includes(name)||!Number.isSafeInteger(count)||count<0)))throw Error('Additional session counts must be whole numbers of zero or more.');
   if(row.clinicianTypes!==undefined&&(!Array.isArray(row.clinicianTypes)||row.clinicianTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.clinicianTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.clinicianTypes.length))throw Error('Choose each eligible clinician group only once.');
   if(row.eligibleClinicians!==undefined&&(!Array.isArray(row.eligibleClinicians)||row.eligibleClinicians.some(type=>typeof type!=='string'||!type.trim())||new Set(row.eligibleClinicians.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.eligibleClinicians.length))throw Error('Choose each eligible clinician type only once.');
   if(row.appointmentTypes!==undefined&&(!Array.isArray(row.appointmentTypes)||row.appointmentTypes.some(type=>typeof type!=='string'||!type.trim())||new Set(row.appointmentTypes.map(type=>type.trim().toLocaleLowerCase('en-GB'))).size!==row.appointmentTypes.length))throw Error('Choose each appointment type only once.');
@@ -144,7 +146,7 @@ async function renderSessionRequirements(settings={}){
  const dateLabel=value=>new Date(value+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
  let historyText=history.forecast?'Urgent need: average forecast for the next '+history.periods.horizonMonths+' months, excluding bank holiday weeks · '+history.forecast.weeks.length+' weeks used · '+(history.forecast.listAdjusted?'adjusted to current list size.':'list-size adjustment unavailable.')+' Routine need uses a recent-weighted forecast. All demand is adjusted to the latest recorded list size; past blocked slots are counted as booked and bank holiday weeks are excluded. Planned-care and home-visiting need use averages from '+(history.periods.historyMonths==='all'?'all available data':'the last '+history.periods.historyMonths+' months')+' ('+history.weeks+' complete covered weeks).':'Urgent forecast unavailable. Check report history and practice list-size settings.';
  let clinicianMap=Object.fromEntries(configuredClinicians().map(name=>[name,clinicianGroup(name)]));
- let configuredTypes=sessionBuilderTypes.map(({layout,...row})=>({...row,eligibleClinicians:selectedClinicians(row)}));
+ let configuredTypes=sessionBuilderTypes.map(({layout,additionalWork,...row})=>({...row,eligibleClinicians:selectedClinicians(row)}));
  let appointmentPools=Object.fromEntries(groupUrgencyNames.map(name=>{const category=canonicalAppointmentCategoryFor(name).trim().toLowerCase(),mode=typeof appointmentUrgencyPlanningMode==='function'?appointmentUrgencyPlanningMode(name):window.gpChartPreferences?.read()?.forecastPlanningModes?.[name];return [name,category==='home visiting'?'homeVisit':category==='planned care'?'planned':appointmentCalculationRole(name)==='routine'?'routine':category==='urgent care'?(mode==='weekly'?'weekly':'sameDay'):null];}));
  const wholeDayLimits=Object.fromEntries(Object.entries(sessionBuilderClinicianLimits).map(([name,limit])=>[name,{...limit,...(Array.isArray(limit.workingPattern)?{workingPattern:['Mon','Tue','Wed','Thu','Fri'].flatMap(day=>limit.workingPattern.some(period=>period.startsWith(day+' '))?[day+' AM',day+' PM']:[])}:{})}]));
  const dailyRules=typeof sessionBuilderRules==='undefined'?[]:sessionBuilderRules.map(rule=>({...rule,scope:rule.scope==='week'?'week':'day'}));
@@ -282,9 +284,10 @@ function renderSessionBuilder(){
  const page=byId('sessionBuilderPage'),body=byId('sessionBuilderBody');if(!page||!body)return;
  if(!canEditSessionBuilder()){page.classList.add('hidden');body.replaceChildren();return;}
  window.syncSessionBuilderSettings();
- const modes=configuredModes(),head=byId('sessionBuilderHead');head.replaceChildren();
- for(const label of ['Session type','Eligible clinicians','Appointment types',...modes,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
- byId('sessionBuilderTable').style.minWidth=Math.max(950,800+modes.length*120)+'px';
+ const modes=configuredModes(),extraTasks=additionalSessionTasks,head=byId('sessionBuilderHead');head.replaceChildren();
+ const modeLabels=modes.map(mode=>extraTasks.some(task=>task.toLocaleLowerCase('en-GB')===mode.toLocaleLowerCase('en-GB'))?mode+' (consult mode)':mode);
+ for(const label of ['Session type','Eligible clinicians','Appointment types',...modeLabels,...extraTasks,'Actions']){const th=document.createElement('th');th.scope='col';th.textContent=label;head.append(th);}
+ byId('sessionBuilderTable').style.minWidth=Math.max(1000,650+(modes.length+extraTasks.length)*80)+'px';
  byId('sessionBuilderModeNotice').hidden=modes.length>0;
  body.replaceChildren();
  for(const row of sessionBuilderTypes){
@@ -327,6 +330,11 @@ function renderSessionBuilder(){
    input.addEventListener('input',()=>{input.setCustomValidity('');const value=Number(input.value);if(/^\d+$/.test(input.value)&&Number.isSafeInteger(value))commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentsByMode:{...item.appointmentsByMode,[mode]:value}}:item));});
    input.addEventListener('change',()=>{try{const value=Number(input.value);if(!/^\d+$/.test(input.value)||!Number.isSafeInteger(value))throw Error('Enter a whole number of zero or more.');if(sessionBuilderTypes.find(item=>item.id===row.id)?.appointmentsByMode[mode]!==value)commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,appointmentsByMode:{...item.appointmentsByMode,[mode]:value}}:item));input.setCustomValidity('');}catch(error){input.setCustomValidity(error.message);input.reportValidity();}});
    td.append(input);tr.append(td);
+  }
+  for(const task of extraTasks){
+   const td=document.createElement('td'),input=document.createElement('input');input.type='number';input.min='0';input.step='1';input.required=true;input.inputMode='numeric';input.value=String(row.additionalWork?.[task]??0);input.className='session-builder-count';input.setAttribute('aria-label',task+' for '+row.name);
+   const update=()=>{try{const value=Number(input.value);if(!/^\d+$/.test(input.value)||!Number.isSafeInteger(value))throw Error('Enter a whole number of zero or more.');if((sessionBuilderTypes.find(item=>item.id===row.id)?.additionalWork?.[task]??0)!==value)commit(sessionBuilderTypes.map(item=>item.id===row.id?{...item,additionalWork:{...item.additionalWork,[task]:value}}:item));input.setCustomValidity('');}catch(error){input.setCustomValidity(error.message);input.reportValidity();}};
+   input.addEventListener('input',()=>{input.setCustomValidity('');if(/^\d+$/.test(input.value)&&Number.isSafeInteger(Number(input.value)))update()});input.addEventListener('change',update);td.append(input);tr.append(td);
   }
   const actions=document.createElement('td'),edit=document.createElement('button'),remove=document.createElement('button');edit.type='button';edit.className='session-builder-edit';edit.textContent='Edit';edit.setAttribute('aria-label','Edit layout for '+row.name);edit.addEventListener('click',()=>window.openSessionLayoutPreview?.(row));remove.type='button';remove.className='session-builder-remove';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+row.name);
   remove.addEventListener('click',()=>{if(!canEditSessionBuilder())return;commit(sessionBuilderTypes.filter(item=>item.id!==row.id));renderSessionBuilder();});actions.append(edit,remove);tr.append(actions);body.append(tr);
